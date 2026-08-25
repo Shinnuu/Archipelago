@@ -33,11 +33,15 @@ and one that sends checks nobody earned.
    record bits. That leaves `0x800CCF3C/3D/3F` purely player-collected, so
    detection off them cannot confuse an AP grant for a pickup.
 
-KNOWN GAP, fix before anyone but the author plays: there is no seed/slot stamp
-in the save, so the client cannot tell this seed's save from another one and
-will send baseline checks for whatever is already set. X5 stamps a spare byte
-for exactly this. Candidate spare regions are listed in STAMP_CANDIDATES
-below - none is verified, and writing an unverified save byte is its own risk.
+Telling this seed's save from another one, WITHOUT a stamp: X5 writes a
+seed/slot stamp into a spare save byte. X6 cannot copy that - its memcard
+re-serialises the save rather than copying it, so a byte that looks completely
+free in RAM may never reach the card at all. Instead the answer is derived from
+what the SERVER already knows: baseline locations are sent only if this slot
+has already checked something, which proves the save belongs to a run of this
+seed. A progressed save on a slot with no history is held back with an
+explanation. Needs no save byte and cannot be defeated by a card layout we do
+not fully understand.
 """
 import logging
 from typing import TYPE_CHECKING
@@ -117,16 +121,12 @@ ARMOR_BIT_BLACK_ZERO = 0x20
 
 SOULS_GATE = 3000
 
-# Save-struct bytes that never changed across a full multi-stage play session
-# and are not in any region we have mapped. CANDIDATES ONLY - "did not move
-# once" is not "unused", and none has been tested. The seed stamp wants one of
-# these, verified by writing it, saving, reloading and confirming both that it
-# survived and that nothing broke.
-#
-# Memcard offset for any save byte: mc = 0x3200 - (addr - 0x800CCE00). The
-# struct is copied to the card REVERSED; the formula reproduces all three
-# documented pairs (CEDC/3124, CF64/309C, CF9C/3064), so a stamp anywhere in
-# the struct does persist.
+# Spare save-struct bytes: bytes that never moved across a full multi-stage
+# session and are not in any region we have mapped. NOT used by anything here -
+# the baseline gate above removed the need for a stamp - but kept because they
+# are the starting point if a stamp is ever wanted for another reason.
+# "Did not move once" is not "unused", and none has been tested. Note also that
+# the memcard re-serialises, so a free RAM byte may not persist at all.
 STAMP_CANDIDATES = (
     (0x800CCF7B, 29),
     (0x800CCF0D, 30),
@@ -143,12 +143,10 @@ STAMP_CANDIDATES = (
 # on connect, so a reconnect skips filler rather than re-applying it - for a
 # consumable that is the right way round to be wrong.
 #
-# Live player HP is 0x800970FC, low 7 bits, and bit 0x80 is a hit/heal FLAG -
-# mask it or every heal reads as a bogus +/-128 swing (that one cost three
-# sessions before it was spotted). The live block is only valid in gameplay,
-# so a heal waits for a stage rather than being dropped.
 # One read of the live player object covers HP, the current weapon index and
-# the whole ammo array, so filler needs no extra round trips.
+# the whole ammo array, so filler needs no extra round trips. The live block is
+# only valid in gameplay, so a heal or refill waits for a stage rather than
+# being dropped.
 PLAYER_BASE = 0x0970A0
 PLAYER_LEN = 0xC8                      # through the last ammo slot (+0xC7)
 OFF_P_HP = 0x5C                        # low 7 bits; bit 0x80 is a hit/heal FLAG
@@ -204,7 +202,10 @@ class MMX6Client(BizHawkClient):
         # phantom checks.
         self.last_check_sig: bytes | None = None
         self.last_poll_trusted = False
-        self.baseline_logged = False
+        self.baseline_resolved = False
+        # Locations already set in the save that we are deliberately NOT
+        # sending, because we cannot yet tell this seed's save from another's.
+        self.baseline_held: set[int] = set()
         self.weapons_notice_logged = False
         self.withheld_logged: set[str] = set()
         # How far into ctx.items_received the filler grants have got. None
@@ -481,6 +482,41 @@ class MMX6Client(BizHawkClient):
             "impossible to collect. Go and check it and the item applies.",
             item, location)
 
+    def _sendable(self, ctx: "BizHawkClientContext", found: set[int]) -> set[int]:
+        """Which detected locations may actually be sent.
+
+        The question on first contact: is this save one this seed has been
+        played on? If the server has ALREADY recorded checks for this slot,
+        yes - so anything extra in the save was collected while disconnected
+        and should be sent. If the server has recorded NOTHING and yet the
+        save is full of progress, a legitimate offline run and a save
+        belonging to another seed look identical, and sending would release
+        other players' items.
+
+        This replaces the seed/slot stamp X5 writes into a spare save byte.
+        X6 cannot copy that: its memcard re-serialises the save rather than
+        copying it, so a byte that looks free in RAM may never reach the card
+        at all. Deriving the answer from what the server already knows needs
+        no save byte and cannot be defeated by a card layout we do not fully
+        understand.
+        """
+        checked = set(ctx.checked_locations)
+        if not self.baseline_resolved:
+            self.baseline_resolved = True
+            fresh = found - checked
+            if fresh and not checked:
+                self.baseline_held = fresh
+                logger.warning(
+                    "MMX6: holding back %d location(s) that are already "
+                    "collected in this save. The server has no record of this "
+                    "slot checking anything, so this could be a save from a "
+                    "different seed - sending them would release other "
+                    "players' items. If it IS this seed's save, collect any "
+                    "one check and reconnect: the server will then have a "
+                    "record and these will be sent automatically.",
+                    len(fresh))
+        return found - self.sent_locations - checked - self.baseline_held
+
     # ---- the watcher -------------------------------------------------------
 
     def _check_signature(self, save: bytes) -> bytes:
@@ -517,24 +553,7 @@ class MMX6Client(BizHawkClient):
         # ---- checks --------------------------------------------------------
         found = self._detect(ctx, save)
 
-        if not self.baseline_logged:
-            self.baseline_logged = True
-            fresh = found - set(ctx.checked_locations)
-            if fresh:
-                # Loud on purpose. Without a seed stamp the client cannot tell
-                # this seed's save from another one, so this is the moment a
-                # wrong save would release other players' items. Until the
-                # stamp exists, the log is the only thing standing between a
-                # mistake and a broken multiworld.
-                logger.warning(
-                    "MMX6: this save already has %d location(s) collected that "
-                    "the server has not seen, and they are about to be sent. "
-                    "That is correct if it is this seed's save and you played "
-                    "while disconnected. If you have loaded a save from a "
-                    "DIFFERENT seed, disconnect now - sending these would "
-                    "release other players' items.", len(fresh))
-
-        new = found - self.sent_locations - set(ctx.checked_locations)
+        new = self._sendable(ctx, found)
         if new:
             self.sent_locations |= new
             await ctx.send_msgs([{"cmd": "LocationChecks",

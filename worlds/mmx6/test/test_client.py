@@ -611,3 +611,63 @@ class TestAmmoAgainstRealDump(unittest.TestCase):
         self.assertEqual(OFF_P_AMMO, 0xA8)
         self.assertEqual(OFF_P_HP, 0x5C)
         self.assertEqual(PLAYER_BASE, 0x0970A0)
+
+
+class TestBaselineGate(unittest.TestCase):
+    """Whether a save's already-collected locations may be sent.
+
+    This replaces the seed/slot stamp X5 writes into a spare save byte. X6
+    cannot copy that approach: its memcard re-serialises the save rather than
+    copying it, so a byte that looks free in RAM may never reach the card.
+    Deriving the answer from what the SERVER already knows needs no save byte
+    at all.
+
+    The rule: send the baseline only when the server has already recorded a
+    check for this slot, which proves the save belongs to a run of this seed.
+    """
+
+    def setUp(self) -> None:
+        self.client = MMX6Client()
+        self.save = blank_save()
+        self.save[OFF_PROGRESS] = 2
+        self.save[OFF_BEATEN] = names.STAGE_BIT[names.YAMMARK]
+        self.save[OFF_HEARTS] = names.STAGE_BIT[names.TURTLOID]
+
+    def resolve(self, checked=()):
+        # Calls the CLIENT's own gate. An earlier version of this helper
+        # reimplemented the rule here, which made it self-consistent: a
+        # mutation disabling the gate entirely still passed.
+        ctx = FakeCtx(checked=checked)
+        found = self.client._detect(ctx, bytes(self.save))
+        return self.client._sendable(ctx, found)
+
+    def test_a_progressed_save_on_a_virgin_slot_is_held(self) -> None:
+        # The dangerous case: a save from another seed. The server has no
+        # record for this slot, so nothing may be sent.
+        self.assertEqual(self.resolve(checked=()), set())
+        self.assertTrue(self.client.baseline_held)
+
+    def test_a_slot_with_history_gets_its_baseline_sent(self) -> None:
+        # The server already knows this slot checked something, so the save
+        # belongs to this seed and anything extra was collected offline.
+        sendable = self.resolve(checked=[names.INTRO_CLEAR])
+        self.assertIn(location_table[names.boss_location(names.YAMMARK)], sendable)
+        self.assertFalse(self.client.baseline_held)
+
+    def test_a_fresh_game_holds_nothing(self) -> None:
+        # The overwhelmingly common case: new seed, new save. Nothing is
+        # already collected, so there is nothing to hold and no warning.
+        self.save = blank_save()
+        self.assertEqual(self.resolve(checked=()), set())
+        self.assertFalse(self.client.baseline_held)
+
+    def test_a_held_baseline_does_not_block_live_checks(self) -> None:
+        # Holding must never stop a check the player earns while watching -
+        # that is what lets them prove the save and recover the rest.
+        self.resolve(checked=())
+        held = set(self.client.baseline_held)
+        self.save[OFF_TANKS] = names.TANK_BIT[names.YAMMARK]   # collected live
+        sendable = self.resolve(checked=())
+        self.assertEqual(sendable,
+                         {location_table[names.tank_location(names.YAMMARK)]})
+        self.assertEqual(self.client.baseline_held, held)

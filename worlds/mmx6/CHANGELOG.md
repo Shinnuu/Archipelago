@@ -14,7 +14,7 @@ file - but generation, logic and the client all work.
   observed stages fit.
 - Capacity is checked in `generate_early`, so an over-full option set is
   refused with a message naming the fix rather than silently dropping items.
-- 89 tests, including an exhaustive check of the item/location arithmetic and
+- 93 tests, including an exhaustive check of the item/location arithmetic and
   an assertion that the Blade -> Shadow armor dependency stays acyclic.
 
 ### BizHawk client
@@ -32,9 +32,14 @@ Detects checks and applies received items. Four policies, each deliberate:
 - **Gauge record bits are never written**, so detection off `0x800CCF3C/3D/3F`
   can never read an AP grant back as a pickup.
 
-**Known gap, fix before anyone but the author plays:** no seed/slot stamp, so
-the client cannot tell this seed's save from another one. Spare-byte candidates
-are listed in `client.py`; none is verified.
+**Telling this seed's save from another one** is handled without a stamp. X5
+writes a seed/slot stamp into a spare save byte; X6 cannot, because its memcard
+re-serialises the save rather than copying it, so a byte that looks free in RAM
+may never reach the card. Instead the answer comes from what the server already
+knows: already-collected locations are sent only if this slot has checked
+something before, which proves the save belongs to a run of this seed. A
+progressed save on a slot with no history is held back with an explanation, and
+collecting any one check then reconnecting releases it.
 
 ### Proven live
 

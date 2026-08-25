@@ -1,8 +1,8 @@
 """Rescuable Reploid dataset - all 128, derived by arithmetic.
 
 X5 had to harvest its 14 Reploids out of disc placement records one stage at a
-time. X6 does not: the save block is a fixed 64 bytes at
-`0x800CCFA8..0x800CD027`, two Reploids per byte (low nibble first), and the
+time. X6 does not: the live save block is a fixed 64 bytes at
+`0x800CCFA8..0x800CCFE7`, two Reploids per byte (low nibble first), and the
 stage that owns each one falls straight out of the confirmed mapping
 
     stage bit index N  <->  Reploid indices N*16 .. N*16+15
@@ -37,12 +37,31 @@ REPLOIDS: list[tuple[str, int, int, str]] = [
 assert len(REPLOIDS) == 128
 assert [r[1] for r in REPLOIDS] == list(range(128))
 
-# Save-struct address and nibble for a global Reploid index.
+# Save-struct addressing. There are TWO 64-byte copies of the array, and the
+# client must read the LIVE one:
+#
+#   A (live)   0x800CCFA8..0x800CCFE7 - written one nibble at a time as you
+#              rescue. 34 single-byte writes across a play session.
+#   B (mirror) 0x800CCFE8..0x800CD027 - a bulk copy of A, already in final
+#              values. Never changed by fewer than 6 bytes at once in that
+#              same session, so it is a snapshot (save-time and/or what a
+#              savestate restores), not a second live array.
+#
+# Whether an AP grant must write B as well, or whether writing A is enough and
+# the game copies, is UNTESTED. Read A; think before writing either.
 REPLOID_BLOCK = 0x800CCFA8
+REPLOID_MIRROR = 0x800CCFE8
+REPLOID_BLOCK_LEN = 64
 
 
 def reploid_nibble(index: int) -> tuple[int, bool]:
-    """(address, is_high_nibble) for global Reploid `index` (0-127)."""
+    """(address, is_high_nibble) in the LIVE array for Reploid `index` (0-127).
+
+    Two Reploids share a byte, low nibble first. A byte holding two rescued
+    Reploids reads 0x22; one rescued high-nibble Reploid alone reads 0x20,
+    which is exactly what a real session produced (Reploid 89 rescued while
+    88 stayed at 0).
+    """
     return REPLOID_BLOCK + index // 2, bool(index % 2)
 
 

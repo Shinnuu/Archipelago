@@ -19,6 +19,7 @@ from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
 
 from . import names, reploids
+from .client import MMX6Client  # noqa: F401  (import registers the client)
 from .items import MMX6Item, event_table, item_groups, item_table
 from .locations import MMX6Location, location_groups, location_table
 from .options import RANDOMIZED_OPTIONS, MMX6Options

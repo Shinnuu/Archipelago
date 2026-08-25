@@ -1,16 +1,15 @@
 """Archipelago world for Mega Man X6 (PS1, NTSC-U, SLUS-01395).
 
-Scaffold stage: generation and reachability rules only. The disc patch and the
-BizHawkClient are not written yet, so a generated seed has no patch output and
-cannot be played - `generate_output` is deliberately absent rather than
-half-implemented. Research notes live in the private `mmx6-ap-research` repo;
-the ship plan is `ai-docs/plans/2026-08-22_mmx6-ship-plan.md` there.
+Generation, reachability rules, the BizHawkClient and the disc patch are all
+wired. Research notes live in the private `mmx6-ap-research` repo; the ship
+plan is `ai-docs/plans/2026-08-22_mmx6-ship-plan.md` there.
 
 Everything here follows the Mega Man X5 world structure on purpose. That world
 is proven, and the two games share a platform, a client architecture and most
 of their problems.
 """
 import logging
+import os
 from typing import Any, ClassVar
 
 import settings
@@ -23,6 +22,7 @@ from .client import MMX6Client  # noqa: F401  (import registers the client)
 from .items import MMX6Item, event_table, item_groups, item_table
 from .locations import MMX6Location, location_groups, location_table
 from .options import RANDOMIZED_OPTIONS, MMX6Options
+from .Rom import ACCEPTED_HASHES, MMX6ProcedurePatch, patch_rom
 
 
 class MMX6Settings(settings.Group):
@@ -30,6 +30,7 @@ class MMX6Settings(settings.Group):
         """File path of the Mega Man X6 (USA) disc image (raw 2352-byte .bin)."""
         description = "Mega Man X6 (USA) disc image"
         copy_to = "Megaman X6.bin"
+        md5s = sorted(ACCEPTED_HASHES)
 
     rom_file: RomFile = RomFile(RomFile.copy_to)
 
@@ -331,6 +332,16 @@ class MMX6World(World):
         # model - the client holds the goal until the kill count is 8.
         self.multiworld.completion_condition[player] = \
             lambda state: state.has(names.VICTORY, player)
+
+    def generate_output(self, output_directory: str) -> None:
+        patch = MMX6ProcedurePatch(
+            player=self.player,
+            player_name=self.multiworld.player_name[self.player])
+        patch_rom(self, patch)
+        patch.write(os.path.join(
+            output_directory,
+            f"{self.multiworld.get_out_file_name_base(self.player)}"
+            f"{patch.patch_file_ending}"))
 
     def get_filler_item_name(self) -> str:
         filler, weights = zip(*names.FILLER_WEIGHTS)

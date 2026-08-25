@@ -2,8 +2,11 @@
 
 ## 0.0.1 — unreleased scaffold
 
-**Not playable end-to-end.** No disc patch yet, so a seed produces no patch
-file - but generation, logic and the client all work.
+Generation, logic, the BizHawkClient and the disc patch are all wired. A seed
+emits a `.apmmx6` patch which produces a playable disc.
+
+**Not yet run.** The patched disc has never been booted - see "still to verify"
+at the end.
 
 - World, items, locations, options and reachability rules, following the
   Mega Man X5 world's structure.
@@ -14,7 +17,7 @@ file - but generation, logic and the client all work.
   observed stages fit.
 - Capacity is checked in `generate_early`, so an over-full option set is
   refused with a message naming the fix rather than silently dropping items.
-- 100 tests, including an exhaustive check of the item/location arithmetic and
+- 110 tests, including an exhaustive check of the item/location arithmetic and
   an assertion that the Blade -> Shadow armor dependency stays acyclic.
 
 ### BizHawk client
@@ -80,3 +83,29 @@ one nibble per rescue, and a bulk mirror at `0x800CCFE8` that never changed by
 fewer than 6 bytes at once. An earlier pass this same day narrowed the notes to
 a single block, which was wrong - the 128-byte span in the original notes was
 both copies. The client reads the live one.
+
+
+### Disc patch
+
+A seed emits a `.apmmx6` which patches the vanilla image in pure Python - no
+external xdelta, no separate basepatch file - and regenerates EDC/ECC for every
+touched sector. Without that regeneration emulator disc layers error-correct
+the edits back to vanilla and the patch silently does nothing.
+
+The patch is the A1 decoupling: three instructions, one 16-bit immediate each,
+redirecting the weapon capability from `0x800CCF30` (which is simultaneously
+the kill record) to `0x800CCF7B`. Result is 3 sectors, exactly one user-data
+byte changed in each. Every edit declares the vanilla bytes it expects and the
+patcher refuses to run if the image does not match.
+
+**Only one disc hash is accepted**, deliberately. X5 could also accept the
+Redump dump because its dev image was proven to be Redump plus one trailing
+zero sector. X6 has no such proof, so support is claimed only for the image
+actually tested.
+
+### Still to verify
+
+- **Nothing has booted the patched disc.** Expected behaviour: weapons absent
+  until AP grants them, kills still recorded, Shadow Armor still weaponless.
+- The Redump hash, before anyone else can use this.
+- Whether the client must also write the Reploid mirror at `0x800CCFE8`.

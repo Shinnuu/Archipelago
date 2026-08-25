@@ -14,7 +14,7 @@ file - but generation, logic and the client all work.
   observed stages fit.
 - Capacity is checked in `generate_early`, so an over-full option set is
   refused with a message naming the fix rather than silently dropping items.
-- 80 tests, including an exhaustive check of the item/location arithmetic and
+- 89 tests, including an exhaustive check of the item/location arithmetic and
   an assertion that the Blade -> Shadow armor dependency stays acyclic.
 
 ### BizHawk client
@@ -53,6 +53,17 @@ The live run found one thing offline tests could not: **filler items did
 nothing**, which is 58% of the items in a default seed. Now fixed for Extra
 Life and life energy. Weapon energy is still inert — only its maximum
 (`0x800CCF31`) is mapped, not current ammo.
+
+### Weapon ammo — found and implemented
+
+Located by disassembling `consume_ammo()` at `0x8003F740`, then confirmed live:
+the ammo array is 16 u16 slots at **`0x80097148`** (player object `+0xA8`),
+indexed by the byte at **`0x80097133`** (`+0x93`). The live cap is the weapon
+gauge x 6, **latched at stage start** — so a refill is capped against what is
+actually in the array, not against the save byte, or a just-granted Energy Up
+overfills until the next stage.
+
+All five filler types now do something.
 
 ### Research corrections made while building this
 

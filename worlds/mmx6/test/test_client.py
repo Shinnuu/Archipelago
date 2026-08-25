@@ -13,8 +13,11 @@ from ..client import (EXE_SIG, LIFE_GAUGE_BASE, LIFE_GAUGE_MAX, OFF_ARMOR_PARTS,
                       OFF_ARMOR_SELECT, OFF_BEATEN, OFF_CHAR, OFF_HEARTS,
                       OFF_ENERGY_UPS, OFF_LIFE_GAUGE, OFF_LIFE_UPS, OFF_PARTS,
                       OFF_PROGRESS, OFF_REPLOIDS, OFF_TANKS, OFF_WEAPON_GAUGE,
-                      LIVES_CAP, OFF_LIVES, PLAYER_HP_ADDR, SAVE_BASE,
-                      SAVE_LEN, SMALL_LIFE_HEAL, WEAPON_GAUGE_BASE, MMX6Client)
+                      AMMO_SLOTS, LIVES_CAP, OFF_LIVES, OFF_P_AMMO, OFF_P_HP,
+                      OFF_P_WEAPON_IDX, PLAYER_BASE, PLAYER_HP_ADDR, PLAYER_LEN,
+                      OFF_WEAPON_GAUGE, SAVE_BASE, SAVE_LEN, SMALL_LIFE_HEAL,
+                      SMALL_WEAPON_FRACTION, WEAPON_AMMO_SCALE,
+                      WEAPON_GAUGE_BASE, MMX6Client)
 from ..locations import location_table
 
 
@@ -379,11 +382,23 @@ class TestFiller(unittest.TestCase):
         self.save[OFF_LIVES] = 2
         self.save[OFF_LIFE_GAUGE] = 40
 
-    def run_filler(self, ctx, hp):
-        writes, cursor = self.client._filler_grants(ctx, bytes(self.save), hp)
+    @staticmethod
+    def player_block(hp=20, weapon=1, ammo=300, cap=300):
+        """A live player object, shaped like the one a real peek produced:
+        every ammo slot at the cap except the selected one."""
+        p = bytearray(PLAYER_LEN)
+        p[OFF_P_HP] = hp
+        p[OFF_P_WEAPON_IDX] = weapon
+        for i in range(AMMO_SLOTS):
+            v = ammo if i == weapon else cap
+            p[OFF_P_AMMO + i * 2:OFF_P_AMMO + i * 2 + 2] = v.to_bytes(2, "little")
+        return bytes(p)
+
+    def run_filler(self, ctx, player):
+        writes, cursor = self.client._filler_grants(ctx, bytes(self.save), player)
         self.client.filler_cursor = cursor
         for addr, data in writes:
-            if addr == PLAYER_HP_ADDR:
+            if addr >= PLAYER_BASE and addr < PLAYER_BASE + PLAYER_LEN:
                 continue
             off = addr - SAVE_BASE
             self.save[off:off + len(data)] = data
@@ -394,26 +409,26 @@ class TestFiller(unittest.TestCase):
         # not re-heal. For a consumable, losing one is better than duplicating
         # one - and a reconnect mid-run is exactly when duplication would hit.
         ctx = FakeCtx(items=[names.EXTRA_LIFE] * 3)
-        self.assertEqual(self.run_filler(ctx, 20), [])
+        self.assertEqual(self.run_filler(ctx, self.player_block()), [])
         self.assertEqual(self.save[OFF_LIVES], 2)
 
     def test_an_extra_life_arriving_later_is_applied_once(self) -> None:
         ctx = FakeCtx(items=[])
-        self.run_filler(ctx, 20)                    # establishes the cursor
+        self.run_filler(ctx, self.player_block())                    # establishes the cursor
         ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
-        self.assertTrue(self.run_filler(ctx, 20))
+        self.assertTrue(self.run_filler(ctx, self.player_block()))
         self.assertEqual(self.save[OFF_LIVES], 3)
         for _ in range(5):
-            self.assertEqual(self.run_filler(ctx, 20), [],
+            self.assertEqual(self.run_filler(ctx, self.player_block()), [],
                              "the same Extra Life was applied twice")
         self.assertEqual(self.save[OFF_LIVES], 3)
 
     def test_lives_stop_at_the_cap(self) -> None:
         self.save[OFF_LIVES] = LIVES_CAP
         ctx = FakeCtx(items=[])
-        self.run_filler(ctx, 20)
+        self.run_filler(ctx, self.player_block())
         ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
-        self.run_filler(ctx, 20)
+        self.run_filler(ctx, self.player_block())
         self.assertEqual(self.save[OFF_LIVES], LIVES_CAP)
 
     def test_a_heal_waits_for_a_stage_instead_of_being_lost(self) -> None:
@@ -427,7 +442,7 @@ class TestFiller(unittest.TestCase):
         self.assertEqual(writes, [], "healed with no live player block")
         cursor_held = self.client.filler_cursor
 
-        writes = self.run_filler(ctx, 10)
+        writes = self.run_filler(ctx, self.player_block(hp=10))
         self.assertEqual(writes, [(PLAYER_HP_ADDR,
                                    bytes([10 + SMALL_LIFE_HEAL]))])
         self.assertGreater(self.client.filler_cursor, cursor_held)
@@ -441,24 +456,158 @@ class TestFiller(unittest.TestCase):
                                FakeItem(names.EXTRA_LIFE)]
         self.run_filler(ctx, None)
         self.assertEqual(self.save[OFF_LIVES], 2, "consumed out of order")
-        self.run_filler(ctx, 10)
+        self.run_filler(ctx, self.player_block(hp=10))
         self.assertEqual(self.save[OFF_LIVES], 3)
 
     def test_healing_never_passes_the_life_gauge(self) -> None:
         ctx = FakeCtx(items=[])
         self.run_filler(ctx, None)
         ctx.items_received.append(FakeItem(names.LARGE_LIFE_ENERGY))
-        writes = self.run_filler(ctx, self.save[OFF_LIFE_GAUGE] - 1)
+        writes = self.run_filler(ctx, self.player_block(hp=self.save[OFF_LIFE_GAUGE] - 1))
         self.assertEqual(writes, [(PLAYER_HP_ADDR,
                                    bytes([self.save[OFF_LIFE_GAUGE]]))])
 
-    def test_weapon_energy_is_consumed_not_stalled(self) -> None:
-        # Its address is unknown, so it cannot be applied - but holding it
-        # would block every filler item behind it forever.
+    def test_weapon_energy_refills_the_selected_slot(self) -> None:
+        # Values are the ones a real peek produced: 16 u16 slots, fifteen at
+        # 300 and the selected one part-used, with the index byte reading 1.
         ctx = FakeCtx(items=[])
-        self.run_filler(ctx, 20)
+        self.run_filler(ctx, self.player_block())
+        ctx.items_received.append(FakeItem(names.SMALL_WEAPON_ENERGY))
+        writes = self.run_filler(ctx, self.player_block(weapon=1, ammo=220))
+        expected_addr = PLAYER_BASE + OFF_P_AMMO + 1 * 2
+        self.assertEqual(len(writes), 1)
+        addr, data = writes[0]
+        self.assertEqual(addr, expected_addr, "refilled the wrong slot")
+        self.assertEqual(int.from_bytes(data, "little"),
+                         220 + 300 // SMALL_WEAPON_FRACTION)
+
+    def test_a_refill_never_passes_the_live_cap(self) -> None:
+        # The cap comes from the ARRAY, not the save byte: the live max is
+        # latched at stage start, so an Energy Up granted mid-stage has not
+        # raised it yet and capping on the save byte would overfill.
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, self.player_block())
+        ctx.items_received.append(FakeItem(names.LARGE_WEAPON_ENERGY))
+        self.save[OFF_WEAPON_GAUGE] = 64          # a just-granted Energy Up
+        writes = self.run_filler(ctx, self.player_block(weapon=1, ammo=290))
+        self.assertEqual(int.from_bytes(writes[0][1], "little"), 300,
+                         "capped on the save gauge instead of the array")
+
+    def test_a_refill_waits_for_a_stage_like_a_heal(self) -> None:
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, None)
         ctx.items_received += [FakeItem(names.SMALL_WEAPON_ENERGY),
                                FakeItem(names.EXTRA_LIFE)]
-        self.run_filler(ctx, 20)
-        self.assertEqual(self.save[OFF_LIVES], 3,
-                         "weapon energy blocked the item behind it")
+        self.run_filler(ctx, None)
+        self.assertEqual(self.save[OFF_LIVES], 2, "consumed out of order")
+        self.run_filler(ctx, self.player_block(weapon=1, ammo=100))
+        self.assertEqual(self.save[OFF_LIVES], 3)
+
+    def test_the_buster_slot_is_still_a_valid_target(self) -> None:
+        # Index 0 was 300 in the real dump too, so an index of 0 is a slot
+        # like any other rather than a "no weapon" sentinel to skip.
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, self.player_block())
+        ctx.items_received.append(FakeItem(names.SMALL_WEAPON_ENERGY))
+        writes = self.run_filler(ctx, self.player_block(weapon=0, ammo=100))
+        self.assertEqual(writes[0][0], PLAYER_BASE + OFF_P_AMMO)
+
+
+# The two real `peek(0x097130, 0x40)` dumps, verbatim from the play session.
+# These pin the ammo CONSTANTS, which the synthetic player_block() above
+# cannot: it builds its block from the same offsets the client reads, so it
+# stays self-consistent even when those offsets are wrong. Mutation testing
+# caught exactly that - four offset breakages passed until this fixture
+# existed.
+PEEK_ADDR = 0x097130
+PEEK_BEFORE = bytes.fromhex(
+    "00000001010000ff01000002000000000000000000000000"
+    "2c01fc002c012c012c012c012c012c012c012c012c012c01"
+    "2c012c012c012c01002100000000000000"[:128])
+PEEK_AFTER = bytes.fromhex(
+    "00000001010000ff01010100000000000100000000000000"
+    "2c01dc002c012c012c012c012c012c012c012c012c012c01"
+    "2c012c012c012c01002100000000000000"[:128])
+
+
+def player_from_peek(dump: bytes) -> bytes:
+    """Splice a real peek dump into a player block at its true offset."""
+    block = bytearray(PLAYER_LEN)
+    start = PEEK_ADDR - PLAYER_BASE
+    block[start:start + len(dump)] = dump[:PLAYER_LEN - start]
+    return bytes(block)
+
+
+class TestAmmoAgainstRealDump(unittest.TestCase):
+    """The ammo constants, checked against bytes the game actually produced.
+
+    Ground truth from the session: the index byte read 1, slot 1 fell 252 ->
+    220 across firing, and the other fifteen slots sat at 300 throughout.
+    """
+
+    def test_the_weapon_index_byte_reads_one(self) -> None:
+        self.assertEqual(player_from_peek(PEEK_BEFORE)[OFF_P_WEAPON_IDX], 1)
+
+    def test_the_selected_slot_is_the_one_that_moved(self) -> None:
+        before, after = (player_from_peek(PEEK_BEFORE),
+                         player_from_peek(PEEK_AFTER))
+        index = before[OFF_P_WEAPON_IDX]
+
+        def slots(p):
+            return [int.from_bytes(p[OFF_P_AMMO + i * 2:OFF_P_AMMO + i * 2 + 2],
+                                   "little") for i in range(AMMO_SLOTS)]
+
+        b, a = slots(before), slots(after)
+        self.assertEqual((b[index], a[index]), (252, 220))
+        moved = [i for i in range(AMMO_SLOTS) if b[i] != a[i]]
+        self.assertEqual(moved, [index],
+                         "a slot other than the selected one changed")
+        self.assertEqual({b[i] for i in range(AMMO_SLOTS) if i != index}, {300})
+
+    def test_the_cap_is_the_weapon_gauge_times_six(self) -> None:
+        # 15 slots at 300 against a save-struct weapon gauge of 50 when the
+        # stage was entered. Matches X5 independently (288 = 48 * 6).
+        self.assertEqual(50 * WEAPON_AMMO_SCALE, 300)
+
+    def test_the_client_refills_the_slot_the_dump_says_is_selected(self) -> None:
+        client = MMX6Client()
+        save = blank_save()
+        ctx = FakeCtx(items=[])
+        _, cursor = client._filler_grants(ctx, bytes(save),
+                                          player_from_peek(PEEK_AFTER))
+        client.filler_cursor = cursor
+        ctx.items_received.append(FakeItem(names.SMALL_WEAPON_ENERGY))
+        writes, _ = client._filler_grants(ctx, bytes(save),
+                                          player_from_peek(PEEK_AFTER))
+        self.assertEqual(len(writes), 1)
+        addr, data = writes[0]
+        self.assertEqual(addr, 0x097148 + 1 * 2,
+                         "did not write the real slot-1 address")
+        self.assertEqual(int.from_bytes(data, "little"),
+                         220 + 300 // SMALL_WEAPON_FRACTION)
+
+    def test_the_array_is_exactly_sixteen_slots(self) -> None:
+        # The dump shows sixteen consecutive 2C 01 at 0x097148..0x097167 and
+        # then 00 21 at 0x097168 - a different value, so the array ends there.
+        # Behaviour alone cannot pin this: a client using 8 slots reads slot 1
+        # identically. X5's map independently records 16 (X's 8 + Zero's 8).
+        block = player_from_peek(PEEK_BEFORE)
+        end = OFF_P_AMMO + AMMO_SLOTS * 2
+        self.assertEqual(PLAYER_BASE + OFF_P_AMMO, 0x097148)
+        self.assertEqual(PLAYER_BASE + end, 0x097168)
+        self.assertEqual(AMMO_SLOTS, 16)
+        self.assertNotEqual(int.from_bytes(block[end:end + 2], "little"), 300,
+                            "the byte after the array looks like another slot")
+
+    def test_offsets_match_the_disassembly(self) -> None:
+        # Pinned directly because the dump cannot distinguish them: the bytes
+        # at +0x93 and +0x94 both read 01 in the real capture, so only the
+        # code settles it. consume_ammo() at 0x8003F740 reads
+        #   lb    v1, 0x93(s0)     <- current weapon index
+        #   addiu a1, s0, 0xa8     <- &ammo[0]
+        # and the HP offset is from the live player map (mask 0x7F, bit 0x80
+        # is a hit/heal flag).
+        self.assertEqual(OFF_P_WEAPON_IDX, 0x93)
+        self.assertEqual(OFF_P_AMMO, 0xA8)
+        self.assertEqual(OFF_P_HP, 0x5C)
+        self.assertEqual(PLAYER_BASE, 0x0970A0)

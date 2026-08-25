@@ -135,6 +135,27 @@ STAMP_CANDIDATES = (
     (0x800CCF6F, 11),
 )
 
+# ---- Filler -----------------------------------------------------------------
+# Consumables, and they are the one thing here that CANNOT be idempotent: a
+# heal has to land once, not be reasserted every poll. So they are the only
+# grant driven by a cursor into ctx.items_received rather than by absolute
+# state. The cursor is in memory and starts at whatever the list already holds
+# on connect, so a reconnect skips filler rather than re-applying it - for a
+# consumable that is the right way round to be wrong.
+#
+# Live player HP is 0x800970FC, low 7 bits, and bit 0x80 is a hit/heal FLAG -
+# mask it or every heal reads as a bogus +/-128 swing (that one cost three
+# sessions before it was spotted). The live block is only valid in gameplay,
+# so a heal waits for a stage rather than being dropped.
+PLAYER_HP_ADDR = 0x0970FC
+PLAYER_HP_MASK = 0x7F
+
+# Amounts are GUESSES, tunable - the research notes record that X6 heals
+# gradually (~1 HP per 2 frames) but never how much each capsule is worth.
+SMALL_LIFE_HEAL = 4
+LARGE_LIFE_HEAL = 16
+LIVES_CAP = 9                          # engine clamp assumed, not verified
+
 GOAL_SIGMA = 0
 GOAL_ALL_MAVERICKS = 1
 
@@ -168,6 +189,11 @@ class MMX6Client(BizHawkClient):
         self.baseline_logged = False
         self.weapons_notice_logged = False
         self.withheld_logged: set[str] = set()
+        # How far into ctx.items_received the filler grants have got. None
+        # means "not started"; it is set to the list length on the first
+        # trusted poll, so filler already in hand at connect is skipped.
+        self.filler_cursor: int | None = None
+        self.weapon_energy_notice_logged = False
 
     # ---- identification ----------------------------------------------------
 
@@ -361,6 +387,53 @@ class MMX6Client(BizHawkClient):
 
         return writes
 
+    def _filler_grants(self, ctx: "BizHawkClientContext", save: bytes,
+                       player_hp: int | None) -> tuple[list[tuple[int, bytes]], int]:
+        """Apply consumables that have arrived since the cursor.
+
+        Returns (writes, new_cursor). Items are consumed strictly in order and
+        the cursor stops at the first one that cannot be applied yet - a heal
+        with no live player block waits for a stage rather than being thrown
+        away, and nothing after it is skipped past.
+        """
+        lookup = ctx.item_names.lookup_in_game
+        cursor = self.filler_cursor if self.filler_cursor is not None             else len(ctx.items_received)
+        writes: list[tuple[int, bytes]] = []
+        lives = save[OFF_LIVES]
+        hp = player_hp
+        max_hp = save[OFF_LIFE_GAUGE]
+
+        while cursor < len(ctx.items_received):
+            name = lookup(ctx.items_received[cursor].item)
+            if name == names.EXTRA_LIFE:
+                lives = min(LIVES_CAP, lives + 1)
+            elif name in (names.SMALL_LIFE_ENERGY, names.LARGE_LIFE_ENERGY):
+                if hp is None:
+                    break          # no live player block - wait for a stage
+                amount = (SMALL_LIFE_HEAL if name == names.SMALL_LIFE_ENERGY
+                          else LARGE_LIFE_HEAL)
+                hp = min(max_hp, hp + amount)
+            elif name in (names.SMALL_WEAPON_ENERGY, names.LARGE_WEAPON_ENERGY):
+                # Current weapon ammo is NOT mapped. Only its maximum
+                # (0x800CCF31) is. Consuming the item without applying it
+                # would silently throw it away, so say so once and move on -
+                # a stalled cursor would block every later filler item too.
+                if not self.weapon_energy_notice_logged:
+                    self.weapon_energy_notice_logged = True
+                    logger.warning(
+                        "MMX6: weapon energy items do nothing yet - the "
+                        "address holding your CURRENT weapon ammo has not "
+                        "been found (only its maximum has). They are being "
+                        "consumed rather than held, so they do not block "
+                        "other items.")
+            cursor += 1
+
+        if lives != save[OFF_LIVES]:
+            writes.append((SAVE_BASE + OFF_LIVES, bytes([lives])))
+        if hp is not None and player_hp is not None and hp != player_hp:
+            writes.append((PLAYER_HP_ADDR, bytes([hp & PLAYER_HP_MASK])))
+        return writes, cursor
+
     def _log_withheld(self, item: str, location: str) -> None:
         key = f"{item}@{location}"
         if key in self.withheld_logged:
@@ -386,8 +459,10 @@ class MMX6Client(BizHawkClient):
             return
 
         try:
-            (save,) = await bizhawk.read(
-                ctx.bizhawk_ctx, [(SAVE_BASE, SAVE_LEN, "MainRAM")])
+            save, hp_byte = await bizhawk.read(ctx.bizhawk_ctx, [
+                (SAVE_BASE, SAVE_LEN, "MainRAM"),
+                (PLAYER_HP_ADDR, 1, "MainRAM"),   # live block, gameplay only
+            ])
         except bizhawk.RequestFailedError:
             return
 
@@ -429,6 +504,17 @@ class MMX6Client(BizHawkClient):
 
         # ---- grants --------------------------------------------------------
         writes = self._grants(ctx, save)
+
+        # Filler is only applied with a live player block, which exists in
+        # gameplay and not on the Mission Report - so a heal arriving between
+        # stages waits rather than being written into a struct that is not
+        # there. `& PLAYER_HP_MASK` because bit 0x80 is a hit/heal flag.
+        player_hp = (hp_byte[0] & PLAYER_HP_MASK
+                     if screen == SCREEN_INGAME else None)
+        filler_writes, cursor = self._filler_grants(ctx, save, player_hp)
+        self.filler_cursor = cursor
+        writes += filler_writes
+
         if writes:
             await bizhawk.write(ctx.bizhawk_ctx,
                                 [(addr, data, "MainRAM") for addr, data in writes])

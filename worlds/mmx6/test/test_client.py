@@ -13,8 +13,8 @@ from ..client import (EXE_SIG, LIFE_GAUGE_BASE, LIFE_GAUGE_MAX, OFF_ARMOR_PARTS,
                       OFF_ARMOR_SELECT, OFF_BEATEN, OFF_CHAR, OFF_HEARTS,
                       OFF_ENERGY_UPS, OFF_LIFE_GAUGE, OFF_LIFE_UPS, OFF_PARTS,
                       OFF_PROGRESS, OFF_REPLOIDS, OFF_TANKS, OFF_WEAPON_GAUGE,
-                      SAVE_BASE, SAVE_LEN,
-                      WEAPON_GAUGE_BASE, MMX6Client)
+                      LIVES_CAP, OFF_LIVES, PLAYER_HP_ADDR, SAVE_BASE,
+                      SAVE_LEN, SMALL_LIFE_HEAL, WEAPON_GAUGE_BASE, MMX6Client)
 from ..locations import location_table
 
 
@@ -363,3 +363,102 @@ class TestAgainstRealPlay(unittest.TestCase):
     def test_intro_is_marked_and_the_endgame_is_not(self) -> None:
         self.assertIn(location_table[names.INTRO_CLEAR], self.found)
         self.assertLess(REPLAYED_SAVE[OFF_PROGRESS], 3)
+
+
+class TestFiller(unittest.TestCase):
+    """Consumables - the one grant that is deliberately NOT idempotent.
+
+    Everything else here is safe to reassert every poll. A heal is not, so it
+    rides a cursor into items_received instead, and these tests pin the two
+    ways that goes wrong: applying the same heal twice, and losing an item
+    because it arrived at a moment it could not be applied.
+    """
+    def setUp(self) -> None:
+        self.client = MMX6Client()
+        self.save = blank_save()
+        self.save[OFF_LIVES] = 2
+        self.save[OFF_LIFE_GAUGE] = 40
+
+    def run_filler(self, ctx, hp):
+        writes, cursor = self.client._filler_grants(ctx, bytes(self.save), hp)
+        self.client.filler_cursor = cursor
+        for addr, data in writes:
+            if addr == PLAYER_HP_ADDR:
+                continue
+            off = addr - SAVE_BASE
+            self.save[off:off + len(data)] = data
+        return writes
+
+    def test_filler_already_in_hand_at_connect_is_skipped(self) -> None:
+        # The cursor starts at the length of the list, so reconnecting does
+        # not re-heal. For a consumable, losing one is better than duplicating
+        # one - and a reconnect mid-run is exactly when duplication would hit.
+        ctx = FakeCtx(items=[names.EXTRA_LIFE] * 3)
+        self.assertEqual(self.run_filler(ctx, 20), [])
+        self.assertEqual(self.save[OFF_LIVES], 2)
+
+    def test_an_extra_life_arriving_later_is_applied_once(self) -> None:
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, 20)                    # establishes the cursor
+        ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
+        self.assertTrue(self.run_filler(ctx, 20))
+        self.assertEqual(self.save[OFF_LIVES], 3)
+        for _ in range(5):
+            self.assertEqual(self.run_filler(ctx, 20), [],
+                             "the same Extra Life was applied twice")
+        self.assertEqual(self.save[OFF_LIVES], 3)
+
+    def test_lives_stop_at_the_cap(self) -> None:
+        self.save[OFF_LIVES] = LIVES_CAP
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, 20)
+        ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
+        self.run_filler(ctx, 20)
+        self.assertEqual(self.save[OFF_LIVES], LIVES_CAP)
+
+    def test_a_heal_waits_for_a_stage_instead_of_being_lost(self) -> None:
+        # player_hp None means there is no live player block - between stages,
+        # or on the Mission Report. The item must not be consumed there.
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, None)
+        ctx.items_received.append(FakeItem(names.SMALL_LIFE_ENERGY))
+
+        writes = self.run_filler(ctx, None)
+        self.assertEqual(writes, [], "healed with no live player block")
+        cursor_held = self.client.filler_cursor
+
+        writes = self.run_filler(ctx, 10)
+        self.assertEqual(writes, [(PLAYER_HP_ADDR,
+                                   bytes([10 + SMALL_LIFE_HEAL]))])
+        self.assertGreater(self.client.filler_cursor, cursor_held)
+
+    def test_a_stalled_heal_does_not_swallow_the_items_behind_it(self) -> None:
+        # Order matters: the cursor stops AT the heal, so the Extra Life
+        # behind it is applied on the next pass rather than skipped past.
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, None)
+        ctx.items_received += [FakeItem(names.SMALL_LIFE_ENERGY),
+                               FakeItem(names.EXTRA_LIFE)]
+        self.run_filler(ctx, None)
+        self.assertEqual(self.save[OFF_LIVES], 2, "consumed out of order")
+        self.run_filler(ctx, 10)
+        self.assertEqual(self.save[OFF_LIVES], 3)
+
+    def test_healing_never_passes_the_life_gauge(self) -> None:
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, None)
+        ctx.items_received.append(FakeItem(names.LARGE_LIFE_ENERGY))
+        writes = self.run_filler(ctx, self.save[OFF_LIFE_GAUGE] - 1)
+        self.assertEqual(writes, [(PLAYER_HP_ADDR,
+                                   bytes([self.save[OFF_LIFE_GAUGE]]))])
+
+    def test_weapon_energy_is_consumed_not_stalled(self) -> None:
+        # Its address is unknown, so it cannot be applied - but holding it
+        # would block every filler item behind it forever.
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, 20)
+        ctx.items_received += [FakeItem(names.SMALL_WEAPON_ENERGY),
+                               FakeItem(names.EXTRA_LIFE)]
+        self.run_filler(ctx, 20)
+        self.assertEqual(self.save[OFF_LIVES], 3,
+                         "weapon energy blocked the item behind it")

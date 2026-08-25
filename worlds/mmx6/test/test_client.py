@@ -253,3 +253,113 @@ class TestIdentification(unittest.TestCase):
         # prompted for a disc image. A tester hit exactly that on X5 v0.1.0.
         self.assertEqual(MMX6Client.patch_suffix, ".apmmx6")
         self.assertEqual(MMX6Client.system, "PSX")
+
+
+# A REAL save state, rebuilt by replaying the 2026-08-25 play-session RAM diff
+# log forward (every `old -> new` in observation order). This is the closest
+# thing to a live capture that needs no emulator, and it is ground truth: the
+# session is the one the research notes were written from, so what the client
+# reads out of it can be checked against what the player actually did.
+#
+# Regenerate with scratch script replay_detect.py if the log is ever replaced.
+REPLAYED_SAVE = bytes.fromhex(
+    "0a0000000000000000000000020000000000000000000000000000000002010148ef"
+    "08800000000000000000000000000000000000000200000900000000000000000000"
+    "00000000000000000000000000000000000000000000002620000101213230910000"
+    "02000140001020210020408001000000000000000000000000000000000000000000"
+    "00000000200507000000000002000000260000000500010000000000000000000000"
+    "04000000000000000000000000000000000000000000000000000000000040180000"
+    "fc1a00000000d4010000d40122200222202202202002000000000000000000000000"
+    "00000000000000000000000000000000000022220222222200000000000000000000"
+    "00000000000000002220022220220220000000000000000000000000000000000000"
+    "00000000000000000000000000002222022222220000000000000000000000000000"
+    "00000000ffff00000000000000000000000000000006000102060001000000000000"
+    "00000100000000000000"
+)
+
+
+class TestAgainstRealPlay(unittest.TestCase):
+    """Detection run against a real recorded session.
+
+    Every assertion below is cross-checked against something independently
+    recorded in the research notes, not against the client's own output.
+    """
+
+    def setUp(self) -> None:
+        self.client = MMX6Client()
+        self.found = self.client._detect(FakeCtx(), REPLAYED_SAVE)
+
+    def named(self, kind: str) -> set:
+        return {n for i, n in
+                ((location_table[k], k) for k in location_table)
+                if i in self.found and n.endswith(kind)}
+
+    def test_the_two_stages_that_were_cleared(self) -> None:
+        # beaten byte read 0x21 = bits 0 and 5. The player cleared Commander
+        # Yammark and Rainy Turtloid in that session and no others.
+        self.assertEqual(self.named("Boss Defeated"),
+                         {names.boss_location(names.YAMMARK),
+                          names.boss_location(names.TURTLOID)})
+
+    def test_the_turtloid_pickups_the_notes_recorded(self) -> None:
+        # Notes, all live-confirmed: the Inami Temple heart wrote
+        # 0x800CCF3C |= 0x20, and the Shadow Armor capsule wrote
+        # 0x800CCF39 |= 0x40 (Shadow Body).
+        self.assertIn(location_table[names.heart_location(names.TURTLOID)],
+                      self.found)
+        self.assertIn(location_table[names.capsule_location(names.TURTLOID)],
+                      self.found)
+        self.assertEqual(REPLAYED_SAVE[OFF_ARMOR_PARTS],
+                         names.ARMOR_PART_BIT[names.SHADOW_BODY])
+
+    def test_the_yammark_sub_tank(self) -> None:
+        # Notes: 0x800CCF3B |= 0x10, the one tank bit observed live. It is
+        # what pins Yammark to +0x10 rather than Heatnix.
+        self.assertIn(location_table[names.tank_location(names.YAMMARK)],
+                      self.found)
+        self.assertEqual(REPLAYED_SAVE[OFF_TANKS], names.TANK_BIT[names.YAMMARK])
+
+    def test_the_gauges_match_the_upgrade_arithmetic_exactly(self) -> None:
+        # The strongest check here, because it is arithmetic against three
+        # separate bitfields rather than a single byte comparison:
+        #   life   = 32 + 2 * (heart tanks + life ups)
+        #   weapon = 48 + 2 * energy ups
+        # The session ended with 1 heart, 2 life ups and 1 energy up.
+        hearts = bin(REPLAYED_SAVE[OFF_HEARTS]).count("1")
+        life_ups = bin(REPLAYED_SAVE[OFF_LIFE_UPS]).count("1")
+        energy_ups = bin(REPLAYED_SAVE[OFF_ENERGY_UPS]).count("1")
+        self.assertEqual((hearts, life_ups, energy_ups), (1, 2, 1))
+        self.assertEqual(REPLAYED_SAVE[OFF_LIFE_GAUGE],
+                         LIFE_GAUGE_BASE + 2 * (hearts + life_ups))
+        self.assertEqual(REPLAYED_SAVE[OFF_WEAPON_GAUGE],
+                         WEAPON_GAUGE_BASE + 2 * energy_ups)
+
+    def test_the_exact_reploids_the_session_rescued(self) -> None:
+        # Pinned EXACTLY, not as a subset. A subset check passed even when the
+        # block base was moved to the mirror at 0x800CCFE8, because the mirror
+        # holds a lagging copy of the same stages - the two Wolfang rescues
+        # that happened after the last save are the only difference. Anything
+        # looser than an exact set cannot tell the live array from its own
+        # snapshot.
+        expected = {
+            names.YAMMARK: [1, 2, 4, 5, 7, 8, 10, 11, 12, 13, 16],
+            names.WOLFANG: [2, 3],
+            names.TURTLOID: [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12],
+        }
+        want = {location_table[names.reploid_location(stage, n)]
+                for stage, ns in expected.items() for n in ns}
+        got = {i for i, n in ((location_table[k], k) for k in location_table)
+               if i in self.found and " - Reploid " in n}
+        self.assertEqual(got, want)
+
+    def test_the_client_reads_the_live_array_not_the_mirror(self) -> None:
+        # There are two 64-byte copies of the Reploid array, 0x40 apart. The
+        # mirror only ever updates in bulk, so a client reading it would miss
+        # every rescue made since the last save.
+        self.assertEqual(SAVE_BASE + OFF_REPLOIDS,
+                         reploids.REPLOID_BLOCK - 0x80000000)
+        self.assertEqual(reploids.REPLOID_MIRROR - reploids.REPLOID_BLOCK, 0x40)
+
+    def test_intro_is_marked_and_the_endgame_is_not(self) -> None:
+        self.assertIn(location_table[names.INTRO_CLEAR], self.found)
+        self.assertLess(REPLAYED_SAVE[OFF_PROGRESS], 3)

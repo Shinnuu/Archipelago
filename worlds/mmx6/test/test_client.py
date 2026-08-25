@@ -17,7 +17,8 @@ from ..client import (EXE_SIG, LIFE_GAUGE_BASE, LIFE_GAUGE_MAX, OFF_ARMOR_PARTS,
                       OFF_P_WEAPON_IDX, PLAYER_BASE, PLAYER_HP_ADDR, PLAYER_LEN,
                       OFF_WEAPON_GAUGE, SAVE_BASE, SAVE_LEN, SMALL_LIFE_HEAL,
                       SMALL_WEAPON_FRACTION, WEAPON_AMMO_SCALE,
-                      WEAPON_GAUGE_BASE, MMX6Client)
+                      WEAPON_GAUGE_BASE, AP_WEAPONS, OFF_AP_WEAPONS,
+                      PATCH_PROBE_PATCHED, PATCH_PROBE_VANILLA, MMX6Client)
 from ..locations import location_table
 
 
@@ -671,3 +672,84 @@ class TestBaselineGate(unittest.TestCase):
         self.assertEqual(sendable,
                          {location_table[names.tank_location(names.YAMMARK)]})
         self.assertEqual(self.client.baseline_held, held)
+
+
+class TestWeaponGrants(unittest.TestCase):
+    """Weapons may only be granted on a disc carrying the A1 patch.
+
+    On vanilla, 0x800CCF30 is simultaneously the kill record and the weapon
+    list, so granting a weapon there would fabricate a boss check. The patch
+    redirects the capability to AP_WEAPONS, which nothing else in the game
+    reads or writes.
+    """
+
+    def setUp(self) -> None:
+        self.client = MMX6Client()
+        self.save = blank_save()
+
+    def apply(self, ctx):
+        writes = self.client._grants(ctx, bytes(self.save))
+        for addr, data in writes:
+            off = addr - SAVE_BASE
+            self.save[off:off + len(data)] = data
+        return writes
+
+    def test_the_probe_distinguishes_the_three_states(self) -> None:
+        # None is not a nicety: validate_rom can race the EXE still streaming
+        # in from disc, and a probe of zeros must mean "retry", never
+        # "vanilla" - that difference decides whether weapons are granted.
+        self.assertIs(MMX6Client._classify_probe(PATCH_PROBE_PATCHED), True)
+        self.assertIs(MMX6Client._classify_probe(PATCH_PROBE_VANILLA), False)
+        self.assertIsNone(MMX6Client._classify_probe(b"\x00\x00\x00\x00"))
+
+    def test_the_probe_words_differ_only_in_the_immediate(self) -> None:
+        # Both are `lbu v0, <imm>(a1)`; the patch changes 0x60 to 0xAB and
+        # nothing else. If these ever differ elsewhere, the patch is wrong.
+        van = int.from_bytes(PATCH_PROBE_VANILLA, "little")
+        pat = int.from_bytes(PATCH_PROBE_PATCHED, "little")
+        self.assertEqual(van >> 16, pat >> 16, "opcode or registers changed")
+        self.assertEqual(van & 0xFFFF, 0x60)
+        self.assertEqual(pat & 0xFFFF, AP_WEAPONS - 0x800CCED0)
+
+    def test_no_weapon_bits_are_written_on_vanilla(self) -> None:
+        self.client.ap_patched = False
+        self.apply(FakeCtx(items=list(names.WEAPONS)))
+        self.assertEqual(self.save[OFF_BEATEN], 0)
+        self.assertEqual(self.save[OFF_AP_WEAPONS], 0)
+
+    def test_nothing_is_written_while_the_probe_is_undetermined(self) -> None:
+        self.client.ap_patched = None
+        self.apply(FakeCtx(items=list(names.WEAPONS)))
+        self.assertEqual(self.save[OFF_AP_WEAPONS], 0)
+        self.assertEqual(self.save[OFF_BEATEN], 0)
+
+    def test_a_patched_disc_gets_the_capability_and_not_the_kill_record(self) -> None:
+        self.client.ap_patched = True
+        self.apply(FakeCtx(items=[names.BOSS_WEAPON[names.YAMMARK],
+                                  names.BOSS_WEAPON[names.TURTLOID]]))
+        self.assertEqual(self.save[OFF_AP_WEAPONS],
+                         names.STAGE_BIT[names.YAMMARK]
+                         | names.STAGE_BIT[names.TURTLOID])
+        self.assertEqual(self.save[OFF_BEATEN], 0,
+                         "the kill record must never be written")
+
+    def test_the_capability_follows_the_items_exactly(self) -> None:
+        # Absolute, like every other grant: losing an item would clear its
+        # bit. Also confirms the bit order matches the stage order the rest
+        # of the world uses.
+        self.client.ap_patched = True
+        for stage in names.STAGES:
+            self.save = blank_save()
+            self.apply(FakeCtx(items=[names.BOSS_WEAPON[stage]]))
+            self.assertEqual(self.save[OFF_AP_WEAPONS], names.STAGE_BIT[stage],
+                             f"{stage} wrote the wrong capability bit")
+
+    def test_boss_detection_still_works_on_a_patched_disc(self) -> None:
+        # The whole point of A1: kills keep recording, so the boss check and
+        # the endgame gate are unaffected by granting weapons.
+        self.client.ap_patched = True
+        self.apply(FakeCtx(items=list(names.WEAPONS)))
+        self.assertEqual(self.client._detect(FakeCtx(), bytes(self.save)), set())
+        self.save[OFF_BEATEN] = names.STAGE_BIT[names.YAMMARK]
+        self.assertIn(location_table[names.boss_location(names.YAMMARK)],
+                      self.client._detect(FakeCtx(), bytes(self.save)))

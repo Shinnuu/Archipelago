@@ -14,16 +14,19 @@ file - but generation, logic and the client all work.
   observed stages fit.
 - Capacity is checked in `generate_early`, so an over-full option set is
   refused with a message naming the fix rather than silently dropping items.
-- 93 tests, including an exhaustive check of the item/location arithmetic and
+- 100 tests, including an exhaustive check of the item/location arithmetic and
   an assertion that the Blade -> Shadow armor dependency stays acyclic.
 
 ### BizHawk client
 
 Detects checks and applies received items. Four policies, each deliberate:
 
-- **Weapons are not granted.** `0x800CCF30` is simultaneously the kill record
-  and the weapon list, so writing it would fabricate a boss check. Needs the
-  disc patch (ship plan A1). Until then weapons come from beating Mavericks.
+- **Weapons are granted only on a patched disc.** On vanilla `0x800CCF30` is
+  simultaneously the kill record and the weapon list, so writing it would
+  fabricate a boss check. The A1 disc patch redirects the capability to a byte
+  AP owns (`0x800CCF7B`), and there it is safe. The client probes an EXE
+  instruction to tell the two discs apart, and treats an unreadable probe as
+  "retry" rather than "vanilla".
 - **Grants are absolute.** Gauges are computed from the items received and
   written whole, so re-applying after a reconnect is a no-op. Removes X5's
   need for a memcard-persisted counter rather than guarding it.

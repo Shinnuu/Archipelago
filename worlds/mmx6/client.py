@@ -172,6 +172,27 @@ SMALL_LIFE_HEAL = 4
 LARGE_LIFE_HEAL = 16
 LIVES_CAP = 9                          # engine clamp assumed, not verified
 
+# ---- AP disc patch ----------------------------------------------------------
+# The A1 patch redirects the weapon capability away from 0x800CCF30 (which is
+# simultaneously the kill record) to a byte AP owns. Three sites copy the
+# capability into the live player object; the patch changes the source
+# immediate at each from 0x60 to 0xAB.
+#
+# One of those sites is in the static EXE and therefore always resident, so it
+# doubles as the probe. The overlay site is not reliably in RAM, so it is NOT
+# used for detection.
+PATCH_PROBE_ADDR = 0x03C278                  # RAM 0x8003C278
+PATCH_PROBE_VANILLA = bytes.fromhex("6000a290")   # lbu v0, 0x60(a1)
+PATCH_PROBE_PATCHED = bytes.fromhex("ab00a290")   # lbu v0, 0xab(a1)
+
+# The AP-owned save block. Untouched by any of the 1,719 save-struct accesses
+# across the EXE and every overlay. It does NOT persist to the memcard - X6
+# re-serialises the save field by field, so a byte no serialiser mentions never
+# reaches the card - which is why the client rewrites it every cycle rather
+# than assuming it survives.
+AP_WEAPONS = 0x800CCF7B
+OFF_AP_WEAPONS = _off(AP_WEAPONS)
+
 GOAL_SIGMA = 0
 GOAL_ALL_MAVERICKS = 1
 
@@ -207,6 +228,9 @@ class MMX6Client(BizHawkClient):
         # sending, because we cannot yet tell this seed's save from another's.
         self.baseline_held: set[int] = set()
         self.weapons_notice_logged = False
+        # None = not yet determined (a probe during boot reads zeros).
+        # False specifically means "read the exact vanilla word".
+        self.ap_patched: bool | None = None
         self.withheld_logged: set[str] = set()
         # How far into ctx.items_received the filler grants have got. None
         # means "not started"; it is set to the list length on the first
@@ -217,18 +241,35 @@ class MMX6Client(BizHawkClient):
 
     async def validate_rom(self, ctx: "BizHawkClientContext") -> bool:
         try:
-            (sig,) = await bizhawk.read(
-                ctx.bizhawk_ctx, [(EXE_SIG_ADDR, len(EXE_SIG), "MainRAM")])
+            sig, probe = await bizhawk.read(ctx.bizhawk_ctx, [
+                (EXE_SIG_ADDR, len(EXE_SIG), "MainRAM"),
+                (PATCH_PROBE_ADDR, 4, "MainRAM"),
+            ])
         except bizhawk.RequestFailedError:
             return False
         if sig != EXE_SIG:
             return False
+        self.ap_patched = self._classify_probe(probe)
 
         ctx.game = self.game
         ctx.items_handling = 0b111   # remote items, own-world items, start inv
         ctx.want_slot_data = True
         self._reset_state()
         return True
+
+    @staticmethod
+    def _classify_probe(probe: bytes) -> bool | None:
+        """True = AP-patched, False = known vanilla, None = undetermined.
+
+        None matters: validate_rom can race the EXE still streaming in from
+        disc, and a probe of zeros must mean "retry", never "vanilla" - the
+        difference decides whether weapons are granted at all.
+        """
+        if probe == PATCH_PROBE_PATCHED:
+            return True
+        if probe == PATCH_PROBE_VANILLA:
+            return False
+        return None
 
     # ---- item accounting ---------------------------------------------------
 
@@ -392,16 +433,30 @@ class MMX6Client(BizHawkClient):
         if bytes(parts) != save[OFF_PARTS:OFF_PARTS + 4]:
             writes.append((SAVE_BASE + OFF_PARTS, bytes(parts)))
 
-        # --- weapons: NOT granted (policy 1) ---------------------------------
-        if not self.weapons_notice_logged and any(
+        # --- weapons: only on a patched disc (policy 1) ----------------------
+        # On vanilla, 0x800CCF30 is both the kill record and the weapon list,
+        # so writing it would fabricate a boss check. The A1 patch redirects
+        # the capability to AP_WEAPONS, which nothing else reads or writes -
+        # so there it is safe, and it is the ONLY place weapons are granted.
+        #
+        # Written every cycle rather than once: AP_WEAPONS does not persist to
+        # the memcard, and the game latches the capability at stage start, so
+        # the byte has to be correct whenever a stage loads.
+        if self.ap_patched:
+            capability = 0
+            for stage in names.STAGES:
+                if got.get(names.BOSS_WEAPON[stage]):
+                    capability |= names.STAGE_BIT[stage]
+            write(OFF_AP_WEAPONS, capability, save[OFF_AP_WEAPONS])
+        elif not self.weapons_notice_logged and any(
                 got.get(w) for w in names.WEAPONS):
             self.weapons_notice_logged = True
             logger.info(
-                "MMX6: special weapons are not granted yet - the byte that "
-                "holds them (0x800CCF30) is the same byte that records which "
-                "Mavericks you have beaten, so writing it would fake a boss "
-                "check. Beat a Maverick to get its weapon, as in the base "
-                "game. The disc patch will separate the two.")
+                "MMX6: this is an unpatched disc, so special weapons are not "
+                "granted - the byte that holds them (0x800CCF30) is the same "
+                "byte that records which Mavericks you have beaten, and "
+                "writing it would fake a boss check. Beat a Maverick to get "
+                "its weapon, as in the base game.")
 
         return writes
 

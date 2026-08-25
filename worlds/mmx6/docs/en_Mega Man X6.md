@@ -1,0 +1,62 @@
+# Mega Man X6
+
+> **This world is not playable yet.** Generation and logic work, but the disc
+> patch and the game client have not been written, so a seed produces no patch
+> file and there is nothing to connect to Archipelago with. It is here so the
+> item and location layout can be reviewed and tested early.
+
+## What does randomization do to this game?
+
+Weapons, armor parts, tanks, Heart Tanks and the upgrades carried by rescued
+Reploids are shuffled into the multiworld item pool. You start with the buster
+and the Falcon Armor, exactly as vanilla does, and everything else arrives as a
+multiworld item — possibly from someone else's game.
+
+All eight investigation sites are open from the start, as in vanilla, so
+routing is yours to decide.
+
+## What is the goal?
+
+- **all_mavericks** (default) — defeat all 8 Mavericks, then reach and defeat
+  Sigma.
+- **sigma** — defeat Sigma, however you got there. Mega Man X6 does not open
+  its endgame on Maverick kills at all: it opens on a Nightmare Soul count of
+  3000, and souls drop from Nightmare enemies throughout every stage. So under
+  this goal a run can legitimately finish having skipped Mavericks.
+
+## What items and locations get shuffled?
+
+**Items (28 before options):** the 8 special weapons, all 8 armor parts (Blade
+and Shadow sets), 8 Heart Tanks, 2 Sub Tanks, the W Tank and the EX Tank.
+
+**Locations (29 before options):** the intro stage, plus per investigation site
+— the boss, its Heart Tank, its armor capsule — plus the four tank pickups.
+
+| Option | Effect |
+|---|---|
+| `reploid_checks` (**on by default**) | **+128 locations** and **+16 items** — every rescuable Reploid becomes a check, and the Life Ups and Energy Ups they carry join the pool |
+| `parts_in_pool` (**on by default**) | **+24 items** — the equippable Power-up Parts |
+| `zero_unlock` (**on by default**) | **+1 item** — Zero has to be found before you can play as him, which is how the base game works |
+| `secret_armors_in_pool` | **+2 items** — Ultimate Armor and Black Zero |
+
+Every item needs a location, so option sets that ask for more items than the
+seed has room for are refused at generation with a message naming what to
+change, rather than silently dropping items.
+
+Turning `reploid_checks` off leaves a 29-location seed, which is not really
+enough for one player, let alone a multiworld. It is there for completeness.
+
+## Reploids can be destroyed — and the randomizer does not let that cost you
+
+Mega Man X6's defining hazard is that a Nightmare reaching an injured Reploid
+before you do leaves it dead or missing, permanently. In a multiworld that
+would mean an item lost for good, possibly somebody else's progression.
+
+So the check is collected the moment you reach the Reploid rather than when the
+rescue completes. What happens to it afterwards is cosmetic as far as
+Archipelago is concerned.
+
+## What does another world's item look like?
+
+Nothing is changed visually yet. Picking up an item that belongs to someone
+else grants nothing locally and sends it to its owner.

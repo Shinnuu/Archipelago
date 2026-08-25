@@ -14,7 +14,7 @@ file - but generation, logic and the client all work.
   observed stages fit.
 - Capacity is checked in `generate_early`, so an over-full option set is
   refused with a message naming the fix rather than silently dropping items.
-- 66 tests, including an exhaustive check of the item/location arithmetic and
+- 80 tests, including an exhaustive check of the item/location arithmetic and
   an assertion that the Blade -> Shadow armor dependency stays acyclic.
 
 ### BizHawk client
@@ -35,6 +35,24 @@ Detects checks and applies received items. Four policies, each deliberate:
 **Known gap, fix before anyone but the author plays:** no seed/slot stamp, so
 the client cannot tell this seed's save from another one. Spare-byte candidates
 are listed in `client.py`; none is verified.
+
+### Proven live
+
+Run against a real save with the full stack (server + client + connector +
+EmuHawk): the game is identified from the EXE signature, 30 baseline locations
+detected and sent, live checks fired from actual play (an armor capsule and a
+Reploid), 4 item-grant writes all bit-exact against the 26 items received,
+~4,500 frames with zero repeat writes, and the withholding rule held back an
+armor part correctly.
+
+An offline replay of the play-session RAM log predicted that live run
+**exactly** — same 30 locations. That replay is now a frozen test fixture, and
+mutation testing (7 deliberate breakages) confirms the suite catches them all.
+
+The live run found one thing offline tests could not: **filler items did
+nothing**, which is 58% of the items in a default seed. Now fixed for Extra
+Life and life energy. Weapon energy is still inert — only its maximum
+(`0x800CCF31`) is mapped, not current ammo.
 
 ### Research corrections made while building this
 

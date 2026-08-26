@@ -17,6 +17,7 @@ here:
 import unittest
 
 from ..client import (ENDING_SCREENS, GOAL_ALL_MAVERICKS, GOAL_SIGMA,
+                      SCREEN_END_CREDITS_HELD, TRUSTED_SCREENS,
                       SCREEN_END_CREDITS, SCREEN_INGAME,
                       SCREEN_MISSION_REPORT, MMX6Client)
 
@@ -36,6 +37,24 @@ class TestEndingScreens(unittest.TestCase):
         self.assertNotIn(SCREEN_INGAME, ENDING_SCREENS)
         self.assertNotIn(SCREEN_MISSION_REPORT, ENDING_SCREENS)
         self.assertIn(SCREEN_END_CREDITS, ENDING_SCREENS)
+
+    def test_the_held_credits_screen_is_watched_too(self) -> None:
+        # 0x10 is a ONE-FRAME transition stub: its handler (0x8001ED44)
+        # rewrites the screen byte to 0x11 on its third instruction, and the
+        # watcher polls at 0.5 s. Watching 0x10 alone would miss the ending
+        # ~97% of the time and the goal would never fire. 0x11 is the state
+        # that holds, and 0x10's handler is its only writer.
+        self.assertIn(SCREEN_END_CREDITS_HELD, ENDING_SCREENS)
+        self.assertNotEqual(SCREEN_END_CREDITS, SCREEN_END_CREDITS_HELD)
+
+    def test_the_held_credits_screen_completes_the_sigma_goal(self) -> None:
+        self.assertTrue(
+            client()._goal_decision(SCREEN_END_CREDITS_HELD, GOAL_SIGMA))
+
+    def test_no_trusted_screen_is_an_ending_screen(self) -> None:
+        # The save is only believed on the trusted screens; an ending screen
+        # that was also trusted would let a half-written save goal the seed.
+        self.assertFalse(ENDING_SCREENS & TRUSTED_SCREENS)
 
 
 class TestSigmaGoal(unittest.TestCase):

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### The goal would almost never have fired, and the constant was not the problem
+
+Victory watched screen `0x10`, the ending/credits screen. That value is
+correct. It is also visible for about one frame.
+
+X6's main loop reads the screen byte, indexes a handler table, and calls
+through it every frame. Screen `0x10`'s handler rewrites the screen byte to
+`0x11` on its third instruction, unconditionally, before doing anything else.
+So `0x10` survives a single iteration — roughly 16.7 ms — while the BizHawk
+watcher polls twice a second. The odds of ever catching it were about one in
+thirty, and the failure was silent: the credits would roll and the seed would
+simply never complete.
+
+Victory now also accepts `0x11`, which is the state that *holds*, and which
+nothing else in the game writes — `0x10`'s handler is its only source, so this
+is exactly as strict as before and can actually be observed.
+
+Found by disassembling the disc, not by playing it. Nobody has reached X6's
+credits with the client attached; that is still true, and this changes the
+odds that it will work when somebody does.
+
 ### The patcher now tells you when it was handed an already-patched disc
 
 Pointing the base-image setting at a disc an earlier seed produced used to get

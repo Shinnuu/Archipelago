@@ -131,13 +131,28 @@ SOULS_GATE = 3000
 #
 # 0x10 is "End credits" in the Tweaks workbook's screen table [W]. X5's
 # equivalent was live-captured as 0A -> 13 -> 14 -> 10 -> 11 after the final
-# blow, with 13/14 shared with a non-final cutscene - so 0x10 is the first
-# screen unique to the ending, and 0x11 follows it. Only 0x10 is used here;
-# X6's own table leaves 0x11 unlabelled and guessing at it buys nothing.
+# blow, with 13/14 shared with a non-final cutscene.
+#
+# 0x10 ALONE IS NOT OBSERVABLE, and watching only for it was a latent bug that
+# would have made the goal essentially never fire. Disassembly, 2026-08-26:
+# the main loop at 0x8001E700 reads this byte, scales it by 4, indexes the
+# screen-handler table at 0x8007112C (entries 0x00-0x18) and calls through it
+# every frame. Screen 0x10's handler is 0x8001ED44, and its THIRD instruction
+# is an unconditional `sb v0, 0x0(a0)` with v0 = 0x11 - it rewrites the screen
+# byte to 0x11 before doing anything else, then returns. So 0x10 survives
+# exactly one dispatcher iteration (~16.7 ms) while the BizHawk watcher polls
+# at `watcher_timeout` = 0.5 s: roughly a 3% chance of ever seeing it.
+#
+# 0x11 is the state that HOLDS - X5's live capture recorded "0x11 (credits,
+# holds)" - and it is reachable ONLY from 0x10's handler, which is the sole
+# writer of 0x11 in the whole EXE. So watching 0x11 is exactly as specific as
+# watching 0x10, and unlike 0x10 it can actually be caught. Both are accepted:
+# 0x10 still fires on a lucky poll, 0x11 is the one that reliably does.
 #
 # NOT YET SEEN LIVE. Nobody has reached X6's credits with the client attached.
 SCREEN_END_CREDITS = 0x10
-ENDING_SCREENS = frozenset({SCREEN_END_CREDITS})
+SCREEN_END_CREDITS_HELD = 0x11
+ENDING_SCREENS = frozenset({SCREEN_END_CREDITS, SCREEN_END_CREDITS_HELD})
 
 # Spare save-struct bytes: bytes that never moved across a full multi-stage
 # session and are not in any region we have mapped. NOT used by anything here -

@@ -196,7 +196,8 @@ class TestCapacityArithmetic(MMX6TestBase):
 
         from .. import MMX6World
 
-        for reploid, parts, zero, secret, unlocks in product((0, 1), repeat=5):
+        for reploid, parts, zero, secret, unlocks, endgame in product(
+                (0, 1), repeat=6):
             fake = SimpleNamespace(
                 BASE_ITEMS=MMX6World.BASE_ITEMS,
                 BASE_LOCATIONS=MMX6World.BASE_LOCATIONS,
@@ -204,17 +205,22 @@ class TestCapacityArithmetic(MMX6TestBase):
                                         parts_in_pool=parts,
                                         zero_unlock=zero,
                                         secret_armors_in_pool=secret,
-                                        stage_unlocks=unlocks))
+                                        stage_unlocks=unlocks,
+                                        endgame_checks=endgame))
             items, locations = MMX6World._capacity(fake)
             # stage_unlocks adds SEVEN, not eight: the starting stage's codes
             # are precollected rather than placed, so they need no location.
             expected_items = (28 + 16 * reploid + 24 * parts + zero
                               + 2 * secret + 7 * unlocks)
-            expected_locations = 29 + 128 * reploid
+            # endgame_checks adds locations and NO items, so it can only ever
+            # make a seed easier to fit - that is why the roller never has to
+            # consider turning it off.
+            expected_locations = 29 + 128 * reploid + 3 * endgame
             self.assertEqual((items, locations),
                              (expected_items, expected_locations),
                              f"reploid={reploid} parts={parts} zero={zero} "
-                             f"secret={secret} unlocks={unlocks}")
+                             f"secret={secret} unlocks={unlocks} "
+                             f"endgame={endgame}")
             if reploid:
                 # 157 locations against at most 71 items - always fits, which
                 # is why the roller reaches for this option to make room.
@@ -229,9 +235,12 @@ class TestCapacityArithmetic(MMX6TestBase):
         # 28 + 24 Parts + Zero + 2 secret armors = 55 items into 29 locations.
         # Archipelago would drop 26 of them without a word; generate_early has
         # to raise instead, and the message has to name a fix that works.
+        # endgame_checks is turned off too, so the arithmetic under test is
+        # the bare minimum seed rather than one with three bonus locations.
         from Options import OptionError
 
         world = self.multiworld.worlds[self.player]
+        world.options.endgame_checks.value = 0
         world.options.reploid_checks.value = 0
         world.options.parts_in_pool.value = 1
         world.options.zero_unlock.value = 1
@@ -246,3 +255,4 @@ class TestCapacityArithmetic(MMX6TestBase):
             self.assertIn("reploid_checks", message)
         finally:
             world.options.reploid_checks.value = 1
+            world.options.endgame_checks.value = 1

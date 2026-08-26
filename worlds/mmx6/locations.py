@@ -14,8 +14,10 @@ class MMX6Location(Location):
 #
 #   +0          intro clear
 #   +100..179   per-stage blocks of 10, in names.STAGES order
-#   +180..199   reserved: endgame stage clears (Gate / Secret Lab), once the
-#               endgame's stage list and its progress byte are verified.
+#   +180..199   endgame stage clears (Gate / Secret Lab). The progress byte
+#               that drives them is code-verified; ids 183..199 stay reserved
+#               for the Lab 2 A/B split and the boss rush if those ever
+#               become separable.
 #   +200..327   the 128 Reploids, in reploids.REPLOIDS order
 #   +400..      reserved: pickupsanity. X6's placement table lives in
 #               per-stage streamed overlay space, so the freestanding-pickup
@@ -34,6 +36,9 @@ for i, stage in enumerate(names.STAGES):
     if stage in names.STAGE_TANK:
         location_table[names.tank_location(stage)] = base + 3
     # +4.. reserved
+
+for _i, (_name, _threshold) in enumerate(names.ENDGAME_CHECKS):
+    location_table[_name] = BASE_ID + 180 + _i
 
 # Reploid rescues, ids +200 in REPLOIDS order (stage order, then 1-16 within
 # the stage). Always in the id map - the datapackage carries every location the

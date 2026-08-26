@@ -205,6 +205,82 @@ class StageUnlocks(Toggle):
     display_name = "Stage Unlocks"
 
 
+class EndgameChecks(DefaultOnToggle):
+    """Make clearing the Secret Laboratory stages into checks.
+
+    Three extra locations: the Gate opening, and clearing Secret Lab 1 and
+    Secret Lab 2. They ride on the game's own progression counter, which is
+    monotonic and persistent, so a check cannot be missed by dying, quitting
+    or reloading - once it is earned it stays earned.
+
+    Secret Lab 3 is deliberately NOT a check. Clearing it is beating Sigma,
+    which is already the goal, and a location firing at the same instant as
+    victory adds nothing and risks racing it.
+
+    Only ever adds locations, never items, so it cannot make a seed too full.
+    """
+    display_name = "Endgame Checks"
+
+
+class BossHpRandomization(Toggle):
+    """Randomize how much health each boss has.
+
+    Every boss gets a new health bar between 32 and 127 - the range the bar
+    can actually draw, which is why it stops there rather than at 1 or 255.
+    Bosses that scale with your Hunter Rank keep their vanilla step between
+    ranks, so a higher rank never accidentally becomes the easier fight.
+
+    Applied to the disc rather than by the client, because X6 keeps the drawn
+    bar and the real health in the same byte: patching it means the bar you
+    see is always the health the boss has.
+
+    A handful of bosses - Nightmare Mother, Dynamo, and High Max's higher
+    ranks - store their health in a form this does not yet handle, and keep
+    their vanilla values. Everything else is randomized.
+    """
+    display_name = "Boss HP Randomization"
+
+
+class WeaponDamage(Choice):
+    """Randomize how much damage YOUR weapons do.
+
+    Each weapon is rolled once and then stays that way for the whole seed, so
+    part of a run is finding out which of your weapons turned out to be the
+    good one.
+
+    off: unchanged
+    weak: 50-90% of normal
+    regular: 80-130% of normal
+    strong: 120-200% of normal
+    chaotic: 25-250% of normal
+
+    A weapon rolls ONCE and the roll covers every form of it, so a charged
+    shot can never come out weaker than the plain shot, and X's buster scales
+    together across all its charge levels and armors.
+
+    Boss weaknesses are preserved. A boss's weakness is a row in that boss's
+    own damage table, and scaling one weapon by the same factor everywhere
+    changes how strong the weapon is without flattening which bosses it is
+    good against.
+
+    Nothing rolls to zero, and instant kills stay instant kills - a crush or a
+    pit is still a crush or a pit. Attacks that do no damage in the first
+    place are left alone.
+
+    Worth knowing if you also turn on Boss HP Randomization: the two stack,
+    and `weak` weapons against `strong` bosses is a long afternoon.
+
+    Changes the disc.
+    """
+    display_name = "Weapon Damage"
+    option_off = 0
+    option_weak = 1
+    option_regular = 2
+    option_strong = 3
+    option_chaotic = 4
+    default = 0
+
+
 class RandomizeOptions(Toggle):
     """Let the seed pick your gameplay options for you.
 
@@ -223,6 +299,7 @@ class RandomizeOptions(Toggle):
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
     "secret_armors_in_pool", "text_skip", "stage_unlocks",
+    "boss_hp_randomization", "weapon_damage",
 )
 
 
@@ -236,7 +313,10 @@ class MMX6Options(PerGameCommonOptions):
     goal: Goal
     difficulty: Difficulty
     reploid_checks: ReploidChecks
+    endgame_checks: EndgameChecks
     parts_in_pool: PartsInPool
     zero_unlock: ZeroUnlock
     secret_armors_in_pool: SecretArmorsInPool
     stage_unlocks: StageUnlocks
+    boss_hp_randomization: BossHpRandomization
+    weapon_damage: WeaponDamage

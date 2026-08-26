@@ -168,6 +168,76 @@ def qol_edits(features: Iterable[str]) -> list[tuple[str, int, str, bytes, bytes
         if name in wanted:
             out.extend(QOL_EDITS[name])
     return out
+
+# ---- Boss HP ----------------------------------------------------------------
+# X6 stores a boss's life bar and its HP in the SAME byte, 0x800CCF5C, written
+# at boss init from an immediate in that boss's overlay code. That is why this
+# is a disc patch and not the client-side write X5 uses: patching the immediate
+# keeps the drawn bar and the real HP consistent by construction, so the
+# rematch-bar desync X5 hit at any value cannot happen here.
+#
+# The bar is drawn from fixed pieces that stop at 32 and the container caps at
+# 127 - both confirmed in code (base 32 at ROCK+0x018768; the 0x7F caps at
+# ROCK+0x045628 and five siblings). Outside that range the bar misdraws.
+BOSS_HP_MIN = 0x20      # 32
+BOSS_HP_MAX = 0x7F      # 127
+
+# boss -> [(level, vanilla HP, container offsets)]. Most bosses appear TWICE,
+# at a fixed 0xBDA0 stride - the X and Zero copies of the overlay - and both
+# get the same value so the two characters fight the same boss.
+#
+# Every offset here was byte-verified against our own disc: the byte at that
+# offset equals the vanilla value in the row. Entries the Tweaks patcher lists
+# but which did NOT verify are deliberately absent - Nightmare Mother and
+# Dynamo store a base plus a per-level delta rather than a plain immediate,
+# and the Tweaks offsets for High Max levels 2-4 point at the wrong levels.
+# Randomising those needs the encoding handled, so they keep vanilla HP.
+BOSS_HP: dict[str, list[tuple[int, int, tuple[int, ...]]]] = {
+    "Commander Yammark":    [(1,  32, (0x02A9BC, 0x14B2DC))],
+    "Blizzard Wolfang":     [(1,  48, (0x03C36C, 0x153724))],
+    "Blaze Heatnix":        [(1,  48, (0x0476E8, 0x158694)),
+                             (3,  52, (0x047700, 0x1586AC)),
+                             (4,  56, (0x047710, 0x1586BC))],
+    "Metal Shark Player":   [(1,  48, (0x061DDC, 0x15F0EC))],
+    "Ground Scaravich":     [(1,  40, (0x070B74, 0x165C3C))],
+    "Rainy Turtloid":       [(1,  56, (0x07BFAC, 0x167448))],
+    "Shield Sheldon":       [(1,  32, (0x08E8C8, 0x16D4D0))],
+    "Infinity Mijinion":    [(1,  48, (0x0A2F28, 0x173CB4))],
+    "D-1000":               [(1,  32, (0x018768,))],
+    "Nightmare Pressure":   [(1,  48, (0x058FE0, 0x0591E8))],
+    "Illumina":             [(1,  64, (0x09EB4C,))],
+    "Nightmare Zero":       [(1,  48, (0x17A1D4,))],
+    "High Max (Hidden Area)": [(1, 48, (0x17F39C,))],
+    "High Max (Secret Lab)":  [(1, 48, (0x10171C,))],
+    "Sigma":                [(1,  48, (0x0B4148,))],
+    "Sigma (Second Form)":  [(1, 127, (0x0B7830,))],
+}
+
+
+def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, bytes]]:
+    """Disc edits setting each named boss's level-1 HP to `rolls[boss]`.
+
+    Higher difficulty levels keep their VANILLA INCREMENT over level 1, so a
+    boss that gained 4 and 8 HP at ranks 3 and 4 still does. Rolling each
+    level independently would let level 3 come out below level 1 and quietly
+    invert the rank scaling.
+
+    Every edit carries the vanilla byte it expects, so a roll built for one
+    dump cannot silently corrupt another.
+    """
+    out: list[tuple[str, int, str, bytes, bytes]] = []
+    for boss, levels in BOSS_HP.items():        # dict order, deterministic
+        if boss not in rolls:
+            continue
+        base_hp = levels[0][1]
+        for level, vanilla, offsets in levels:
+            value = rolls[boss] + (vanilla - base_hp)
+            value = max(BOSS_HP_MIN, min(BOSS_HP_MAX, value))
+            for offset in offsets:
+                out.append((f"{boss} L{level} HP", offset, REGION_ROCK,
+                            bytes([vanilla]), bytes([value])))
+    return out
+
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------
 _ecc_f = [0] * 256
 _ecc_b = [0] * 256

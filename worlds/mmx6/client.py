@@ -401,8 +401,23 @@ class MMX6Client(BizHawkClient):
         # Intro clear. 0x800CCF36 is monotonic and persistent, and it is the
         # only durable marker for the intro - the beaten-stages byte does not
         # move for it, because the intro is not one of the eight Mavericks.
-        if save[OFF_PROGRESS] >= 1:
+        progress = save[OFF_PROGRESS]
+        if progress >= 1:
             add(names.INTRO_CLEAR)
+
+        # Endgame clears ride the same counter. Its endgame values are
+        # code-verified: the stage-select overlay branches on exactly 3 and 4
+        # (ROCK+0x0C2798), choosing which Secret Lab the screen offers. Being
+        # monotonic is the whole point - a clear cannot be un-earned by dying,
+        # quitting or reloading an older save.
+        #
+        # Detected unconditionally, exactly as the Reploid block already is:
+        # the client has no view of the slot's options, and the server ignores
+        # location ids that are not in this slot. A seed generated with
+        # endgame_checks off therefore just discards these.
+        for name, threshold in names.ENDGAME_CHECKS:
+            if progress >= threshold:
+                add(name)
 
         beaten = save[OFF_BEATEN]
         hearts = save[OFF_HEARTS]

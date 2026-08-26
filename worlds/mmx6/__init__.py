@@ -101,6 +101,9 @@ class MMX6World(World):
             # The 16 gauge upgrades a rescued Reploid carries only exist when
             # the Reploids themselves are checks.
             items += 2 * len(names.STAGES)               # 8 Life Up + 8 Energy Up
+        if self.options.endgame_checks:
+            # Locations only, never items - so this can only ever make room.
+            locations += len(names.ENDGAME_CHECKS)       # 3
         if self.options.parts_in_pool:
             items += len(names.PARTS)                    # 24
         if self.options.zero_unlock:
@@ -166,9 +169,9 @@ class MMX6World(World):
         menu = Region("Menu", self.player, self.multiworld)
         stage_select = Region("Stage Select", self.player, self.multiworld)
         # The X6 endgame is the Gate / Secret Laboratory run that opens on a
-        # Nightmare Soul count of 3000. One region for now: the individual
-        # stage clears there are not checks yet (their progress byte is not
-        # verified), and location ids +180..199 are reserved for them.
+        # Nightmare Soul count of 3000. One region: the Secret Lab stages are
+        # a fixed sequence with no branching reachability, so splitting them
+        # into regions would add rules without adding meaning.
         gate = Region("The Gate", self.player, self.multiworld)
         intro = Region("Intro Stage", self.player, self.multiworld)
         self.multiworld.regions += [menu, stage_select, gate, intro]
@@ -204,6 +207,15 @@ class MMX6World(World):
                     {name: location_table[name]
                      for s, _index, _n, name in reploids.REPLOIDS if s == stage},
                     MMX6Location)
+
+        if self.options.endgame_checks:
+            # In The Gate, so they inherit its access rule - under
+            # stage_unlocks that is "every Access Codes item", which these
+            # clears genuinely need.
+            gate.add_locations(
+                {name: location_table[name]
+                 for name, _threshold in names.ENDGAME_CHECKS},
+                MMX6Location)
 
         victory = MMX6Location(self.player, names.VICTORY, None, gate)
         victory.place_locked_item(self.create_item(names.VICTORY))

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Three new options: endgame checks, boss HP, and weapon damage
+
+**`endgame_checks`** (on by default) turns the Gate opening and the Secret Lab
+1 and 2 clears into checks. They read the game's own progression counter,
+which only ever goes up and is written to the memory card, so a clear cannot
+be lost by dying, quitting or reloading. Clearing Secret Lab 3 is deliberately
+not a check - that is beating Sigma, which is already the goal. Adds three
+locations and no items, so it can only ever make a seed easier to fit.
+
+**`boss_hp_randomization`** gives every boss a new health bar between 32 and
+127. Bosses that scale with your Hunter Rank keep their vanilla step between
+ranks, so a higher rank never turns out to be the easier fight. This is a disc
+edit rather than something the client writes, because X6 keeps the drawn bar
+and the real health in the same byte - patching it means the bar you see is
+always the health the boss has, which is a desync X5 could never quite close.
+
+**`weapon_damage`** randomizes how much damage your weapons do, in the same
+bands the X5 world uses. Each weapon rolls once and the roll covers every form
+of it, so a charged shot can never come out weaker than the plain shot.
+
+Boss weaknesses survive it. A boss's weakness is a row in that boss's own
+damage table, so scaling one weapon by the same factor across all 46 tables
+changes how strong the weapon is without flattening which bosses it is good
+against - and there is a test that checks exactly that, pairwise, rather than
+trusting the arithmetic.
+
+Nothing rolls to zero, instant kills stay instant kills, and attacks that deal
+no damage are left alone. Thirteen table entries are inert but still carry a
+non-zero damage byte, so they are skipped on their state byte rather than on
+their damage - skipping on damage alone would have edited them.
+
+Both disc options carry the vanilla bytes they expect, verified as strictly as
+the base patch, so a patch built for one dump cannot silently corrupt another.
+The whole 46-table region is embedded and was checked byte-for-byte against a
+real disc.
+
 ### The goal would almost never have fired, and the constant was not the problem
 
 Victory watched screen `0x10`, the ending/credits screen. That value is

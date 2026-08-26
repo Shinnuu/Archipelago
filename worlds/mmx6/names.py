@@ -291,6 +291,29 @@ X_ONLY_PARTS = {U_BUSTER, BUSTER_PLUS, SPEED_SHOT, SHOT_ERASER}
 INTRO_CLEAR = "Intro Stage - Clear"
 VICTORY = "Sigma Defeated"
 
+# The endgame, read off the progression counter 0x800CCF36. It is monotonic
+# and persistent, and its endgame values are CODE-VERIFIED (2026-08-26): the
+# stage-select overlay branches on exactly 3 and 4 at ROCK+0x0C2798, picking
+# icon-table index 8, 9 or 10 for progress 3, 4 and "anything else".
+#
+#   >= 3  the Gate is open      (souls hit 3000)
+#   >= 4  Secret Lab 1 cleared  (the select offers Lab 2)
+#   >= 5  Secret Lab 2 cleared  (the select offers Lab 3)
+#
+# Secret Lab 3 is not a location: clearing it IS beating Sigma, which is the
+# goal, and a location that fires at the same instant as victory buys nothing
+# and risks racing it.
+ENDGAME_UNLOCKED = "The Gate - Opened"
+LAB1_CLEAR = "Secret Lab 1 - Clear"
+LAB2_CLEAR = "Secret Lab 2 - Clear"
+
+# (location name, the minimum progress value that proves it), in id order.
+ENDGAME_CHECKS = (
+    (ENDGAME_UNLOCKED, 3),
+    (LAB1_CLEAR, 4),
+    (LAB2_CLEAR, 5),
+)
+
 
 def boss_location(stage: str) -> str:
     return f"{stage} - Boss Defeated"

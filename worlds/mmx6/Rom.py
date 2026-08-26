@@ -21,7 +21,7 @@ import settings
 import Utils
 from worlds.Files import APPatchExtension, APProcedurePatch
 
-from . import disc
+from . import damage, disc
 
 if TYPE_CHECKING:
     from . import MMX6World
@@ -189,8 +189,25 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     not, so they ride in the .apmmx6 as an explicit edit list. Everything else
     the seed decides is carried by slot_data and applied by the client.
     """
+    seed_edits = list(disc.qol_edits(qol_features(world.options)))
+
+    if world.options.boss_hp_randomization:
+        # Rolled here rather than in generate_early because nothing outside
+        # the disc image needs to know: no logic depends on boss health, and
+        # the client never reads it.
+        rolls = {boss: world.random.randint(disc.BOSS_HP_MIN, disc.BOSS_HP_MAX)
+                 for boss in disc.BOSS_HP}
+        seed_edits += disc.boss_hp_edits(rolls)
+
+    if world.options.weapon_damage:
+        band = damage.SCALE_BANDS[
+            world.options.weapon_damage.current_key]
+        low, high = band
+        scales = {group: world.random.uniform(low, high)
+                  for group in damage.WEAPON_GROUPS}
+        seed_edits += damage.damage_edits(scales)
+
     edits = [{"addr": where, "region": region,
               "hex": patched.hex(), "van": van.hex()}
-             for _label, where, region, van, patched
-             in disc.qol_edits(qol_features(world.options))]
+             for _label, where, region, van, patched in seed_edits]
     patch.write_file("seed_edits.json", json.dumps(edits).encode("utf-8"))

@@ -36,6 +36,7 @@ and Shadow sets), 8 Heart Tanks, 2 Sub Tanks, the W Tank and the EX Tank.
 | `reploid_checks` (**on by default**) | **+128 locations** and **+16 items** — every rescuable Reploid becomes a check, and the Life Ups and Energy Ups they carry join the pool |
 | `parts_in_pool` (**on by default**) | **+24 items** — the equippable Power-up Parts |
 | `zero_unlock` (**on by default**) | **+1 item** — Zero has to be found before you can play as him, which is how the base game works |
+| `endgame_checks` (**on by default**) | **+3 locations** — the Gate opening, and clearing Secret Lab 1 and Secret Lab 2. Adds no items, so it can only make room. Clearing Secret Lab 3 is not a check: that is beating Sigma, which is the goal |
 | `secret_armors_in_pool` | **+2 items** — Ultimate Armor and Black Zero |
 | `stage_unlocks` | **+7 items** — only one investigation site is open at the start, and each of the others needs its own Access Codes. A locked site greys out on the stage select and confirming it does nothing |
 
@@ -62,6 +63,16 @@ All three are **on by default**.
 
 The quality-of-life edits are adapted from acediez's **Mega Man X6 Tweaks**,
 with each site re-verified against both supported disc images.
+
+### Difficulty
+
+Also disc changes, and also off by default. They stack — `strong` weapons
+against randomized boss health is a very different game from `weak` ones.
+
+| Option | Effect |
+|---|---|
+| `boss_hp_randomization` | Every boss gets a new health bar between 32 and 127 — the range the bar can actually draw. Bosses that scale with your Hunter Rank keep their vanilla step between ranks, so a higher rank never becomes the easier fight. A few bosses (Nightmare Mother, Dynamo, and High Max's higher ranks) store health in a form this does not yet handle and keep their vanilla values |
+| `weapon_damage` | Randomizes how much damage your weapons do: `weak` 50-90%, `regular` 80-130%, `strong` 120-200%, `chaotic` 25-250%. Each weapon rolls **once**, so a charged shot can never come out weaker than the plain shot. **Boss weaknesses are preserved** — a weapon that was good against a boss still is, it is just stronger or weaker overall. Nothing rolls to zero, and instant kills stay instant kills |
 
 Turning `reploid_checks` off leaves a 29-location seed, which is not really
 enough for one player, let alone a multiworld. It is there for completeness.

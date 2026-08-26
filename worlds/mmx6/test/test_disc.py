@@ -73,19 +73,29 @@ class TestAgainstTheRealDisc(unittest.TestCase):
     def test_the_patch_touches_three_sectors_and_one_byte_in_each(self) -> None:
         out = disc.apply_basepatch(self.rom)
         self.assertEqual(len(out), len(self.rom))
-        differing = [i for i in range(len(out)) if out[i] != self.rom[i]]
-        sectors = {i // disc.SECTOR_RAW for i in differing}
-        self.assertEqual(len(sectors), 3)
+
+        # Compare sector by sector rather than byte by byte. The obvious
+        # version - a list comprehension over range(len(out)) - is a 600
+        # MILLION iteration Python loop that also allocates a list of every
+        # differing index, and it really did fail with MemoryError under load.
+        # Slicing hands the comparison to C and keeps memory flat, while still
+        # proving the whole image was checked, which is the point of the test.
+        sectors = [n for n in range(len(out) // disc.SECTOR_RAW)
+                   if out[n * disc.SECTOR_RAW:(n + 1) * disc.SECTOR_RAW]
+                   != self.rom[n * disc.SECTOR_RAW:(n + 1) * disc.SECTOR_RAW]]
+        self.assertEqual(len(sectors), 3, "patch changed the wrong sector count")
+
         for sec in sectors:
-            in_sector = [i for i in differing if i // disc.SECTOR_RAW == sec]
-            user = [i for i in in_sector
-                    if disc.USER_OFF <= i % disc.SECTOR_RAW
-                    < disc.USER_OFF + disc.USER_LEN]
+            base = sec * disc.SECTOR_RAW
+            differing = [i for i in range(disc.SECTOR_RAW)
+                         if out[base + i] != self.rom[base + i]]
+            user = [i for i in differing
+                    if disc.USER_OFF <= i < disc.USER_OFF + disc.USER_LEN]
             self.assertEqual(len(user), 1,
                              f"sector {sec} changed {len(user)} user bytes")
             # EDC/ECC must be regenerated too, or the emulator's disc layer
             # error-corrects the edit straight back to vanilla.
-            self.assertGreater(len(in_sector) - len(user), 0,
+            self.assertGreater(len(differing) - len(user), 0,
                                f"sector {sec} has no parity change")
 
     def test_patching_an_already_patched_image_is_refused(self) -> None:
@@ -94,5 +104,8 @@ class TestAgainstTheRealDisc(unittest.TestCase):
             disc.apply_basepatch(out)
 
     def test_the_patch_is_deterministic(self) -> None:
-        self.assertEqual(disc.apply_basepatch(self.rom),
-                         disc.apply_basepatch(self.rom))
+        # Hash rather than compare: two 600MB results plus the source held at
+        # once is 1.8GB for an assertion that a 32-byte digest settles.
+        first = hashlib.md5(disc.apply_basepatch(self.rom)).hexdigest()
+        second = hashlib.md5(disc.apply_basepatch(self.rom)).hexdigest()
+        self.assertEqual(first, second)

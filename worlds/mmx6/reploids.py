@@ -47,8 +47,14 @@ assert [r[1] for r in REPLOIDS] == list(range(128))
 #              same session, so it is a snapshot (save-time and/or what a
 #              savestate restores), not a second live array.
 #
-# Whether an AP grant must write B as well, or whether writing A is enough and
-# the game copies, is UNTESTED. Read A; think before writing either.
+# The direction is now settled by disassembly (2026-08-25), not inferred from
+# the log: the routine at 0x8001E994 copies **A -> B**, 16 words = exactly 64
+# bytes, and no B -> A copy exists anywhere in the EXE or the overlays. So A is
+# authoritative and B is derived. Read A; never write B, which the game would
+# overwrite from A anyway.
+#
+# In practice the client writes NEITHER - Reploids are locations, not items,
+# so there is nothing to grant into this array.
 REPLOID_BLOCK = 0x800CCFA8
 REPLOID_MIRROR = 0x800CCFE8
 REPLOID_BLOCK_LEN = 64

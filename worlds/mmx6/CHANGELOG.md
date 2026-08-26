@@ -133,14 +133,18 @@ to re-latch it, which is a far gentler requirement than leaving the stage.
   against the tested image only, and X6's image is *not* Redump plus trailing
   padding the way X5's was, so the equivalence cannot be argued - it has to be
   checked against a real dump.
-- Whether the client must also write the Reploid mirror at `0x800CCFE8`.
+Nothing outstanding blocks the author from playing. What is listed above
+blocks *other players*.
 
-Two items that were on this list are now closed. There is **no fourth A1 copy
+Three items that were on this list are now closed. There is **no fourth A1 copy
 site**: offset `+0xC9` has exactly 8 stores in the whole game and every one is
 accounted for, so the three patched sources are the complete set. And the
 **High Max rule needed no change** - Shadow Armor really does zero the weapon
 capability, but armor is chosen at the stage select and bare X is always
-available, so holding the weapons is all the rule requires.
+available, so holding the weapons is all the rule requires. And the **Reploid mirror
+needs no write**: the routine at `0x8001E994` copies the live block *to* the
+mirror, 16 words, and no reverse copy exists anywhere in the game - so the
+live block is authoritative and reading it is correct.
 
 ### A note on savestates and patched discs
 

@@ -148,10 +148,14 @@ STAMP_CANDIDATES = (
 # only valid in gameplay, so a heal or refill waits for a stage rather than
 # being dropped.
 PLAYER_BASE = 0x0970A0
-PLAYER_LEN = 0xC8                      # through the last ammo slot (+0xC7)
+PLAYER_LEN = 0xCA                      # through the capability byte (+0xC9)
 OFF_P_HP = 0x5C                        # low 7 bits; bit 0x80 is a hit/heal FLAG
 OFF_P_WEAPON_IDX = 0x93                # which ammo slot the buster/weapon uses
 OFF_P_AMMO = 0xA8                      # 16 x u16, confirmed live
+# The live weapon capability. Copied from 0x800CCF30 on a vanilla disc and
+# from AP_WEAPONS on a patched one, at stage start. Read-only here - it is the
+# single best evidence that the A1 patch is actually taking effect.
+OFF_P_CAPABILITY = 0xC9
 AMMO_SLOTS = 16
 PLAYER_HP_ADDR = PLAYER_BASE + OFF_P_HP
 PLAYER_HP_MASK = 0x7F
@@ -231,6 +235,7 @@ class MMX6Client(BizHawkClient):
         # None = not yet determined (a probe during boot reads zeros).
         # False specifically means "read the exact vanilla word".
         self.ap_patched: bool | None = None
+        self.capability_logged = False
         self.withheld_logged: set[str] = set()
         # How far into ctx.items_received the filler grants have got. None
         # means "not started"; it is set to the list length on the first
@@ -643,6 +648,20 @@ class MMX6Client(BizHawkClient):
         # arriving between stages waits rather than being written into a
         # struct that is not there.
         live_player = player if screen == SCREEN_INGAME else None
+
+        # One-time confirmation that the patch is doing what it claims. On a
+        # patched disc the live capability must follow AP_WEAPONS; on vanilla
+        # it follows the kill record. Logged once per session because it is
+        # the only externally visible proof the redirect took.
+        if live_player is not None and not self.capability_logged:
+            self.capability_logged = True
+            logger.info(
+                "MMX6: live weapon capability = 0x%02X   "
+                "(kill record 0x800CCF30 = 0x%02X, AP byte 0x800CCF7B = 0x%02X, "
+                "disc = %s)",
+                live_player[OFF_P_CAPABILITY], save[OFF_BEATEN],
+                save[OFF_AP_WEAPONS],
+                "patched" if self.ap_patched else "vanilla")
         filler_writes, cursor = self._filler_grants(ctx, save, live_player)
         self.filler_cursor = cursor
         writes += filler_writes

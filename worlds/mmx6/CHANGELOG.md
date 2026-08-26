@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### The patcher now tells you when it was handed an already-patched disc
+
+Pointing the base-image setting at a disc an earlier seed produced used to get
+a bare MD5 mismatch. That is the failure that actually happens, and on the X5
+world the same uninformative refusal sent a tester deleting every X5 file he
+had. The rejection now probes the offered file at the site the patch changes
+and says which of three things went wrong:
+
+- **a disc this world already patched** — names the setting to fix, and says
+  the patched disc stays valid for the seed it belongs to;
+- **an intact X6 disc we have not tested** — a different rip;
+- **too small to be a disc at all** — a `.cue`, `.iso`, `.ecm` or an archive.
+
+An unrecognised file gets no invented explanation, just the hash mismatch. A
+confident wrong diagnosis would be worse than the bare error it replaced.
+
+Eight tests, three of them building real patched images rather than poking a
+byte, so the probe moving out from under the diagnosis would be caught.
+
+### Reploid checks: the documentation now matches the code
+
+The option claimed a check was collected "the moment you reach the Reploid".
+It is not — it is collected when the Reploid's slot leaves the untouched
+state. That is still the behaviour the option is really about, because
+"destroyed by a Nightmare" counts just as much as "rescued", so losing one
+costs you the life and never the check.
+
+The other way a check could vanish was tested rather than assumed, because the
+X5 engine gets it wrong: there, rescuing at the nine-life cap consumes the
+Reploid and records nothing, making the check uncollectable. **X6 records the
+rescue at the cap** — only the extra life is discarded. With 128 Reploid
+checks that was worth an hour to be sure of.
+
 ### Fixed: neither goal actually required beating Sigma
 
 `sigma` is documented as *"defeat Sigma, however you got there"*. It fired the
@@ -62,7 +95,7 @@ zero makes the confirm a no-op - at ROCK_X6.BIN +0x0C5B4C, resident at
   stage's codes inside the endgame those codes are needed to reach, and the
   playthrough checker still calls the seed won.
 
-170 tests (up from 132) and a 64-check release gate (up from 58). A real
+178 tests (up from 132) and a 64-check release gate (up from 58). A real
 `Generate.py` seed with the option on fills 157 items into 157 locations and
 produces a clean progression chain - `WorldTestBase` does not run fill, so that
 generation is the only thing that actually proves capacity.

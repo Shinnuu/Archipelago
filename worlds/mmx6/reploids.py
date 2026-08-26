@@ -21,8 +21,16 @@ What is NOT known yet, and why there are no coordinates here: which of a
 stage's 16 sits where. X6's placement table lives in per-stage streamed
 overlay space with no stable pointer, so positions come from the empirical
 harvest rather than an offline dump. The client does not need them to detect a
-rescue (it watches the nibble), only to detect *proximity* - which is what
-check-on-contact will eventually want. Add an `x, y` column then; the ordering
+rescue (it watches the nibble), only to detect *proximity*.
+
+Nothing needs proximity today, and the reason is worth recording so nobody
+builds it speculatively: the two hazards it would have guarded against are
+both already handled. A Reploid destroyed by a Nightmare still counts, because
+detection keys on "nibble left 0" rather than on state 2; and rescuing at the
+nine-life cap still records the rescue, tested live 2026-08-26 (X5's engine
+does NOT - see mmx6-ram-notes.md). Add an `x, y` column if some future
+feature genuinely needs positions; the ordering below is fixed and
+append-only, so ids will not move. Add an `x, y` column then; the ordering
 below is fixed and append-only, so ids will not move.
 """
 from . import names

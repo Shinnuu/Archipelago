@@ -58,8 +58,16 @@ class ReploidChecks(DefaultOnToggle):
     Nightmare that reaches one first leaves it dead or missing, and that state
     never clears. In a multiworld that would mean an item lost for good,
     possibly somebody else's progression, so the randomizer does not allow it:
-    the check is collected the moment you reach the Reploid rather than when
-    the rescue completes, and what happens to it afterwards is cosmetic.
+    a Reploid counts as checked once its slot leaves the untouched state, and
+    "destroyed" counts just as much as "rescued". Losing one to a Nightmare
+    costs you the life it would have given, never the check.
+
+    The other way a check could have gone missing does not happen here either,
+    and it was worth confirming rather than assuming, because the Mega Man X5
+    engine gets it wrong. There, rescuing at the nine-life cap consumes the
+    Reploid and records nothing, so the check becomes uncollectable. Tested
+    directly in X6: at nine lives the rescue still records, and only the extra
+    life is discarded.
     """
     display_name = "Reploid Checks"
 

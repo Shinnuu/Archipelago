@@ -63,17 +63,55 @@ def get_base_rom_path() -> str:
     return path
 
 
+def diagnose_rejected_image(data: bytes) -> str | None:
+    """Say something useful about an image that failed the hash check.
+
+    A bare "MD5 mismatch" is unhelpful in the case that actually happens most:
+    the player pointed the base-image setting at a disc a PREVIOUS seed
+    produced. On X5 that exact confusion sent a tester deleting every X5 file
+    he had, so the rejection there learned to name the cause. Same here.
+
+    Returns a sentence to append to the rejection, or None when nothing more
+    specific than "wrong file" can be said.
+    """
+    # A1's static-EXE site. Always patched on any disc this world produced,
+    # regardless of which QoL options the seed used, so one site is enough.
+    # This is the same byte the CLIENT probes in RAM.
+    site = disc.addr_to_disc(0x8003C278, disc.REGION_EXE)
+    vanilla, patched = bytes.fromhex("6000a290"), bytes.fromhex("ab00a290")
+    if len(data) < site + len(patched):
+        return ("The file is too small to be a Mega Man X6 disc image at all - "
+                "check it is the raw 2352-byte .bin and not a .cue, .iso, .ecm "
+                "or an archive.")
+    here = data[site:site + len(patched)]
+    if here == patched:
+        return ("That file is a disc THIS WORLD ALREADY PATCHED, from an "
+                "earlier seed. Point the `mmx6_options` base-image setting at "
+                "your original unpatched disc instead - patching a patched "
+                "disc is never what you want, and the patched one stays valid "
+                "for the seed it belongs to.")
+    if here == vanilla:
+        return ("The bytes this world patches are intact, so this looks like a "
+                "Mega Man X6 disc - just not a dump we have tested. Expected "
+                "the Redump 'Mega Man X6 (USA) (Rev 1)' rip.")
+    return None
+
+
 def get_base_rom_bytes() -> bytes:
     path = get_base_rom_path()
     with open(path, "rb") as f:
         data = f.read()
     digest = hashlib.md5(data).hexdigest()
     if digest not in ACCEPTED_HASHES:
-        raise ValueError(
+        message = (
             f"Mega Man X6: supplied disc image has MD5 {digest}, which this "
             f"world has not been tested against. Expected the Redump "
             f"'Mega Man X6 (USA) (Rev 1)' dump, {HASH_US_REDUMP} (raw "
             f"2352-byte .bin).")
+        detail = diagnose_rejected_image(data)
+        if detail:
+            message += chr(10) + chr(10) + detail
+        raise ValueError(message)
     return data
 
 

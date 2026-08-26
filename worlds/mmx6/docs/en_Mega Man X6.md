@@ -1,9 +1,8 @@
 # Mega Man X6
 
 > **Testing release.** Generation, the disc patch and the game client all work,
-> and the whole stack has been played. Disc support is currently verified
-> against a single image, so check the hash in the setup guide before
-> generating — patching refuses to run on anything else.
+> and the whole stack has been played. You need the standard Redump dump of
+> Mega Man X6 (USA) (Rev 1) — see the setup guide.
 
 ## What does randomization do to this game?
 

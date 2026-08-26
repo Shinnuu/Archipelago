@@ -11,10 +11,17 @@ import os
 import unittest
 
 from .. import disc
-from ..Rom import ACCEPTED_HASHES, HASH_US
+from ..Rom import ACCEPTED_HASHES, HASH_US_DEV, HASH_US_REDUMP
 
 ROM = r"C:\Users\Ivor\Documents\Game Modding\Games\Megaman X6\Megaman X6.bin"
 have_rom = os.path.exists(ROM)
+
+# The canonical Redump dump. Not required - it is a second,
+# independently sourced image, there to prove the offsets are not an
+# accident of the development copy - so these tests skip when absent.
+REDUMP = (r"C:\Users\Ivor\Documents\Game Modding\Games\redump-rev1"
+          r"\Mega Man X6 (USA) (Rev 1)\Mega Man X6 (USA) (Rev 1).bin")
+have_redump = os.path.exists(REDUMP)
 
 
 class TestGeometry(unittest.TestCase):
@@ -87,8 +94,8 @@ class TestAgainstTheRealDisc(unittest.TestCase):
                           "image; close other large applications")
 
     def test_the_accepted_hash_is_this_image(self) -> None:
-        self.assertEqual(hashlib.md5(self.rom).hexdigest(), HASH_US)
-        self.assertIn(HASH_US, ACCEPTED_HASHES)
+        self.assertEqual(hashlib.md5(self.rom).hexdigest(), HASH_US_DEV)
+        self.assertIn(HASH_US_DEV, ACCEPTED_HASHES)
 
     def test_every_a1_site_holds_the_vanilla_bytes_we_expect(self) -> None:
         for label, where, region, van, _pat in disc.A1_EDITS:
@@ -134,3 +141,47 @@ class TestAgainstTheRealDisc(unittest.TestCase):
         first = hashlib.md5(self.patch()).hexdigest()
         second = hashlib.md5(self.patch()).hexdigest()
         self.assertEqual(first, second)
+
+
+@unittest.skipUnless(have_redump, "Redump (USA) (Rev 1) image not present")
+class TestAgainstTheRedumpImage(unittest.TestCase):
+    """The patch must work on the dump players actually have, not just ours.
+
+    This is the check that retired the single-hash restriction. Every offset
+    was derived on the development image, so until a second, independently
+    sourced image was patched they were only ever known-good on one file.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._fh = open(REDUMP, "rb")
+        cls.rom = mmap.mmap(cls._fh.fileno(), 0, access=mmap.ACCESS_READ)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.rom.close()
+        cls._fh.close()
+
+    def test_it_is_the_redump_dump_we_claim_support_for(self) -> None:
+        self.assertEqual(hashlib.md5(self.rom).hexdigest(), HASH_US_REDUMP)
+        self.assertIn(HASH_US_REDUMP, ACCEPTED_HASHES)
+
+    def test_every_a1_site_holds_the_vanilla_bytes_we_expect(self) -> None:
+        for label, where, region, van, _pat in disc.A1_EDITS:
+            off = disc.addr_to_disc(where, region)
+            self.assertEqual(bytes(self.rom[off:off + len(van)]), van, label)
+
+    def test_the_patch_touches_the_same_three_sectors(self) -> None:
+        try:
+            out = disc.apply_basepatch(self.rom)
+        except MemoryError:
+            self.skipTest("not enough memory to hold two copies of a 600MB "
+                          "image; close other large applications")
+        self.assertEqual(len(out), len(self.rom))
+        sectors = [n for n in range(len(out) // disc.SECTOR_RAW)
+                   if out[n * disc.SECTOR_RAW:(n + 1) * disc.SECTOR_RAW]
+                   != self.rom[n * disc.SECTOR_RAW:(n + 1) * disc.SECTOR_RAW]]
+        self.assertEqual(sectors, [211019, 211021, 211614])
+        for where, payload, region in disc.BASE_EDITS:
+            for i, b in enumerate(payload):
+                self.assertEqual(out[disc.addr_to_disc(where + i, region)], b)

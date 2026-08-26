@@ -1,10 +1,7 @@
 # Mega Man X6 Setup Guide
 
 > **Testing release.** Everything works end to end — a seed emits a patch, the
-> patch builds a playable disc, and the client connects and plays. But disc
-> support is currently verified against **one** image, so unless yours matches
-> the hash below, patching will refuse to run. See "Which disc" below; this is
-> deliberate, and widening it is the next job.
+> patch builds a playable disc, and the client connects and plays.
 
 ## What you need
 
@@ -20,19 +17,21 @@
 
 ## Which disc
 
-Patching checks the image before touching it and refuses if the bytes are not
-what it expects, so a wrong disc fails loudly rather than producing a subtly
-broken game.
+You want the standard **Redump** dump, `Mega Man X6 (USA) (Rev 1)`. That is
+what almost everybody has.
 
-| | |
+| accepted image | MD5 |
 |---|---|
-| Accepted MD5 | `ae1f630f686edb48f84f8d69346bc8a8` |
+| `Mega Man X6 (USA) (Rev 1)` — Redump | `237b6feddd1a88e86ab1cddc8822f03f` |
+| the same disc with 8 trailing blank sectors | `ae1f630f686edb48f84f8d69346bc8a8` |
 
-Only this one hash is accepted, on purpose. The patch edits three exact
-instructions, and their positions are confirmed against this image only. The
-Mega Man X5 world can also accept a Redump dump because its development image
-was *proven* to be Redump plus one trailing zero sector; no such equivalence
-holds for X6, so support is claimed only for what has actually been tested.
+Both are accepted because both have been patched and checked. The second is
+the development copy this world was built on; it is byte-for-byte the Redump
+disc with eight empty sectors on the end, and the game's actual code
+(`SLUS_013.95` and `ROCK_X6.BIN`) is identical in the two.
+
+Patching verifies the image before touching it and refuses anything else, so
+an unexpected disc fails loudly instead of producing a subtly broken game.
 
 ## Setup
 

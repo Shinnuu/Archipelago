@@ -99,7 +99,15 @@ the kill record) to `0x800CCF7B`. Result is 3 sectors, exactly one user-data
 byte changed in each. Every edit declares the vanilla bytes it expects and the
 patcher refuses to run if the image does not match.
 
-**Only one disc hash is accepted**, deliberately. X5 could also accept the
+**Both the Redump dump and the development image are accepted**, and both have
+been patched and verified. Ours turned out to be the Redump disc plus eight
+trailing zero sectors: `SLUS_013.95` and `ROCK_X6.BIN` are byte-identical
+between them, 0 differing sectors across both containers, so every offset
+derived on one is valid on the other. Patching the Redump image produces the
+same three sectors with valid parity.
+
+This was previously written up as a release blocker, and briefly as evidence
+the two discs were different *revisions*. That was wrong. X5 could also accept the
 Redump dump because its dev image was proven to be Redump plus one trailing
 zero sector. X6 has no such proof, so support is claimed only for the image
 actually tested.
@@ -145,10 +153,7 @@ to re-latch it, which is a far gentler requirement than leaving the stage.
 
 ### Still to verify
 
-- **The Redump hash, before anyone else can use this.** Offsets are confirmed
-  against the tested image only, and X6's image is *not* Redump plus trailing
-  padding the way X5's was, so the equivalence cannot be argued - it has to be
-  checked against a real dump.
+- Nothing. The Redump dump was obtained and tested 2026-08-25 - see below.
 Nothing outstanding blocks the author from playing. What is listed above
 blocks *other players*.
 

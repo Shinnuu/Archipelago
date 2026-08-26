@@ -28,22 +28,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger()
 
-# MD5 of the raw 2352-byte NTSC-U image this patch is built and tested against.
+# MD5s of the raw 2352-byte NTSC-U images this patch is built and tested
+# against. BOTH are verified, 2026-08-25, by actually patching them.
 #
-# ONLY ONE HASH IS ACCEPTED, deliberately. X5 could accept the Redump dump as
-# well because its dev image was proven to be Redump plus exactly one trailing
-# zero sector, leaving every offset valid. X6 has NO such proof: trimming 1, 2,
-# 4, 8 or 16 trailing sectors from our image does not reproduce the Redump
-# hash, so the two differ somewhere unidentified.
+# Redump "Mega Man X6 (USA) (Rev 1)" is the canonical dump and what players
+# will almost always have. The development image is that same disc plus eight
+# trailing ZERO sectors, with the only other differences confined to ISO
+# filesystem metadata (sectors 16, 22-24) and a handful of data sectors around
+# 222000 - none of which any patch touches.
 #
-# The difference is very likely harmless - our patch touches sectors
-# 211019-211614, while ZNULL.DAT filler begins at LBA 236858, far past them -
-# but "very likely" is not "verified". Add the Redump hash only after actually
-# patching a Redump image and confirming the edits land, exactly as
-# verify_release.py does for X5. Until then, claim support only for what is
-# tested.
-HASH_US = "ae1f630f686edb48f84f8d69346bc8a8"
-ACCEPTED_HASHES = {HASH_US}
+# What matters, and what was measured rather than assumed: SLUS_013.95 and
+# ROCK_X6.BIN are **byte-identical between the two images**, 0 differing
+# sectors across both containers. So every disc offset derived on one is valid
+# on the other, and patching the Redump image produces exactly the same three
+# sectors with valid EDC/ECC. verify_release.py re-proves this on every run.
+HASH_US_REDUMP = "237b6feddd1a88e86ab1cddc8822f03f"   # (USA) (Rev 1), canonical
+HASH_US_DEV = "ae1f630f686edb48f84f8d69346bc8a8"      # Redump + 8 zero sectors
+ACCEPTED_HASHES = {HASH_US_REDUMP, HASH_US_DEV}
+HASH_US = HASH_US_REDUMP    # kept for callers importing the old name
 
 
 class MMX6Settings(settings.Group):
@@ -69,8 +71,9 @@ def get_base_rom_bytes() -> bytes:
     if digest not in ACCEPTED_HASHES:
         raise ValueError(
             f"Mega Man X6: supplied disc image has MD5 {digest}, which this "
-            f"world has not been tested against. Expected {HASH_US} (raw "
-            f"2352-byte NTSC-U .bin).")
+            f"world has not been tested against. Expected the Redump "
+            f"'Mega Man X6 (USA) (Rev 1)' dump, {HASH_US_REDUMP} (raw "
+            f"2352-byte .bin).")
     return data
 
 

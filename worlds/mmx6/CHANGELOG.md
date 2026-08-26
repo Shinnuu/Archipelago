@@ -5,8 +5,9 @@
 Generation, logic, the BizHawkClient and the disc patch are all wired. A seed
 emits a `.apmmx6` patch which produces a playable disc.
 
-**Not yet run.** The patched disc has never been booted - see "still to verify"
-at the end.
+**The patched disc has been booted and the patch proven in a running game.**
+See "proven live" below. What remains is support for discs other than the one
+tested - see "still to verify" at the end.
 
 - World, items, locations, options and reachability rules, following the
   Mega Man X5 world's structure.
@@ -103,9 +104,50 @@ Redump dump because its dev image was proven to be Redump plus one trailing
 zero sector. X6 has no such proof, so support is claimed only for the image
 actually tested.
 
+### The A1 patch, proven live
+
+The one thing the offline tests could never establish is whether the patch
+does in a running game what the disassembly says it does. It does.
+
+Sequence: patched disc booted, save loaded with **no stages cleared**, a stage
+entered, and `Ray Arrow` sent from the server. The client wrote `0x80` to
+`0x800CCF7B`. The live capability then read:
+
+```
+disc is AP-PATCHED (probe at 0x8003C278 read ab00a290)
+live weapon capability = 0x80
+  kill record 0x800CCF30 = 0x00, AP byte 0x800CCF7B = 0x80
+```
+
+The capability followed **AP's byte, not the kill record** - a usable special
+weapon at zero Mavericks beaten, which vanilla X6 structurally cannot produce,
+because there the two facts are the same byte.
+
+Also established: the capability is **latched at stage start**, so a freshly
+granted weapon does not appear until the stage reloads - and **dying is enough**
+to re-latch it, which is a far gentler requirement than leaving the stage.
+
 ### Still to verify
 
-- **Nothing has booted the patched disc.** Expected behaviour: weapons absent
-  until AP grants them, kills still recorded, Shadow Armor still weaponless.
-- The Redump hash, before anyone else can use this.
+- **The Redump hash, before anyone else can use this.** Offsets are confirmed
+  against the tested image only, and X6's image is *not* Redump plus trailing
+  padding the way X5's was, so the equivalence cannot be argued - it has to be
+  checked against a real dump.
+- **A fourth A1 copy site, if one exists.** Three were found and patched. One
+  hiding in overlay code the resolver did not reach would leave some weapon
+  check reading vanilla; the live test could not have caught that, since the
+  single weapon granted did appear.
 - Whether the client must also write the Reploid mirror at `0x800CCFE8`.
+- The endgame rule for High Max wants a charged special weapon, but Shadow
+  Armor zeroes the weapon capability. Logic may promise what that armor cannot
+  deliver.
+
+### A note on savestates and patched discs
+
+Savestates carry the full 2MB of RAM, **including code**. A state taken on a
+vanilla disc therefore restores vanilla code over a patched EXE, and the patch
+appears to have vanished. This is not a general hazard and X5 never hit it,
+because X5's states were always made on the disc they belonged to. It only
+arises when a state crosses a patch boundary - which is exactly what save
+migration enables. Migrate for convenience; when *verifying* a patch, reload
+the ROM and load from the memcard.

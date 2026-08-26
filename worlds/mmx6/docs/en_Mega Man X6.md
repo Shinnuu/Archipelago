@@ -1,9 +1,9 @@
 # Mega Man X6
 
-> **This world is not playable yet.** Generation and logic work, but the disc
-> patch and the game client have not been written, so a seed produces no patch
-> file and there is nothing to connect to Archipelago with. It is here so the
-> item and location layout can be reviewed and tested early.
+> **Testing release.** Generation, the disc patch and the game client all work,
+> and the whole stack has been played. Disc support is currently verified
+> against a single image, so check the hash in the setup guide before
+> generating — patching refuses to run on anything else.
 
 ## What does randomization do to this game?
 
@@ -60,3 +60,14 @@ Archipelago is concerned.
 
 Nothing is changed visually yet. Picking up an item that belongs to someone
 else grants nothing locally and sends it to its owner.
+
+## Special weapons work differently here
+
+In the base game, beating a Maverick and gaining its weapon are the same fact
+in the same byte, which is why a randomizer cannot simply hand you a weapon
+without also claiming you beat its boss. The patch separates them, so weapons
+become real multiworld items and can arrive in any order.
+
+One consequence you will notice: the game latches your weapon list when a stage
+starts, so a weapon received mid-stage is not selectable immediately. Dying
+re-latches it, so you never have to leave the stage to pick it up.

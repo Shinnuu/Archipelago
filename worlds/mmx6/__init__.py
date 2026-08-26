@@ -268,6 +268,17 @@ class MMX6World(World):
         # arbitrary: High Max only takes damage from a fully charged special
         # weapon.
         #
+        # Shadow Armor is NOT a counterexample to that, though it looks like
+        # one: the game really does zero the weapon capability while Shadow is
+        # equipped, verified in the disassembly as
+        #   lbu a0, 0x5e(save)  /  bne a0, 2  /  sb zero, 0xc9(player)
+        # so a player in Shadow has no special weapons and cannot damage High
+        # Max. It costs nothing here because armor is a CHOICE made at the
+        # stage select and applied at stage start, not a permanent state, and
+        # bare X is always available. Holding the weapons is what the rule
+        # asks for, and a player holding them can always wear something else.
+        # Do not weaken this rule on Shadow's account.
+        #
         # Stricter is safe - it only narrows placement, it can never strand
         # progression - as long as every boss stays reachable without items,
         # which holds today because all eight stages are open from the start.

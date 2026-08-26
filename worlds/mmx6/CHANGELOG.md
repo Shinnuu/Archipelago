@@ -133,14 +133,14 @@ to re-latch it, which is a far gentler requirement than leaving the stage.
   against the tested image only, and X6's image is *not* Redump plus trailing
   padding the way X5's was, so the equivalence cannot be argued - it has to be
   checked against a real dump.
-- **A fourth A1 copy site, if one exists.** Three were found and patched. One
-  hiding in overlay code the resolver did not reach would leave some weapon
-  check reading vanilla; the live test could not have caught that, since the
-  single weapon granted did appear.
 - Whether the client must also write the Reploid mirror at `0x800CCFE8`.
-- The endgame rule for High Max wants a charged special weapon, but Shadow
-  Armor zeroes the weapon capability. Logic may promise what that armor cannot
-  deliver.
+
+Two items that were on this list are now closed. There is **no fourth A1 copy
+site**: offset `+0xC9` has exactly 8 stores in the whole game and every one is
+accounted for, so the three patched sources are the complete set. And the
+**High Max rule needed no change** - Shadow Armor really does zero the weapon
+capability, but armor is chosen at the stage select and bare X is always
+available, so holding the weapons is all the rule requires.
 
 ### A note on savestates and patched discs
 

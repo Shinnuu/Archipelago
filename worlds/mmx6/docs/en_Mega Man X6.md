@@ -71,3 +71,10 @@ become real multiworld items and can arrive in any order.
 One consequence you will notice: the game latches your weapon list when a stage
 starts, so a weapon received mid-stage is not selectable immediately. Dying
 re-latches it, so you never have to leave the stage to pick it up.
+
+**Shadow Armor still cannot use special weapons.** That is a real Mega Man X6
+rule and it is left alone, so if you are wearing Shadow you have no special
+weapons no matter what Archipelago has sent you. Nothing is lost — pick a
+different armor at the stage select and they come back. It is worth knowing
+before you walk into High Max, who only takes damage from a charged special
+weapon.

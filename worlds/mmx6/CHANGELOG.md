@@ -104,6 +104,22 @@ Redump dump because its dev image was proven to be Redump plus one trailing
 zero sector. X6 has no such proof, so support is claimed only for the image
 actually tested.
 
+### An Extra Life at the cap is no longer eaten
+
+`min(cap, lives + 1)` is a no-op at 9 lives, but the cursor advanced anyway,
+so an Extra Life arriving on a full stock silently vanished - somebody else's
+item, gone. It is now banked and paid out the moment the player spends a life.
+
+Banked rather than stalled on purpose: the filler cursor is strictly
+sequential, so blocking on a full life stock would hold every heal queued
+behind it hostage until the player happened to die. Both behaviours are
+tested, and the tests were checked against the old code to confirm they
+actually catch it.
+
+The cap itself is now evidence rather than assumption: across 38 transitions
+of the lives byte in a recorded session it reached 9 eight separate times and
+never 10.
+
 ### The A1 patch, proven live
 
 The one thing the offline tests could never establish is whether the patch

@@ -174,7 +174,9 @@ LARGE_WEAPON_FRACTION = 2              # 1/2 of the max
 # gradually (~1 HP per 2 frames) but never how much each capsule is worth.
 SMALL_LIFE_HEAL = 4
 LARGE_LIFE_HEAL = 16
-LIVES_CAP = 9                          # engine clamp assumed, not verified
+# Observed, not assumed: across 38 transitions of this byte in a recorded
+# play session the stock reached 9 eight separate times and never 10.
+LIVES_CAP = 9
 
 # ---- AP disc patch ----------------------------------------------------------
 # The A1 patch redirects the weapon capability away from 0x800CCF30 (which is
@@ -241,6 +243,12 @@ class MMX6Client(BizHawkClient):
         # means "not started"; it is set to the list length on the first
         # trusted poll, so filler already in hand at connect is skipped.
         self.filler_cursor: int | None = None
+        # Extra Lives that arrived while the stock was already at the cap.
+        # Held rather than consumed: the cursor is strictly sequential, so
+        # stalling on a full stock would also hold up every heal behind it,
+        # and a life the player cannot receive yet is not a life they should
+        # lose. Paid out as soon as the stock drops.
+        self.pending_lives: int = 0
 
     # ---- identification ----------------------------------------------------
 
@@ -508,7 +516,10 @@ class MMX6Client(BizHawkClient):
         while cursor < len(ctx.items_received):
             name = lookup(ctx.items_received[cursor].item)
             if name == names.EXTRA_LIFE:
-                lives = min(LIVES_CAP, lives + 1)
+                if lives >= LIVES_CAP:
+                    self.pending_lives += 1     # bank it, do not eat it
+                else:
+                    lives += 1
             elif name in (names.SMALL_LIFE_ENERGY, names.LARGE_LIFE_ENERGY):
                 if hp is None:
                     break          # no live player block - wait for a stage
@@ -523,6 +534,11 @@ class MMX6Client(BizHawkClient):
                             else LARGE_WEAPON_FRACTION)
                 ammo = min(ammo_cap, ammo + max(1, ammo_cap // fraction))
             cursor += 1
+
+        # Pay out anything banked earlier, now that there may be room.
+        while self.pending_lives and lives < LIVES_CAP:
+            lives += 1
+            self.pending_lives -= 1
 
         if lives != save[OFF_LIVES]:
             writes.append((SAVE_BASE + OFF_LIVES, bytes([lives])))

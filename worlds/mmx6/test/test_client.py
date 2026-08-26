@@ -432,6 +432,39 @@ class TestFiller(unittest.TestCase):
         self.run_filler(ctx, self.player_block())
         self.assertEqual(self.save[OFF_LIVES], LIVES_CAP)
 
+    def test_a_life_received_at_the_cap_is_banked_not_eaten(self) -> None:
+        # The old behaviour silently absorbed it: min(cap, lives+1) is a no-op
+        # at the cap, but the cursor advanced anyway, so somebody's item just
+        # vanished. It must be paid out once the player spends a life.
+        self.save[OFF_LIVES] = LIVES_CAP
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, self.player_block())
+        ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
+        self.run_filler(ctx, self.player_block())
+        self.assertEqual(self.save[OFF_LIVES], LIVES_CAP, "cap was exceeded")
+
+        self.save[OFF_LIVES] = LIVES_CAP - 2          # the player died twice
+        self.run_filler(ctx, self.player_block())
+        self.assertEqual(self.save[OFF_LIVES], LIVES_CAP - 1,
+                         "the banked life was never paid out")
+
+        for _ in range(4):                            # and only once
+            self.run_filler(ctx, self.player_block())
+        self.assertEqual(self.save[OFF_LIVES], LIVES_CAP - 1)
+
+    def test_a_life_at_the_cap_does_not_stall_later_filler(self) -> None:
+        # The cursor is strictly sequential, so if a full life stock blocked
+        # it, every heal queued behind the life would be held hostage until
+        # the player happened to die. Banking is what avoids that.
+        self.save[OFF_LIVES] = LIVES_CAP
+        ctx = FakeCtx(items=[])
+        self.run_filler(ctx, self.player_block())
+        ctx.items_received.append(FakeItem(names.EXTRA_LIFE))
+        ctx.items_received.append(FakeItem(names.LARGE_LIFE_ENERGY))
+        writes = self.run_filler(ctx, self.player_block(hp=1))
+        self.assertTrue([w for w in writes if w[0] == PLAYER_HP_ADDR],
+                        "the heal behind a capped Extra Life never landed")
+
     def test_a_heal_waits_for_a_stage_instead_of_being_lost(self) -> None:
         # player_hp None means there is no live player block - between stages,
         # or on the Mission Report. The item must not be consumed there.

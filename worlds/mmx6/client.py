@@ -250,6 +250,12 @@ class MMX6Client(BizHawkClient):
         if sig != EXE_SIG:
             return False
         self.ap_patched = self._classify_probe(probe)
+        logger.info(
+            "MMX6: disc is %s (probe at 0x%08X read %s)",
+            {True: "AP-PATCHED - weapons will be granted",
+             False: "VANILLA - weapons come from beating Mavericks",
+             None: "UNDETERMINED, will re-probe in game"}[self.ap_patched],
+            0x80000000 + PATCH_PROBE_ADDR, probe.hex())
 
         ctx.game = self.game
         ctx.items_handling = 0b111   # remote items, own-world items, start inv
@@ -594,6 +600,21 @@ class MMX6Client(BizHawkClient):
             ])
         except bizhawk.RequestFailedError:
             return
+
+        if self.ap_patched is None:
+            # validate_rom can run while the EXE is still streaming in from
+            # disc, so an undetermined probe must be retried rather than
+            # treated as vanilla - the difference decides whether weapons are
+            # granted for the entire session.
+            try:
+                (probe,) = await bizhawk.read(
+                    ctx.bizhawk_ctx, [(PATCH_PROBE_ADDR, 4, "MainRAM")])
+            except bizhawk.RequestFailedError:
+                return
+            self.ap_patched = self._classify_probe(probe)
+            if self.ap_patched is not None:
+                logger.info("MMX6: disc resolved to %s",
+                            "AP-PATCHED" if self.ap_patched else "VANILLA")
 
         screen = save[OFF_SCREEN]
         on_trusted_screen = screen in TRUSTED_SCREENS

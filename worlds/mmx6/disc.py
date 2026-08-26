@@ -147,14 +147,17 @@ def apply_basepatch(rom: bytes,
     run if the image does not match, so a wrong offset or an unexpected dump
     fails loudly rather than corrupting code.
     """
-    image = bytearray(rom)
+    # Validate BEFORE copying. Refusing a wrong image should not first cost a
+    # 600MB allocation - on a machine short of memory that turns a clean
+    # "this is the wrong disc" into a MemoryError, which says nothing useful.
     for label, where, region, expect, _patched in A1_EDITS:
         base = addr_to_disc(where, region)
-        got = bytes(image[base:base + len(expect)])
+        got = bytes(rom[base:base + len(expect)])
         if got != expect:
             raise ValueError(
                 f"refusing to patch {label}: expected {expect.hex()}, "
                 f"image has {got.hex()}")
+    image = bytearray(rom)
     touched: dict[int, None] = {}
     for where, payload, region in list(BASE_EDITS) + list(extra_edits):
         for i, b in enumerate(payload):

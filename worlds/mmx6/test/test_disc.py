@@ -6,6 +6,7 @@ this world that cannot be checked from source alone, and a silent pass would
 be worse than a skip.
 """
 import hashlib
+import mmap
 import os
 import unittest
 
@@ -58,8 +59,32 @@ class TestGeometry(unittest.TestCase):
 class TestAgainstTheRealDisc(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        with open(ROM, "rb") as f:
-            cls.rom = f.read()
+        # Memory-mapped rather than read. The image is 600MB and patching it
+        # needs two more copies; reading a third into the fixture pushed peak
+        # use past what this machine can COMMIT (not past its physical RAM)
+        # whenever other large applications are open, and the tests then died
+        # with MemoryError - which reads as a patch regression when nothing is
+        # wrong. A mapping is file-backed and costs no commit, and bytes(...)
+        # of a slice behaves identically for every assertion here.
+        cls._fh = open(ROM, "rb")
+        cls.rom = mmap.mmap(cls._fh.fileno(), 0, access=mmap.ACCESS_READ)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.rom.close()
+        cls._fh.close()
+
+    def patch(self):
+        """apply_basepatch, or skip if the machine cannot spare the memory.
+
+        A check that could not RUN must not be reported as a check that
+        FAILED - that is how a release gate learns to cry wolf.
+        """
+        try:
+            return disc.apply_basepatch(self.rom)
+        except MemoryError:
+            self.skipTest("not enough memory to hold two copies of a 600MB "
+                          "image; close other large applications")
 
     def test_the_accepted_hash_is_this_image(self) -> None:
         self.assertEqual(hashlib.md5(self.rom).hexdigest(), HASH_US)
@@ -71,7 +96,7 @@ class TestAgainstTheRealDisc(unittest.TestCase):
             self.assertEqual(bytes(self.rom[off:off + len(van)]), van, label)
 
     def test_the_patch_touches_three_sectors_and_one_byte_in_each(self) -> None:
-        out = disc.apply_basepatch(self.rom)
+        out = self.patch()
         self.assertEqual(len(out), len(self.rom))
 
         # Compare sector by sector rather than byte by byte. The obvious
@@ -99,13 +124,13 @@ class TestAgainstTheRealDisc(unittest.TestCase):
                                f"sector {sec} has no parity change")
 
     def test_patching_an_already_patched_image_is_refused(self) -> None:
-        out = disc.apply_basepatch(self.rom)
+        out = self.patch()
         with self.assertRaises(ValueError):
             disc.apply_basepatch(out)
 
     def test_the_patch_is_deterministic(self) -> None:
         # Hash rather than compare: two 600MB results plus the source held at
         # once is 1.8GB for an assertion that a 32-byte digest settles.
-        first = hashlib.md5(disc.apply_basepatch(self.rom)).hexdigest()
-        second = hashlib.md5(disc.apply_basepatch(self.rom)).hexdigest()
+        first = hashlib.md5(self.patch()).hexdigest()
+        second = hashlib.md5(self.patch()).hexdigest()
         self.assertEqual(first, second)

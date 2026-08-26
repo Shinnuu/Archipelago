@@ -202,6 +202,37 @@ OFF_AP_WEAPONS = _off(AP_WEAPONS)
 GOAL_SIGMA = 0
 GOAL_ALL_MAVERICKS = 1
 
+# ---- Stage unlocks -----------------------------------------------------------
+# The stage-select overlay turns a cursor slot into a stage id through an
+# 8-byte table and refuses to act on a zero, exactly like X5's hub:
+#
+#   zero the slot -> confirming that icon does nothing, and the icon greys out
+#
+# Researched live 2026-08-26. The table is ROCK_X6.BIN +0x0C5B4C, resident at
+# 0x800F0BAC (container -> RAM delta 0x8002B060, agreed on by three separate
+# rows). Two more rows follow it, and they are the SAME table re-encoded - the
+# second 0-based, the third that one's inverse. Only the first gates entry:
+# each was zeroed on its own and the stage tried. DO NOT write the other two.
+SLOT_TABLE = names.SLOT_TABLE_ADDR - 0x80000000
+SLOT_TO_STAGE_ID = names.SLOT_TO_STAGE_ID
+STAGE_ID_TO_NAME = {i + 1: stage for i, stage in enumerate(names.STAGES)}
+
+# Residency anchor: the two rows we never write. They are constants, so reading
+# their vanilla values proves the stage-select overlay is what is mapped there.
+# The table is reloaded from disc on every hub entry, so the lock has to be
+# re-asserted every cycle rather than written once - and writing 8 bytes into
+# whatever module happens to occupy that address in a stage would be corruption.
+SLOT_ANCHOR = names.SLOT_TABLE_ANCHOR_ADDR - 0x80000000
+SLOT_ANCHOR_BYTES = names.SLOT_TABLE_ANCHOR
+
+# A blocked confirm stores the stage id BEFORE the game tests it for zero, so
+# it leaves 0x800CCEDC reading 0000 with the player still in the hub. In that
+# encoding 0000 is the INTRO STAGE and vanilla never writes it there, so an
+# in-hub save would commit it. Observed four times in the research session.
+HUB_STAGE_INDEX = names.HUB_STAGE_INDEX
+STAGE_SELECT_SCREENS = frozenset(names.STAGE_SELECT_SCREENS)
+
+
 
 class MMX6Client(BizHawkClient):
     game = "Mega Man X6"
@@ -249,6 +280,10 @@ class MMX6Client(BizHawkClient):
         # and a life the player cannot receive yet is not a life they should
         # lose. Paid out as soon as the stock drops.
         self.pending_lives: int = 0
+        # Last slot table written, so the log fires on change rather
+        # than every poll. None means "not in the hub as far as we know".
+        self.slot_table_written: bytes | None = None
+        self.stages_unlocked_logged: set[str] = set()
 
     # ---- identification ----------------------------------------------------
 
@@ -599,6 +634,70 @@ class MMX6Client(BizHawkClient):
                     len(fresh))
         return found - self.sent_locations - checked - self.baseline_held
 
+    # ---- stage unlocks -------------------------------------------------------
+
+    async def _stage_unlocks_apply(self, ctx: "BizHawkClientContext",
+                                   screen: int) -> None:
+        """Hold locked slots at 0 in the stage-select slot -> stage-id table.
+
+        Re-asserted every cycle: the table is overlay data reloaded from disc
+        on every hub entry, and a savestate can swap it under us too. Guarded
+        by the anchor so we never write into whatever module occupies that
+        address while a stage is loaded.
+        """
+        if not (ctx.slot_data or {}).get("stage_unlocks", 0):
+            return
+        try:
+            anchor, table = await bizhawk.read(ctx.bizhawk_ctx, [
+                (SLOT_ANCHOR, len(SLOT_ANCHOR_BYTES), "MainRAM"),
+                (SLOT_TABLE, len(SLOT_TO_STAGE_ID), "MainRAM"),
+            ])
+        except bizhawk.RequestFailedError:
+            return
+        if bytes(anchor) != SLOT_ANCHOR_BYTES:
+            # Not the stage-select overlay. Forget what we wrote so the next
+            # hub entry is treated as fresh - the reload restores vanilla.
+            self.slot_table_written = None
+            return
+
+        unlocked = {name for name in
+                    (ctx.item_names.lookup_in_game(item.item)
+                     for item in ctx.items_received)
+                    if name in names.ACCESS_ITEMS}
+        want = bytes(
+            sid if names.access_item(STAGE_ID_TO_NAME[sid]) in unlocked else 0
+            for sid in SLOT_TO_STAGE_ID)
+
+        writes = []
+        if bytes(table) != want:
+            writes.append((SLOT_TABLE, list(want), "MainRAM"))
+
+        # Put the hub id back after a blocked confirm. Only ever 0000 -> 0x0D,
+        # and only on a stage-select screen, so this can never overwrite a real
+        # destination the game just chose.
+        if screen in STAGE_SELECT_SCREENS:
+            try:
+                (idx,) = await bizhawk.read(
+                    ctx.bizhawk_ctx, [(SAVE_BASE + OFF_STAGE_IDX, 2, "MainRAM")])
+            except bizhawk.RequestFailedError:
+                idx = None
+            if idx is not None and idx[0] == 0 and idx[1] == 0:
+                writes.append((SAVE_BASE + OFF_STAGE_IDX,
+                               [HUB_STAGE_INDEX], "MainRAM"))
+
+        if writes:
+            await bizhawk.write(ctx.bizhawk_ctx, writes)
+
+        if self.slot_table_written != want:
+            self.slot_table_written = want
+            newly = unlocked - self.stages_unlocked_logged
+            if newly:
+                self.stages_unlocked_logged |= newly
+                logger.info(
+                    "MMX6: stages unlocked (%d/8): %s", len(unlocked),
+                    ", ".join(sorted(n.removesuffix(" Access Codes")
+                                     for n in unlocked)))
+
     # ---- the watcher -------------------------------------------------------
 
     def _check_signature(self, save: bytes) -> bytes:
@@ -644,6 +743,17 @@ class MMX6Client(BizHawkClient):
         trusted = on_trusted_screen and stable and self.last_poll_trusted
         self.last_check_sig = signature
         self.last_poll_trusted = on_trusted_screen
+
+        # Stage unlocks run BEFORE the trust gate, and have to: the stage
+        # select is not a trusted screen (only gameplay and the Mission Report
+        # are), so gating this on `trusted` would mean it never ran at all.
+        # Safe to do so - this is the inverse of granting. It writes only
+        # overlay data that reloads from disc on the next hub entry, it is
+        # guarded by an anchor proving the right module is mapped, and the
+        # worst a wrong save could suffer is stages it cannot enter until it
+        # leaves the hub.
+        await self._stage_unlocks_apply(ctx, screen)
+
         if not trusted:
             return
 

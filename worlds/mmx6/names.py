@@ -58,6 +58,44 @@ STAGE_INDEX = {stage: i + 1 for i, stage in enumerate(STAGES)}
 # Reploid index block owned by each stage (16 each, 128 total).
 STAGE_REPLOIDS = {stage: range(i * 16, i * 16 + 16) for i, stage in enumerate(STAGES)}
 
+# ---- Stage access -------------------------------------------------------
+# The stage-select overlay turns a cursor slot into a stage id through an
+# 8-byte table, and refuses to act on a zero - the same shape X5's hub uses.
+#
+# Pinned live 2026-08-26: the table is at RAM 0x800F0BAC, which is
+# ROCK_X6.BIN +0x0C5B4C plus a container->RAM delta of 0x8002B060 (three
+# separate rows agreed on that delta). SLOT_TO_STAGE_ID is its vanilla
+# contents; index = cursor slot, value = the stage id the confirm loads.
+#
+# TWO MORE ROWS sit immediately after it, at 0x800F0BB4 and 0x800F0BBC, and
+# they are the SAME table re-encoded: the second is this one minus 1 (a
+# 0-based stage index) and the third is that one's inverse (stage -> slot).
+# Only the first gates entry - proven by zeroing each row on its own and
+# trying the stage. LEAVE THE OTHER TWO ALONE: the third in particular maps a
+# stage to a slot, so zeroing an entry there aims a stage at slot 0 rather
+# than closing anything.
+SLOT_TABLE_ADDR = 0x800F0BAC
+SLOT_TO_STAGE_ID = (1, 6, 7, 2, 3, 8, 4, 5)
+# The rows we must NOT write, used as the residency anchor: they are constants
+# we never touch, so reading their vanilla values proves the stage-select
+# overlay is the module currently mapped there. The table reloads from disc on
+# every hub entry, so the lock has to be re-asserted rather than written once.
+SLOT_TABLE_ANCHOR_ADDR = 0x800F0BB4
+SLOT_TABLE_ANCHOR = bytes((0, 5, 6, 1, 2, 7, 3, 4, 0, 3, 4, 6, 7, 1, 2, 5))
+# A blocked confirm stores the stage id BEFORE the game tests it for zero, so
+# it leaves 0x800CCEDC reading 0000 while the player is still in the hub.
+# 0000 is the INTRO STAGE in that encoding and vanilla never writes it there,
+# so an in-hub save would commit it. The client puts the hub's own id back.
+HUB_STAGE_INDEX = 0x0D
+STAGE_SELECT_SCREENS = (0x02, 0x03, 0x04)
+
+
+def access_item(stage: str) -> str:
+    return f"{stage} Access Codes"
+
+
+ACCESS_ITEMS = [access_item(s) for s in STAGES]
+
 # ---- Weapons ------------------------------------------------------------
 # X's weapon names, US localization. TODO-verify each in-game during testing -
 # the same status the X5 world shipped its weapon list under. The MAPPING to

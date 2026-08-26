@@ -66,10 +66,17 @@ item_table: dict[str, ItemData] = {
     **{name: ItemData(BASE_ID + 70 + i, ItemClassification.filler, 0)
        for i, name in enumerate(names.FILLER)},
 
-    # +80..87 reserved for stage access items, if `stage_unlocks` is ever
-    # built for X6. Not defined yet: the client-side lock X5 uses (zeroing the
-    # hub's slot -> stage-id table) has no X6 equivalent researched, and
-    # shipping an option we cannot enforce in-game is worse than not having it.
+    # +80..87  stage access, in STAGES order. Option-gated, so count 0 here:
+    # create_items adds seven and precollects the eighth. Progression by
+    # definition - with `stage_unlocks` on, a stage's entire contents sit
+    # behind its codes.
+    #
+    # The X6 lock was researched 2026-08-26 and is the same shape as X5's:
+    # zero the stage-select overlay's slot -> stage-id table at 0x800F0BAC and
+    # confirming that icon does nothing. See names.SLOT_TABLE_ADDR.
+    **{names.access_item(stage): ItemData(BASE_ID + 80 + i,
+                                          ItemClassification.progression, 0)
+       for i, stage in enumerate(names.STAGES)},
 }
 
 event_table: dict[str, ItemData] = {
@@ -86,4 +93,5 @@ item_groups = {
     "Parts": set(names.PARTS),
     "Upgrades": {names.HEART_TANK, names.LIFE_UP, names.ENERGY_UP},
     "Filler": set(names.FILLER),
+    "Stage Access": set(names.ACCESS_ITEMS),
 }

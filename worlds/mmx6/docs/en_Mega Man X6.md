@@ -37,6 +37,7 @@ and Shadow sets), 8 Heart Tanks, 2 Sub Tanks, the W Tank and the EX Tank.
 | `parts_in_pool` (**on by default**) | **+24 items** — the equippable Power-up Parts |
 | `zero_unlock` (**on by default**) | **+1 item** — Zero has to be found before you can play as him, which is how the base game works |
 | `secret_armors_in_pool` | **+2 items** — Ultimate Armor and Black Zero |
+| `stage_unlocks` | **+7 items** — only one investigation site is open at the start, and each of the others needs its own Access Codes. A locked site greys out on the stage select and confirming it does nothing |
 
 Every item needs a location, so option sets that ask for more items than the
 seed has room for are refused at generation with a message naming what to

@@ -169,6 +169,14 @@ class TestRandomizedOptions(MMX6TestBase):
 
     def test_beatable(self) -> None:
         self.collect_by_name(names.WEAPONS)
+        # The roll can turn `stage_unlocks` on, and with stages locked the
+        # endgame requires every Access Codes item too - deliberately, so
+        # fill cannot hide a stage's codes behind the endgame those codes
+        # are needed to reach. Collect what this roll actually asked for
+        # rather than assuming weapons are the whole gate. Without this the
+        # test fails on roughly one run in three, which reads as flake.
+        if self.multiworld.worlds[self.player].options.stage_unlocks:
+            self.collect_by_name(names.ACCESS_ITEMS)
         self.assertBeatable(True)
 
 
@@ -188,21 +196,25 @@ class TestCapacityArithmetic(MMX6TestBase):
 
         from .. import MMX6World
 
-        for reploid, parts, zero, secret in product((0, 1), repeat=4):
+        for reploid, parts, zero, secret, unlocks in product((0, 1), repeat=5):
             fake = SimpleNamespace(
                 BASE_ITEMS=MMX6World.BASE_ITEMS,
                 BASE_LOCATIONS=MMX6World.BASE_LOCATIONS,
                 options=SimpleNamespace(reploid_checks=reploid,
                                         parts_in_pool=parts,
                                         zero_unlock=zero,
-                                        secret_armors_in_pool=secret))
+                                        secret_armors_in_pool=secret,
+                                        stage_unlocks=unlocks))
             items, locations = MMX6World._capacity(fake)
-            expected_items = 28 + 16 * reploid + 24 * parts + zero + 2 * secret
+            # stage_unlocks adds SEVEN, not eight: the starting stage's codes
+            # are precollected rather than placed, so they need no location.
+            expected_items = (28 + 16 * reploid + 24 * parts + zero
+                              + 2 * secret + 7 * unlocks)
             expected_locations = 29 + 128 * reploid
             self.assertEqual((items, locations),
                              (expected_items, expected_locations),
                              f"reploid={reploid} parts={parts} zero={zero} "
-                             f"secret={secret}")
+                             f"secret={secret} unlocks={unlocks}")
             if reploid:
                 # 157 locations against at most 71 items - always fits, which
                 # is why the roller reaches for this option to make room.

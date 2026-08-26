@@ -173,6 +173,30 @@ class ExitStageAnytime(DefaultOnToggle):
     display_name = "Exit Stage Anytime"
 
 
+class StageUnlocks(Toggle):
+    """Lock the eight investigation sites behind items.
+
+    Normally all eight are open the moment the intro ends. With this on
+    exactly ONE of them is open at the start - which one is decided by the
+    seed - and each of the others needs its own "<Boss> Access Codes" item,
+    shuffled into the multiworld like anything else.
+
+    A locked site still appears on the stage select and the cursor still moves
+    onto it; it simply greys out, and pressing confirm does nothing until you
+    hold its codes. Nothing else about the screen changes.
+
+    Because a locked stage is unreachable, the endgame additionally requires
+    every Access Codes item under this option. That is not belt-and-braces:
+    the X5 world shipped this option without that rule and produced seeds
+    where a stage's codes were placed behind the endgame those same codes were
+    needed to reach.
+
+    Client-side, so it needs no disc change and works on a disc you have
+    already patched.
+    """
+    display_name = "Stage Unlocks"
+
+
 class RandomizeOptions(Toggle):
     """Let the seed pick your gameplay options for you.
 
@@ -190,7 +214,7 @@ class RandomizeOptions(Toggle):
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
-    "secret_armors_in_pool", "text_skip",
+    "secret_armors_in_pool", "text_skip", "stage_unlocks",
 )
 
 
@@ -207,3 +231,4 @@ class MMX6Options(PerGameCommonOptions):
     parts_in_pool: PartsInPool
     zero_unlock: ZeroUnlock
     secret_armors_in_pool: SecretArmorsInPool
+    stage_unlocks: StageUnlocks

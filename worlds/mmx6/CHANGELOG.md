@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Stage unlocks
+
+`stage_unlocks` (off by default) locks the eight investigation sites behind
+items. One is open at the start, chosen by the seed and precollected; the other
+seven are `<Boss> Access Codes` shuffled into the multiworld. A locked site
+greys out on the stage select and confirming it does nothing.
+
+Client-side, so it needs no disc change and works on an already-patched disc.
+
+The mechanism was researched live rather than ported blind. X6's stage-select
+overlay holds the same shape X5's hub does - a slot -> stage-id table where a
+zero makes the confirm a no-op - at ROCK_X6.BIN +0x0C5B4C, resident at
+0x800F0BAC. Three things about it are worth writing down:
+
+- **There are THREE 8-byte rows, and they are one table re-encoded**: the
+  second is the first minus 1 (0-based), the third is that one's inverse
+  (stage -> slot). Only the first gates entry, established by zeroing each on
+  its own and trying the stage. The client writes only the first and uses the
+  other two as its residency anchor, since they are constants it never touches.
+- **A blocked confirm leaves the stage index at 0000**, because the game stores
+  it before testing it for zero. In X6's encoding 0000 is the *intro stage*, and
+  an in-hub save would commit it, so the client puts the hub id back.
+- **The endgame additionally requires every Access Codes item** under this
+  option. That is the bug X5 shipped: without the rule, fill can place a
+  stage's codes inside the endgame those codes are needed to reach, and the
+  playthrough checker still calls the seed won.
+
+155 tests (up from 132) and a 64-check release gate (up from 58). A real
+`Generate.py` seed with the option on fills 157 items into 157 locations and
+produces a clean progression chain - `WorldTestBase` does not run fill, so that
+generation is the only thing that actually proves capacity.
+
 ### Quality-of-life disc options
 
 Three new options, all of which change the disc and none of which touch the

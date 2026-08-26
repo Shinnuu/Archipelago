@@ -89,6 +89,10 @@ class MMX6World(World):
     BASE_ITEMS = 28
     BASE_LOCATIONS = 29
 
+    # Which investigation site is open at the start under stage_unlocks.
+    # Chosen in generate_early; None when the option is off.
+    starting_stage: str | None = None
+
     def _capacity(self) -> tuple[int, int]:
         items = self.BASE_ITEMS
         locations = self.BASE_LOCATIONS
@@ -103,6 +107,10 @@ class MMX6World(World):
             items += 1
         if self.options.secret_armors_in_pool:
             items += 2
+        if self.options.stage_unlocks:
+            # Eight Access Codes, but the starting stage's are PRECOLLECTED
+            # rather than placed, so only seven need a location.
+            items += len(names.STAGES) - 1
         return items, locations
 
     def _roll_options(self) -> None:
@@ -131,6 +139,11 @@ class MMX6World(World):
         if self.options.randomize_options:
             self._roll_options()
 
+        # Which site is open at the start under stage_unlocks. Chosen here,
+        # after the roll, so a rolled stage_unlocks still gets one.
+        if self.options.stage_unlocks:
+            self.starting_stage = self.random.choice(names.STAGES)
+
         items, locations = self._capacity()
         if items > locations:
             raise OptionError(
@@ -139,6 +152,7 @@ class MMX6World(World):
                 f"so {items - locations} would be silently dropped. Turn on "
                 f"`reploid_checks` (+{len(reploids.REPLOIDS)} locations), or "
                 f"turn off `parts_in_pool` (+{len(names.PARTS)} items), "
+                f"`stage_unlocks` (+{len(names.STAGES) - 1}), "
                 f"`zero_unlock` (+1) or `secret_armors_in_pool` (+2).")
 
     def create_item(self, name: str) -> MMX6Item:
@@ -219,6 +233,17 @@ class MMX6World(World):
             pool.append(self.create_item(names.ULTIMATE_ARMOR))
             pool.append(self.create_item(names.BLACK_ZERO))
 
+        if self.options.stage_unlocks:
+            # The starting stage's codes are PRECOLLECTED, not placed: that
+            # stage has to be open before any location at all is reachable, so
+            # its codes cannot themselves be a check. The other seven shuffle.
+            for stage in names.STAGES:
+                item = self.create_item(names.access_item(stage))
+                if stage == self.starting_stage:
+                    self.multiworld.push_precollected(item)
+                else:
+                    pool.append(item)
+
         # Top up with filler. The over-full direction is caught in
         # generate_early - by here it is too late to report cleanly, because
         # Generate.py RETRIES a failed world rather than surfacing the error.
@@ -280,13 +305,36 @@ class MMX6World(World):
         # Do not weaken this rule on Shadow's account.
         #
         # Stricter is safe - it only narrows placement, it can never strand
-        # progression - as long as every boss stays reachable without items,
-        # which holds today because all eight stages are open from the start.
-        # If stage-locking is ever added, revisit this: the X5 equivalent rule
-        # silently deadlocked seeds the day stage_unlocks shipped without
-        # anyone rechecking it.
+        # progression - as long as every boss stays reachable without items.
+        # That no longer holds unconditionally: `stage_unlocks` locks stages
+        # behind items, so the endgame ALSO requires every Access Codes item.
+        #
+        # This is the rule X5 got wrong. It shipped stage_unlocks without
+        # revisiting the endgame rule, and a tester seed put two stages
+        # Access Codes INSIDE the endgame those codes were needed to reach -
+        # a hard deadlock that still "won" the playthrough check, because
+        # logic only ever looked at the weapon items. Applied for every goal,
+        # not just all_mavericks: X6 opens its endgame on a soul count logic
+        # does not model, and being stricter than the game only narrows
+        # placement while being looser strands seeds.
+        endgame_needs = set(names.WEAPONS)
+        if self.options.stage_unlocks:
+            endgame_needs |= set(names.ACCESS_ITEMS)
         self.multiworld.get_entrance("Stage Select -> The Gate", player).access_rule = \
-            lambda state: state.has_all(names.WEAPONS, player)
+            lambda state: state.has_all(endgame_needs, player)
+
+        # --- Stage access ----------------------------------------------------
+        # Enforced in-game by the client zeroing the stage-select overlay slot
+        # -> stage-id table at 0x800F0BAC, which makes confirming a locked icon
+        # a no-op; this is only the logic half. Every location in a stage lives
+        # in that stage region, so one entrance rule covers the boss, the Heart
+        # Tank, the capsule, the tank and all 16 Reploids at once.
+        if self.options.stage_unlocks:
+            for stage in names.STAGES:
+                codes = names.access_item(stage)
+                self.multiworld.get_entrance(f"Stage Select -> {stage}",
+                                             player).access_rule = \
+                    lambda state, codes=codes: state.has(codes, player)
 
         # --- Armor capsules -------------------------------------------------
         # Every requirement below comes from the third-party items guide [G]
@@ -366,4 +414,5 @@ class MMX6World(World):
             "parts_in_pool": self.options.parts_in_pool.value,
             "zero_unlock": self.options.zero_unlock.value,
             "secret_armors_in_pool": self.options.secret_armors_in_pool.value,
+            "stage_unlocks": self.options.stage_unlocks.value,
         }

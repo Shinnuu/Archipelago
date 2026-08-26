@@ -1,5 +1,56 @@
 # Mega Man X6 apworld — changelog
 
+## Unreleased
+
+### Quality-of-life disc options
+
+Three new options, all of which change the disc and none of which touch the
+item pool, logic or the client:
+
+All three are **on by default**.
+
+- `exit_stage_anytime` — the pause menu offers Exit Stage before the stage's
+  boss is down. (X5's equivalent is also default-on.)
+- `text_skip` — in-stage Navigator calls, other in-stage dialogue, stage-select
+  briefings and the Nightmare Souls explanation do not play; the alert chime is
+  muted; cutscene text types at double speed. Rolled by `randomize_options`,
+  exactly as X5 rolls its own `text_skip`. **Confirmed working in a live
+  session.**
+- `skip_intro_videos` — skips the Capcom logo and the title-screen opening, and
+  stops the attract demos. It does **not** skip the cutscene that plays when
+  you begin a game: the first build of this option shipped only Tweaks'
+  "Skip opening Intro", a player reported the post-GAME-START video still
+  played, and that call site is elsewhere and still unlocated. The Capcom pair
+  was added so the option removes something it demonstrably can.
+
+The edits are adapted from acediez's **Mega Man X6 Tweaks** patcher (v2.6.1).
+Its data is expressed as raw offsets into its own target image, so nothing was
+taken on trust: every site was re-derived into this world's (region, address)
+form and the vanilla bytes read back from **both** supported images. The
+Tweaks project's `DialogueDisable05`/`06` are deliberately absent — its data
+file marks both "not solved" and ships no code for them.
+
+Mechanically:
+
+- Per-seed edits now ride in the `.apmmx6` as an explicit list carrying the
+  **expected vanilla bytes**, and `apply_basepatch` verifies them with the same
+  rigour as A1 — an edit list built for another dump fails loudly instead of
+  corrupting code quietly.
+- `apply_basepatch` now refuses two edits that write the same disc offset.
+  Overlapping writes would make the output depend on edit order, which is the
+  kind of bug that appears in one seed out of fifty.
+- With every QoL option off, the patched image is **byte-identical** to the
+  A1-only disc, so an image patched before this existed stays valid.
+- 132 tests (up from 115) and a 58-check release gate (up from 48).
+
+**Live-test status.** All fourteen edits are verified byte-for-byte on both
+images, land correctly, and leave valid EDC/ECC on the eleven sectors they
+touch. A patched disc boots cleanly, and every site was confirmed *resident in
+RAM* against a vanilla control run (8/8 discrimination, with the A1 patch as a
+positive control). Behaviourally: `text_skip` is confirmed working in play;
+`skip_intro_videos` is partly confirmed and partly disproven (see above);
+`exit_stage_anytime` has not yet been exercised in a stage.
+
 ## 0.0.1 — unreleased scaffold
 
 Generation, logic, the BizHawkClient and the disc patch are all wired. A seed

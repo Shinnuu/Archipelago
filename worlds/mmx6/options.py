@@ -109,6 +109,70 @@ class SecretArmorsInPool(Toggle):
     display_name = "Secret Armors In Pool"
 
 
+class TextSkip(DefaultOnToggle):
+    """Get dialogue out of the way.
+
+    Mega Man X6 stops constantly: the Navigator calls at fixed points in every
+    stage, a briefing plays when you pick a stage, weapons and Nightmare Souls
+    are explained the first time you meet them, and each box waits on a button.
+    On a first playthrough that is the game. On the tenth trip into a stage for
+    one check it is the reason the trip feels long.
+
+    With this on the in-stage Navigator calls, the other in-stage dialogue, the
+    stage-select briefings and the Nightmare Souls explanation do not play, the
+    alert chime is muted, and cutscene text types at twice the speed.
+
+    Nothing that decides anything is skipped. This only removes dialogue that
+    plays AT you - no prompt, menu or choice is answered for you, and the stage
+    select itself is untouched.
+
+    Two of the patcher's dialogue options are deliberately absent: the
+    Investigator and Special Weapon descriptions. The Tweaks project marks both
+    "not solved" and ships no code for them, so neither is skippable yet.
+
+    On by default: a randomized run re-enters the same stages many times, and
+    the dialogue is written to be heard once. Turn it off for a first
+    playthrough - you will not be able to follow the story at this speed.
+
+    Changes the disc.
+    """
+    display_name = "Text Skip"
+
+
+class SkipIntroVideos(DefaultOnToggle):
+    """Boot straight to the title screen.
+
+    Skips the opening movie and stops the attract demos from ever starting, so
+    a reset lands on the title instead of several minutes of video. The Capcom
+    logo is left alone - the Tweaks project replaces the file rather than
+    patching code for that one, which is more than this is worth.
+
+    On by default. Purely a convenience for anyone resetting a lot; it affects
+    nothing in a run.
+
+    Changes the disc.
+    """
+    display_name = "Skip Intro Videos"
+
+
+class ExitStageAnytime(DefaultOnToggle):
+    """Let you quit out of a stage you have not cleared yet.
+
+    Normally the pause menu only offers Exit Stage once that stage's boss is
+    already down, which is exactly backwards for a randomizer: a run is full of
+    trips into a stage for one Reploid you can finally reach, and of entries
+    into a stage you cannot finish yet. Without this, leaving means dying on
+    purpose or clearing a stage you did not come for.
+
+    The kill record is untouched, so the Nightmare Souls count, the endgame
+    gate and story progression all behave exactly as they normally would -
+    leaving early simply leaves.
+
+    Changes the disc.
+    """
+    display_name = "Exit Stage Anytime"
+
+
 class RandomizeOptions(Toggle):
     """Let the seed pick your gameplay options for you.
 
@@ -126,13 +190,16 @@ class RandomizeOptions(Toggle):
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
-    "secret_armors_in_pool",
+    "secret_armors_in_pool", "text_skip",
 )
 
 
 @dataclass
 class MMX6Options(PerGameCommonOptions):
     start_inventory_from_pool: StartInventoryPool
+    exit_stage_anytime: ExitStageAnytime
+    text_skip: TextSkip
+    skip_intro_videos: SkipIntroVideos
     randomize_options: RandomizeOptions
     goal: Goal
     difficulty: Difficulty

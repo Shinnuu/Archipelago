@@ -82,13 +82,18 @@ class MMX6PatchExtension(APPatchExtension):
 
     @staticmethod
     def apply_basepatch(caller: APProcedurePatch, rom: bytes) -> bytes:
-        extra: list[tuple[int, bytes, str]] = []
+        extra: list[tuple] = []
         try:
             seed_edits = json.loads(
                 caller.get_file("seed_edits.json").decode("utf-8"))
             for entry in seed_edits:
+                # `van` rides along so the QoL edits are verified against the
+                # image with the same rigour as A1 - a patch file built for a
+                # different dump must fail loudly, not corrupt code quietly.
+                van = entry.get("van")
                 extra.append((entry["addr"], bytes.fromhex(entry["hex"]),
-                              entry["region"]))
+                              entry["region"],
+                              bytes.fromhex(van) if van else None))
         except KeyError:
             pass    # no per-seed edits in this patch
         return disc.apply_basepatch(rom, extra)
@@ -123,8 +128,31 @@ class MMX6ProcedurePatch(APProcedurePatch):
                     f'    INDEX 01 00:00:00\n')
 
 
+# YAML option -> the QOL_EDITS group it turns on. Kept next to the writer so
+# an option added without a disc edit, or the reverse, is obvious.
+QOL_OPTIONS = {
+    "text_skip": "text_skip",
+    "skip_intro_videos": "skip_intro_videos",
+    "exit_stage_anytime": "exit_stage_anytime",
+}
+
+
+def qol_features(options) -> list[str]:
+    """The QoL edit groups this seed's options ask for, in a stable order."""
+    return [group for option, group in QOL_OPTIONS.items()
+            if getattr(options, option).value]
+
+
 def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
-    """Attach per-seed data. v0.1 has none - the A1 patch is seed-independent,
-    and everything else the seed decides is carried by slot_data and applied by
-    the client at runtime."""
-    patch.write_file("seed_edits.json", json.dumps([]).encode("utf-8"))
+    """Attach per-seed data.
+
+    A1 is seed-independent and lives in disc.BASE_EDITS. The QoL options are
+    not: each one is a set of disc edits the player either asked for or did
+    not, so they ride in the .apmmx6 as an explicit edit list. Everything else
+    the seed decides is carried by slot_data and applied by the client.
+    """
+    edits = [{"addr": where, "region": region,
+              "hex": patched.hex(), "van": van.hex()}
+             for _label, where, region, van, patched
+             in disc.qol_edits(qol_features(world.options))]
+    patch.write_file("seed_edits.json", json.dumps(edits).encode("utf-8"))

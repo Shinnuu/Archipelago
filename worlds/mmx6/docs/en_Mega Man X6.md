@@ -42,6 +42,26 @@ Every item needs a location, so option sets that ask for more items than the
 seed has room for are refused at generation with a message naming what to
 change, rather than silently dropping items.
 
+### Quality-of-life
+
+These change the disc rather than the pool, so they add no items and no
+locations — but they do mean your patched disc depends on the options you
+generated with. Patch from the file the seed produced rather than reusing an
+older image.
+
+| Option | Effect |
+|---|---|
+All three are **on by default**.
+
+| Option | Effect |
+|---|---|
+| `exit_stage_anytime` | The pause menu offers Exit Stage before you have beaten that stage's boss. A randomized run is full of trips into a stage for one check and entries into a stage you cannot finish yet; without this, leaving means dying on purpose |
+| `text_skip` | Skips the in-stage Navigator calls, the other in-stage dialogue, the stage-select briefings and the Nightmare Souls explanation, mutes the alert chime, and doubles cutscene text speed. No prompt, menu or choice is answered for you |
+| `skip_intro_videos` | Skips the Capcom logo and the title-screen opening, and stops the attract demos from starting. **It does not skip the cutscene that plays when you begin a game** — that runs from a different call site, which has not been located |
+
+The quality-of-life edits are adapted from acediez's **Mega Man X6 Tweaks**,
+with each site re-verified against both supported disc images.
+
 Turning `reploid_checks` off leaves a 29-location seed, which is not really
 enough for one player, let alone a multiworld. It is there for completeness.
 

@@ -121,6 +121,24 @@ ARMOR_BIT_BLACK_ZERO = 0x20
 
 SOULS_GATE = 3000
 
+# ---- Ending detection --------------------------------------------------------
+# Victory fires on the post-Sigma ENDING SCREEN, not on the endgame being
+# unlocked. The previous rule fired on `endgame open (+ 8 kills for
+# all_mavericks)`, which meant neither goal ever required beating Sigma at all -
+# the `sigma` goal, documented as "defeat Sigma, however you got there",
+# completed the moment the soul counter crossed 3000, mid-stage, in a Maverick
+# stage, having never entered a lab.
+#
+# 0x10 is "End credits" in the Tweaks workbook's screen table [W]. X5's
+# equivalent was live-captured as 0A -> 13 -> 14 -> 10 -> 11 after the final
+# blow, with 13/14 shared with a non-final cutscene - so 0x10 is the first
+# screen unique to the ending, and 0x11 follows it. Only 0x10 is used here;
+# X6's own table leaves 0x11 unlabelled and guessing at it buys nothing.
+#
+# NOT YET SEEN LIVE. Nobody has reached X6's credits with the client attached.
+SCREEN_END_CREDITS = 0x10
+ENDING_SCREENS = frozenset({SCREEN_END_CREDITS})
+
 # Spare save-struct bytes: bytes that never moved across a full multi-stage
 # session and are not in any region we have mapped. NOT used by anything here -
 # the baseline gate above removed the need for a stamp - but kept because they
@@ -284,6 +302,14 @@ class MMX6Client(BizHawkClient):
         # than every poll. None means "not in the hub as far as we know".
         self.slot_table_written: bytes | None = None
         self.stages_unlocked_logged: set[str] = set()
+        # Mavericks beaten, accumulated across TRUSTED polls and never
+        # read at goal time: the save struct is not sane during the
+        # ending, so a read taken then could score anything. Latching
+        # means it must be gated on trust - X5 shipped the equivalent
+        # counter on a weaker gate and a single stale 0xFF read would
+        # have scored 8 permanently and handed out a false victory.
+        self.mavericks_defeated = 0
+        self.short_ending_warned = False
 
     # ---- identification ----------------------------------------------------
 
@@ -634,6 +660,42 @@ class MMX6Client(BizHawkClient):
                     len(fresh))
         return found - self.sent_locations - checked - self.baseline_held
 
+    # ---- goal ----------------------------------------------------------------
+
+    def _goal_decision(self, screen: int, goal: int) -> bool:
+        """True when victory should be sent. Mutates only the warning latch.
+
+        Deliberately free of I/O so it can be unit-tested. Nothing tested the
+        goal before this - which is exactly how a rule that fired on a SOUL
+        COUNT, with Sigma never fought, shipped unnoticed under a docstring
+        promising "defeat Sigma".
+        """
+        if self.victory_sent:
+            return False
+        # An unpatched disc must not goal: a goal releases every remaining
+        # location in this world. But an UNDETERMINED probe must not swallow a
+        # real ending either - the credits can clobber the probe region, and
+        # None means "retry", never "vanilla".
+        if self.ap_patched is False:
+            return False
+
+        if screen in ENDING_SCREENS:
+            if goal == GOAL_ALL_MAVERICKS and self.mavericks_defeated < 8:
+                if not self.short_ending_warned:
+                    self.short_ending_warned = True
+                    logger.warning(
+                        "MMX6: the ending was reached with only %d/8 Mavericks "
+                        "beaten, and this seed's goal is all_mavericks - so it "
+                        "is NOT complete yet. Beat the rest and the goal fires "
+                        "as soon as the eighth one is down.",
+                        self.mavericks_defeated)
+                return False
+            return True
+
+        # all_mavericks satisfied AFTER a short ending. Gated on having SEEN
+        # the ending, so this can never stand in for beating Sigma.
+        return self.short_ending_warned and self.mavericks_defeated >= 8
+
     # ---- stage unlocks -------------------------------------------------------
 
     async def _stage_unlocks_apply(self, ctx: "BizHawkClientContext",
@@ -744,6 +806,19 @@ class MMX6Client(BizHawkClient):
         self.last_check_sig = signature
         self.last_poll_trusted = on_trusted_screen
 
+        # ---- goal ------------------------------------------------------------
+        # BEFORE the trust gate, deliberately. The ending screen is neither
+        # gameplay (0x0A) nor the Mission Report (0x0C), so `trusted` is False
+        # all the way through the credits and would swallow the goal entirely.
+        if self._goal_decision(screen,
+                               (ctx.slot_data or {}).get("goal",
+                                                         GOAL_ALL_MAVERICKS)):
+            self.victory_sent = True
+            await ctx.send_msgs([{"cmd": "StatusUpdate",
+                                  "status": ClientStatus.CLIENT_GOAL}])
+            logger.info("MMX6: goal complete - ending reached, %d/8 Mavericks "
+                        "beaten.", self.mavericks_defeated)
+
         # Stage unlocks run BEFORE the trust gate, and have to: the stage
         # select is not a trusted screen (only gameplay and the Mission Report
         # are), so gating this on `trusted` would mean it never ran at all.
@@ -796,22 +871,10 @@ class MMX6Client(BizHawkClient):
             await bizhawk.write(ctx.bizhawk_ctx,
                                 [(addr, data, "MainRAM") for addr, data in writes])
 
-        # ---- goal ----------------------------------------------------------
-        # Provisional. Reaching the endgame is detectable (0x800CCF36 >= 3 plus
-        # the souls threshold), but neither the credits sequence nor a Sigma
-        # kill has been observed live yet, so this fires on the endgame being
-        # unlocked WITH every Maverick down, which is strictly later than the
-        # game's own gate and cannot fire early.
-        if self.victory_sent:
-            return
-        goal = (ctx.slot_data or {}).get("goal", GOAL_ALL_MAVERICKS)
-        beaten_count = bin(save[OFF_BEATEN]).count("1")
-        souls = int.from_bytes(
-            save[OFF_SOULS_Z if save[OFF_CHAR] else OFF_SOULS_X:][:2], "little")
-        endgame_open = save[OFF_PROGRESS] >= 3 or souls >= SOULS_GATE
-        if endgame_open and (goal != GOAL_ALL_MAVERICKS or beaten_count == 8):
-            self.victory_sent = True
-            await ctx.send_msgs([{"cmd": "StatusUpdate",
-                                  "status": ClientStatus.CLIENT_GOAL}])
-            logger.info("MMX6: goal complete (%d/8 Mavericks, %d souls).",
-                        beaten_count, souls)
+        # ---- goal bookkeeping ------------------------------------------------
+        # Only the LATCH lives on the trusted path. X5 shipped the equivalent
+        # counter on a weaker gate, and because it LATCHES, one stale 0xFF read
+        # would have scored 8 permanently and handed out a false victory that
+        # no later good read could undo.
+        self.mavericks_defeated = max(self.mavericks_defeated,
+                                      bin(save[OFF_BEATEN]).count("1"))

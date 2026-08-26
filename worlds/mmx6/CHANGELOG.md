@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed: neither goal actually required beating Sigma
+
+`sigma` is documented as *"defeat Sigma, however you got there"*. It fired the
+moment the Nightmare Soul counter crossed 3000 — mid-stage, in a Maverick
+stage, with the endgame not yet unlocked and Sigma never fought. Demonstrated
+against the old code: two Mavericks beaten, `0x800CCF36` still 2, victory
+FIRES. `all_mavericks` had the same shape, merely with a kill count bolted on.
+
+Victory now fires on the **post-Sigma ending screen** (`0x800CCED0` = `0x10`,
+End credits), which is the X5 world's live-validated approach:
+
+- Checked **before** the trust gate. The ending is neither gameplay nor the
+  Mission Report, so the gate is False through the whole credits and would
+  otherwise swallow the goal.
+- The Maverick count comes from a **latch accumulated during trusted play**,
+  never a read taken at goal time — the save struct is not sane during the
+  ending. Because it latches, the latch itself is gated on trust: X5 shipped
+  its equivalent on a weaker gate, where one stale `0xFF` read would score 8
+  permanently and hand out a false victory no later good read could undo.
+- An **unpatched disc never goals** (a goal releases every remaining location
+  in this world), but an **undetermined** probe still does — `None` means
+  "retry", never "vanilla", and the credits can clobber the probe region.
+- Reaching the ending early under `all_mavericks` **warns instead of
+  stranding**: beat the rest and the goal fires when the eighth one dies.
+
+**Nothing tested the goal before this.** That is how a rule keyed on a soul
+count shipped under a docstring promising Sigma. There are now 15 goal tests,
+and the decision was extracted into a method that can actually be called
+without an emulator.
+
+**The credits screen value is from the Tweaks workbook and has not been seen
+live** — nobody has reached X6's ending with the client attached.
+
 ### Stage unlocks
 
 `stage_unlocks` (off by default) locks the eight investigation sites behind
@@ -29,7 +62,7 @@ zero makes the confirm a no-op - at ROCK_X6.BIN +0x0C5B4C, resident at
   stage's codes inside the endgame those codes are needed to reach, and the
   playthrough checker still calls the seed won.
 
-155 tests (up from 132) and a 64-check release gate (up from 58). A real
+170 tests (up from 132) and a 64-check release gate (up from 58). A real
 `Generate.py` seed with the option on fills 157 items into 157 locations and
 produces a clean progression chain - `WorldTestBase` does not run fill, so that
 generation is the only thing that actually proves capacity.

@@ -172,6 +172,7 @@ QOL_OPTIONS = {
     "text_skip": "text_skip",
     "skip_intro_videos": "skip_intro_videos",
     "exit_stage_anytime": "exit_stage_anytime",
+    "protect_reploids": "protect_reploids",
 }
 
 

@@ -168,6 +168,38 @@ QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
         ("text auto-advance", 0x8002200C, REGION_EXE,
          bytes.fromhex("c4006010"), bytes(4)),
     ],
+    # Reploids never expire. Three `addiu a1, zero, N` -> `ori a1, zero, 0`,
+    # so every routine that would record a Reploid as lost records it as
+    # untouched instead and the Reploid reappears on the next visit.
+    #
+    #   0x8004EB70  caught by Nightmare        -> 4 Missing
+    #   0x8004FBB8  caught, killed by player   -> 3 Death
+    #   0x8004FC24  caught, goes offscreen     -> 4 Missing
+    #
+    # 0x8004EF44 sets 2 (rescued by the player) and is deliberately UNTOUCHED:
+    # that is the state a real rescue writes, and the client's Reploid checks
+    # read it.
+    #
+    # Straight out of the Tweaks WORKBOOK's RescReploids sheet, which carries
+    # a full annotated disassembly of these routines and an "always reappear"
+    # column giving the replacement word. The PATCHER ships no such tweak -
+    # all 144 of its names were enumerated - so this exists only because the
+    # workbook and the patcher are different artefacts. Every vanilla word was
+    # re-verified against our own extracted EXE rather than trusted.
+    #
+    # This does NOT replace the client-side fallback. The client counts a
+    # Reploid as checked once its nibble leaves state 0, "destroyed" included,
+    # so a lost Reploid can never cost a check even if one of these sites is
+    # ever missed. Ship plan A2 recommended "(1) plus (2), belt and braces";
+    # until now only (2) shipped.
+    "protect_reploids": [
+        ("Reploid caught by Nightmare", 0x8004EB70, REGION_EXE,
+         bytes.fromhex("04000524"), bytes.fromhex("00000534")),
+        ("Reploid killed by player", 0x8004FBB8, REGION_EXE,
+         bytes.fromhex("03000524"), bytes.fromhex("00000534")),
+        ("Reploid caught, goes offscreen", 0x8004FC24, REGION_EXE,
+         bytes.fromhex("04000524"), bytes.fromhex("00000534")),
+    ],
     # Boot straight to the title. Four NOPs, no code moved.
     #
     # PROVEN INSUFFICIENT ON ITS OWN: with only the two sites below marked

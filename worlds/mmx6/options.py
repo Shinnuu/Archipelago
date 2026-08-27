@@ -153,6 +153,34 @@ class TextSkip(DefaultOnToggle):
     display_name = "Text Skip"
 
 
+class ProtectReploids(DefaultOnToggle):
+    """Stop Reploids being permanently destroyed.
+
+    In the base game a Reploid you do not reach in time is gone for the rest
+    of the playthrough. A Nightmare carries it off, or it is killed in the
+    crossfire, and its slot records "death" or "missing" - states that never
+    clear. There are 128 Reploids and they are the largest check source in the
+    game, so in a multiworld that is items disappearing for good, possibly
+    somebody else's progression.
+
+    With this on the three routines that record a Reploid as lost record it as
+    untouched instead, so it simply reappears next time you enter the stage
+    and you can still go and get it. Rescuing is unchanged.
+
+    Leaving this off does NOT put your checks at risk. The client counts a
+    Reploid as checked the moment its slot leaves the untouched state, and
+    "destroyed" counts exactly as much as "rescued", so a lost Reploid costs
+    you the rescue and never the check. What this option changes is whether
+    you get to go back for it.
+
+    On by default: a randomized run re-enters stages many times, and losing a
+    Reploid you meant to collect is pure attrition rather than a decision.
+
+    Changes the disc.
+    """
+    display_name = "Protect Reploids"
+
+
 class SkipIntroVideos(DefaultOnToggle):
     """Boot straight to the title screen.
 
@@ -305,6 +333,9 @@ class RandomizeOptions(Toggle):
 
 # Options RandomizeOptions rolls. reploid_checks is deliberately absent - it
 # only adds checks, and turning it off would shrink the seed to 29 locations.
+# protect_reploids is absent for a related reason: rolling it off would hand
+# the player a run where checks they can see are quietly destroyed as they
+# play. That is attrition, not a gamble worth taking.
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
@@ -318,6 +349,7 @@ class MMX6Options(PerGameCommonOptions):
     start_inventory_from_pool: StartInventoryPool
     exit_stage_anytime: ExitStageAnytime
     text_skip: TextSkip
+    protect_reploids: ProtectReploids
     skip_intro_videos: SkipIntroVideos
     randomize_options: RandomizeOptions
     goal: Goal

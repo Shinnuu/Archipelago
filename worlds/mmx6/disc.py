@@ -124,6 +124,8 @@ QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
         ("cutscene text speed", 0x800226D8, REGION_EXE,
          bytes.fromhex("04000224"), bytes.fromhex("02000224")),
         # ---- instant text and auto-advance, ported from X5 ----------------
+        # CONFIRMED LIVE 2026-08-27 on a disc built through apply_basepatch:
+        # boxes complete instantly and advance with no input.
         #
         # Everything above REMOVES dialogue. These two make what is left get
         # on with itself, which is what the Tweaks patcher never had: its 144

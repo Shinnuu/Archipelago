@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Fixed: `stage_unlocks` could produce an unwinnable seed
+
+Blizzard Wolfang's Heart Tank and EX Tank sit behind a wall that only opens
+while a Nightmare Effect is active on North Pole, and only Blaze Heatnix or
+Shield Sheldon can put one there - so one of them has to be beaten first.
+
+That carried no logic rule, on the reasoning that both bosses are reachable
+from the start so it costs nothing. True in vanilla. False the moment
+`stage_unlocks` is on, because then both are behind their own Access Codes.
+
+Staging a real seed produced exactly the bad case: Wolfang's Heart Tank held
+Shield Sheldon's Access Codes, the only other opener was Blaze Heatnix whose
+codes were two spheres further on, and fill had called the Heart Tank
+reachable. Nobody could have finished that seed.
+
+Both locations now additionally require Heatnix's or Sheldon's codes when
+`stage_unlocks` is on, and nothing at all when it is off.
+
 ### Three new options: endgame checks, boss HP, and weapon damage
 
 **`endgame_checks`** (on by default) turns the Gate opening and the Secret Lab

@@ -382,18 +382,40 @@ class MMX6World(World):
         # Yammark, Shark and Mijinion hearts need nothing; the Scaravich one
         # is behind the same randomisation as its Blade Helmet, so no rule.
         #
-        # NOTE the Wolfang Heart Tank and EX Tank additionally need the stage
-        # to be "red" - a Nightmare Effect active on it, which happens once
-        # Heatnix or Sheldon is beaten. That costs no items and both bosses
-        # are reachable from the start, so it adds nothing to logic. It DOES
-        # constrain the patch: ship plan A4 proposed disabling Nightmare
-        # Effects wholesale, which would make these two unreachable.
-
         # --- Tanks ----------------------------------------------------------
         needs(names.tank_location(names.SHELDON), has_shadow)    # W Tank
         needs(names.tank_location(names.WOLFANG), has_shadow)    # EX Tank
         needs(names.tank_location(names.YAMMARK), has_mobility)  # Sub Tank
         needs(names.tank_location(names.HEATNIX), has_mobility)  # Sub Tank
+
+        # --- The Wolfang wall -----------------------------------------------
+        # Wolfang's Heart Tank and EX Tank sit behind a wall that only opens
+        # while a Nightmare Effect is active on his stage, and per NightEftTable
+        # only Fire (Heatnix) or Mirror (Sheldon) can afflict North Pole. So
+        # they need one of those two BEATEN, not merely reachable.
+        #
+        # This used to carry no rule, on the reasoning that "both bosses are
+        # reachable from the start, so it adds nothing to logic". True in
+        # vanilla - and FALSE the moment `stage_unlocks` is on, because then
+        # both bosses are behind their own Access Codes. Staging a real seed
+        # found exactly that: Wolfang's Heart Tank held Sheldon's codes, the
+        # only other opener was Heatnix whose codes were two spheres later,
+        # and fill had happily called it reachable. Nobody could have finished
+        # that seed.
+        def wolfang_wall(state) -> bool:
+            if not self.options.stage_unlocks:
+                return True     # both openers are free, as before
+            return (state.has(names.access_item(names.HEATNIX), player)
+                    or state.has(names.access_item(names.SHELDON), player))
+
+        def also_needs(location: str, extra) -> None:
+            """AND a rule onto whatever this location already requires."""
+            loc = self.multiworld.get_location(location, player)
+            existing = loc.access_rule
+            loc.access_rule = lambda state: existing(state) and extra(state)
+
+        also_needs(names.heart_location(names.WOLFANG), wolfang_wall)
+        also_needs(names.tank_location(names.WOLFANG), wolfang_wall)
 
         # Both goals complete on the VICTORY event in The Gate, which already
         # carries the all-weapons entrance rule. all_mavericks needs no extra

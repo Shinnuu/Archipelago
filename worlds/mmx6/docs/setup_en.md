@@ -1,58 +1,91 @@
 # Mega Man X6 Setup Guide
 
-> **Testing release.** Everything works end to end — a seed emits a patch, the
-> patch builds a playable disc, and the client connects and plays.
+## Required software
 
-## What you need
+- **Archipelago** 0.6.7 or later
+  ([releases](https://github.com/ArchipelagoMW/Archipelago/releases)), and the
+  `mmx6.apworld` file.
+- **BizHawk 2.7 or newer**
+  ([releases](https://github.com/TASEmulators/BizHawk/releases)) — 2.7.0 is the
+  minimum Archipelago's connector script accepts. This world was tested on
+  **2.10**; newer versions print an untested-version warning from the connector
+  but are expected to work. On first install, run BizHawk's prerequisites
+  installer if EmuHawk will not start. The PS1 core is **NymaShock**
+  (BizHawk's default).
+- A **US-region PS1 BIOS** (e.g. SCPH-5501), dumped from your own console. In
+  EmuHawk: **Config → Firmware**, find the PSX (U) entry and point it at your
+  BIOS file — or drop the file into BizHawk's `Firmware` folder and let it
+  auto-detect.
+- A **Mega Man X6 NTSC-U (SLUS-01395) disc image**, dumped from your own copy:
+  a raw **2352-byte/sector `.bin`**, single data track. None is distributed
+  here.
 
-- **Mega Man X6 (USA)**, as a raw `.bin`/`.cue` pair with 2352-byte sectors —
-  the same format the Mega Man X5 world wants. You must supply your own; none
-  is distributed here.
-- **BizHawk 2.10**, with the **Nymashock** PlayStation core. The connector
-  requires 2.7.0 or newer and merely warns on later versions, but 2.10 is what
-  it is tested against.
-- A **PlayStation BIOS** in BizHawk's `Firmware/` folder. BizHawk will tell you
-  which file it wants the first time you open a PSX disc.
-- The **Archipelago Mega Man X6 Client**, from the Archipelago Launcher.
+### Accepted disc images
 
-## Which disc
+The patcher checks the MD5 of your `.bin`:
 
-You want the standard **Redump** dump, `Mega Man X6 (USA) (Rev 1)`. That is
-what almost everybody has.
-
-| accepted image | MD5 |
+| MD5 | Notes |
 |---|---|
-| `Mega Man X6 (USA) (Rev 1)` — Redump | `237b6feddd1a88e86ab1cddc8822f03f` |
-| the same disc with 8 trailing blank sectors | `ae1f630f686edb48f84f8d69346bc8a8` |
+| `237b6feddd1a88e86ab1cddc8822f03f` | Redump `Mega Man X6 (USA) (Rev 1)` — the standard dump |
+| `ae1f630f686edb48f84f8d69346bc8a8` | The development copy this world was built on |
 
-Both are accepted because both have been patched and checked. The second is
-the development copy this world was built on; it is byte-for-byte the Redump
-disc with eight empty sectors on the end, and the game's actual code
-(`SLUS_013.95` and `ROCK_X6.BIN`) is identical in the two.
+Both are accepted because both have actually been patched and verified. They
+are not quite the same file — the second has eight extra trailing blank sectors
+and a differently mastered filesystem header — but the game's own code
+(`SLUS_013.95` and `ROCK_X6.BIN`) is **byte-identical** between them, so both
+produce an identical patched game.
 
-Patching verifies the image before touching it and refuses anything else, so
-an unexpected disc fails loudly instead of producing a subtly broken game.
+To check yours on Windows:
 
-## Setup
+```
+certutil -hashfile "Mega Man X6 (USA) (Rev 1).bin" MD5
+```
 
-1. Generate a seed with `Mega Man X6` in your YAML. You get a **`.apmmx6`**
-   file.
-2. Open the **Archipelago Launcher** and choose **Open Patch**, then select
-   your `.apmmx6`. The first time, it asks for your Mega Man X6 disc image and
-   remembers it afterwards.
-3. It writes a patched `.bin`/`.cue` next to the patch file. This is the disc
-   you play — keep your original untouched.
-4. The **Mega Man X6 Client** opens automatically. Enter your slot name and
-   connect it to the room.
-5. Open **BizHawk 2.10**, load the **patched** `.cue`, then open
-   **Tools → Lua Console** and load Archipelago's `connector_bizhawk_generic.lua`
-   from your Archipelago folder's `data/lua/`.
-6. The client reports the game once the connector attaches, and play begins.
+If it matches neither hash, your dump is a different format (2048-byte sectors,
+a `.iso`, or multi-track) — re-dump as raw 2352-byte mode. Patching verifies
+the image before touching it and refuses anything else, so an unexpected disc
+fails loudly instead of producing a subtly broken game.
+
+## Installing the apworld
+
+Put `mmx6.apworld` in your Archipelago install's `custom_worlds` folder, then
+restart the Archipelago Launcher. "Mega Man X6" should appear in the games
+list.
+
+**Everyone in a multiworld must use the same `mmx6.apworld` version** — the
+game edits live in the apworld, not in the seed, so a version mismatch between
+the generator and a player produces a disc that does not match the seed's
+expectations.
+
+## Generating and patching
+
+1. Generate a game with a Mega Man X6 YAML (produce a template from the
+   Launcher's **Generate Template Options**).
+2. From the finished seed you will receive a **`.apmmx6`** file.
+3. Open it via the Launcher's **Open Patch** (double-clicking the file also
+   works if your system associates `.apmmx6` with Archipelago). The first time,
+   Archipelago will ask you to locate your Mega Man X6 `.bin` — point it at the
+   file you verified above.
+4. This produces a patched `.cue` + `.bin` beside the patch file. **This** is
+   the disc you play; keep your original untouched.
+
+## Playing
+
+1. Open **BizHawk** and load the patched **`.cue`** (not the original, and not
+   the `.bin` directly).
+2. Open **Tools → Lua Console**, then **Script → Open Script**, and load
+   `data/lua/connector_bizhawk_generic.lua` from your Archipelago install.
+3. From the Archipelago Launcher, start the **Mega Man X6 Client** and connect
+   it to the room's address with your slot name.
+
+The client will report whether it sees a patched disc and confirm it can see
+the game. Once connected, play normally — checks send themselves and items
+arrive as you go.
 
 ## Things worth knowing
 
 **A newly granted weapon appears after the next stage load.** The game latches
-your weapon list when a stage starts, so an item that arrives mid-stage will
+your weapon list when a stage starts, so a weapon that arrives mid-stage will
 not be selectable straight away. **Dying is enough** to pick it up — you do not
 have to leave the stage.
 
@@ -88,3 +121,59 @@ W Tank in the Secret Lab and never see it because Shield Sheldon's stage was
 one you decided not to play. Nothing is lost permanently — everything releases
 once you complete the goal — but during the run, skipping content can cost you
 items you won somewhere else.
+
+**Reploids that a Nightmare gets to first still count.** The check is collected
+the moment a Reploid's slot leaves the untouched state, and "destroyed" counts
+exactly as much as "rescued", so losing one never costs you the item. With
+`protect_reploids` on (the default) it is not even destroyed — it reappears
+next time you enter the stage.
+
+**Under the `all_mavericks` goal you cannot enter Gate's Lab early.** The
+client holds it shut until all eight Mavericks are down and opens it itself on
+the eighth. This is deliberate: vanilla can open the Gate early, there is no
+play after the credits, and reaching the ending short would leave you needing a
+save from before the endgame.
+
+## Getting your clean dump back
+
+If you patched over your only copy, download the standalone
+**MMX6-Unpatcher** from the apworld's release page and drag any AP-patched
+X6 `.bin` onto it. It writes the original bytes back over every site the
+patcher can touch, regenerates each modified sector's error-correction data,
+and verifies the result against the two accepted MD5s **before** writing
+anything. Your patched file is not modified — the restored image is written
+next to it as `<name> (unpatched).bin`.
+
+If the result does not hash to a known clean dump, it writes nothing and tells
+you so, rather than handing you a subtly broken image.
+
+## Troubleshooting
+
+**The client connects to the room but never sees the game.** The connector Lua
+is not running in BizHawk, or your BizHawk is older than 2.7.
+
+**The patcher rejects my disc image.** Check its MD5 against the table above.
+The usual cause is a 2048-byte-per-sector dump rather than raw 2352.
+
+**The patcher says my disc is already AP-patched.** Patching always starts from
+your CLEAN dump — never from a disc a previous seed produced. Point the Mega
+Man X6 base-image setting (the file prompt, or `rom_file` under `mmx6_options`
+in `host.yaml`) back at your original dump. If you no longer have it, see
+"Getting your clean dump back" above.
+
+**Do I have to re-patch for every seed?** Only if a disc-changing option
+differs. `text_skip`, `skip_intro_videos`, `exit_stage_anytime`,
+`protect_reploids`, `difficulty`, `boss_hp_randomization` and `weapon_damage`
+are applied to the image; everything else is handled by the client. Two seeds
+with the same values for those produce byte-identical discs, so you can keep
+one patched disc per option combination and reuse it. That is also kinder to
+your saves: BizHawk keys memory cards **and savestates** to the disc's
+filename, so a reused disc keeps them and a renamed one silently starts with an
+empty card.
+
+**Note `randomize_options` can change those for you**, so a seed generated with
+it on should always be patched from its own file rather than an older image.
+
+**I loaded a save from another seed.** The client holds back everything that
+save already shows as collected and explains why, rather than sending checks
+you did not earn. Start a new game for a new seed.

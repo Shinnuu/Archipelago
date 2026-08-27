@@ -1,6 +1,75 @@
 # Mega Man X6 apworld — changelog
 
-## Unreleased
+## 0.1.0 — 2026-08-27
+
+First release. Everything below was in development before it.
+
+### The endgame is gated on all 8 Mavericks
+
+Under the `all_mavericks` goal the Gate stays shut until every Maverick is
+down, and the client opens it itself on the eighth. Vanilla does not enforce
+that goal: beating High Max in an Another Route opens Gate's Lab early, and it
+did, at three Mavericks, in the playthrough this release is built on.
+
+That mattered more than it looks, because **there is no play after the
+credits** — the credits return you to the title. A player who reached the
+ending short had no way back except a save from before the endgame, which they
+may never have made. The warning they used to get told them to keep playing,
+which was impossible; it now tells them to reload a save.
+
+### Reploids never expire
+
+`protect_reploids`, on by default. A Reploid a Nightmare reached first used to
+be gone for the rest of the playthrough. Now the three routines that record
+one as lost record it as untouched instead, so it reappears next time you
+enter the stage.
+
+Losing one never cost you a *check* — the client counts a Reploid as checked
+the moment its slot leaves the untouched state, destroyed included — but it
+cost you the rescue, and that was pure attrition rather than a decision.
+
+### Dialogue actually gets out of the way
+
+`text_skip` removed dialogue but left everything it did not remove typing one
+character at a time and waiting on a button. Cutscenes and story beats now
+appear instantly and advance themselves. Mega Man X6 has no choice prompts, so
+nothing is ever answered on your behalf.
+
+### Fixed: Zero never got any gauge upgrades
+
+X and Zero each own a life and a weapon gauge, and the client only ever wrote
+X's. Since `zero_unlock` ships, playing as Zero is a supported path — and a
+player who took it lost every Heart Tank, Life Up and Energy Up in the seed
+while their life bar drew past its own frame, because heals were clamped
+against X's maximum. Both characters' gauges are now written, and heals clamp
+to whoever is actually playing.
+
+Saves made before this fix repair themselves on the next connect.
+
+### Fixed: a client restart could release items it was withholding
+
+When a save shows progress the server has no record of, the client holds those
+checks back rather than risk releasing another player's items. That decision
+only ever lived in memory, so any reconnect — a crash, a Lua reload, a
+savestate load — released everything it was holding. It now lives in server
+data storage, and the release is a recorded one-time event rather than
+something re-derived at every connect.
+
+### Fixed: a withheld item could be held forever
+
+An armor part or tank is held until its own location is checked, so that
+setting the bit early cannot make that location uncollectable. The reasoning
+was that everything is reachable, so the delay is bounded — but reachable is
+not visited, and skipping a stage made the hold permanent. Everything held is
+now released once you complete the goal.
+
+### Added: MMX6-Unpatcher
+
+A standalone tool that restores an AP-patched disc to a verified clean dump,
+for anyone who patched over their only copy. It verifies the result before
+writing anything and never modifies your patched file.
+
+## Development history
 
 ### The intro boss is no longer randomized
 

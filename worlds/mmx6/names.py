@@ -307,6 +307,14 @@ ENDGAME_UNLOCKED = "The Gate - Opened"
 LAB1_CLEAR = "Secret Lab 1 - Clear"
 LAB2_CLEAR = "Secret Lab 2 - Clear"
 
+# Named values of the progress byte, for the code that WRITES it rather than
+# just reads a threshold. 2 is the ordinary "Mavericks available, Gate still
+# shut" state and 3 is "Gate's Lab selectable" - measured live 2026-08-27:
+# forcing the byte back to 2 on the stage select makes the Secret Lab icon
+# unselectable, and 3 restores it.
+PROGRESS_STAGE_SELECT = 2
+PROGRESS_ENDGAME_OPEN = 3
+
 # (location name, the minimum progress value that proves it), in id order.
 ENDGAME_CHECKS = (
     (ENDGAME_UNLOCKED, 3),

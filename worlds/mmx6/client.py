@@ -265,6 +265,9 @@ SLOT_ANCHOR_BYTES = names.SLOT_TABLE_ANCHOR
 HUB_STAGE_INDEX = names.HUB_STAGE_INDEX
 STAGE_SELECT_SCREENS = frozenset(names.STAGE_SELECT_SCREENS)
 
+PROGRESS_STAGE_SELECT = names.PROGRESS_STAGE_SELECT
+PROGRESS_ENDGAME_OPEN = names.PROGRESS_ENDGAME_OPEN
+
 
 
 class MMX6Client(BizHawkClient):
@@ -325,6 +328,12 @@ class MMX6Client(BizHawkClient):
         # have scored 8 permanently and handed out a false victory.
         self.mavericks_defeated = 0
         self.short_ending_warned = False
+        # Endgame gate: whether we are currently holding the Gate shut, and
+        # whether we have already said it is too late to. Both are log
+        # de-duplication only - the gate itself is recomputed every poll, so
+        # losing these to a reconnect costs a repeated line and nothing else.
+        self.endgame_gate_held = False
+        self.endgame_gate_missed = False
 
     # ---- identification ----------------------------------------------------
 
@@ -790,6 +799,102 @@ class MMX6Client(BizHawkClient):
                     ", ".join(sorted(n.removesuffix(" Access Codes")
                                      for n in unlocked)))
 
+    # ---- endgame gate ------------------------------------------------------
+
+    async def _endgame_gate_apply(self, ctx: "BizHawkClientContext",
+                                  save: bytes, screen: int) -> None:
+        """Hold Gate's Lab shut until all eight Mavericks are down.
+
+        Under `all_mavericks` the goal is a conjunction - the ending only
+        counts at 8/8 - and vanilla does not enforce it. High Max in an
+        Another Route opens the Gate early (ship plan 20; seen live
+        2026-08-27 at THREE Mavericks beaten). Reaching the credits short used
+        to be recoverable in theory, but there is no post-credits play at all
+        (item 24), so the only way back is reloading a save the player may
+        never have made. Closing the door beats warning them afterwards.
+
+        **The lock is the progress byte, not a slot table.** The endgame is not
+        an entry in the stage-select table: that table holds exactly eight ids
+        for slots 0-7 with the next row butted against it at +8, and Secret Lab
+        sits on cursor 08 - a special-cased code path with no slot to zero.
+        Measured live 2026-08-27: forcing `0x800CCF36` back to 2 on the stage
+        select makes the icon unselectable, and 3 restores it.
+
+        Stage-select screens only, and that is not incidental. The progress
+        byte is part of `_check_signature`, so writing it during gameplay would
+        make the signature disagree with itself between polls and could starve
+        the trust gate every check depends on.
+
+        Closes AND re-opens. The game does not recompute this byte, so leaving
+        the re-open to it would strand any seed where the write we overwrote
+        was its only one - see the comment on the 8/8 branch.
+        """
+        if (ctx.slot_data or {}).get("goal",
+                                     GOAL_ALL_MAVERICKS) != GOAL_ALL_MAVERICKS:
+            return
+        if screen not in STAGE_SELECT_SCREENS:
+            return
+
+        progress = save[OFF_PROGRESS]
+        if progress > PROGRESS_ENDGAME_OPEN:
+            # The player is INSIDE the endgame sequence, and forcing 2 here
+            # would destroy real progress - the same byte is how the Lab 1 and
+            # Lab 2 clears are recorded, and it is their only durable record.
+            # That can only happen if the Gate opened while no client was
+            # watching, so say so rather than silently doing nothing.
+            if not self.endgame_gate_missed:
+                self.endgame_gate_missed = True
+                logger.warning(
+                    "MMX6: the endgame was entered before all 8 Mavericks were "
+                    "beaten. It cannot be closed again without discarding the "
+                    "Lab clears already recorded, so beat the remaining "
+                    "Mavericks BEFORE Sigma - under this seed's goal the "
+                    "ending does not count at less than 8/8.")
+            return
+
+        # Deliberately NOT the trusted latch on its own. `mavericks_defeated`
+        # only moves on a trusted poll, so a fresh connect standing at the
+        # stage select scores 0 and would hold the Gate shut against a player
+        # who has genuinely finished all eight. Taking the better of the two is
+        # safe here because BOTH of this gate's failure directions are
+        # recoverable: a wrong close reopens on the next poll, and a wrong open
+        # is just vanilla behaviour. That is exactly what the goal latch cannot
+        # afford - a false victory is irreversible - which is why that one
+        # stays trust-only.
+        beaten = max(self.mavericks_defeated, bin(save[OFF_BEATEN]).count("1"))
+
+        if beaten >= 8:
+            # RE-OPEN IT OURSELVES. Measured live 2026-08-27: a value written
+            # into this byte STAYS. The game does not recompute it while the
+            # stage select is up - the icon came back only when 3 was written
+            # by hand. So the client cannot hold the Gate shut and then leave
+            # re-opening to the game: if the only write of 3 was the one we
+            # overwrote (High Max dying, say), the Gate would never open again
+            # and the seed would be unwinnable BY THIS FEATURE.
+            #
+            # Writing 3 at 8/8 cannot open it earlier than vanilla would -
+            # all eight Mavericks is itself one of the game's own opening
+            # conditions - and being stateless it survives a reconnect, which
+            # an in-memory "did we hold it?" flag would not.
+            if progress == PROGRESS_STAGE_SELECT:
+                await bizhawk.write(ctx.bizhawk_ctx, [
+                    (SAVE_BASE + OFF_PROGRESS, [PROGRESS_ENDGAME_OPEN],
+                     "MainRAM")])
+            if self.endgame_gate_held:
+                self.endgame_gate_held = False
+                logger.info("MMX6: all 8 Mavericks beaten - the Gate is open.")
+            return
+
+        if progress == PROGRESS_ENDGAME_OPEN:
+            await bizhawk.write(ctx.bizhawk_ctx, [
+                (SAVE_BASE + OFF_PROGRESS, [PROGRESS_STAGE_SELECT], "MainRAM")])
+            if not self.endgame_gate_held:
+                self.endgame_gate_held = True
+                logger.info(
+                    "MMX6: holding the Gate shut - %d/8 Mavericks beaten, and "
+                    "this seed's goal needs all eight. The client re-opens it "
+                    "on the eighth.", beaten)
+
     # ---- the watcher -------------------------------------------------------
 
     def _check_signature(self, save: bytes) -> bytes:
@@ -858,6 +963,10 @@ class MMX6Client(BizHawkClient):
         # worst a wrong save could suffer is stages it cannot enter until it
         # leaves the hub.
         await self._stage_unlocks_apply(ctx, screen)
+
+        # Same reasoning, same path: the endgame is entered from the stage
+        # select, which is never a trusted screen.
+        await self._endgame_gate_apply(ctx, save, screen)
 
         if not trusted:
             return

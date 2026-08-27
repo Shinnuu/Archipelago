@@ -155,6 +155,12 @@ QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
         # coincidence. The first site's vanilla word is byte-identical to
         # X5's, and both games write the same `+0xF` counter on the message
         # struct.
+        #
+        # X5 had to check that this did not answer Alia's reward prompt for
+        # the player. X6 HAS NO CHOICE PROMPTS at all (Ivor, 2026-08-27, from
+        # a completed playthrough), so there is nothing here to get wrong -
+        # the menus that do ask something are menus, not messages, and never
+        # route through this code.
         ("instant text", 0x80021FD0, REGION_EXE,
          bytes.fromhex("02006010"), bytes(4)),
         ("text auto-advance", 0x8002200C, REGION_EXE,

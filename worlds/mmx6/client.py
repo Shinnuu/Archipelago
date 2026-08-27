@@ -85,12 +85,25 @@ OFF_SCREEN = _off(0x800CCED0)          # 00 game start, 02 stage select,
                                        # 0A ingame, 0C mission report
 OFF_STAGE_IDX = _off(0x800CCEDC)       # read it, never infer - two encodings
 OFF_CHAR = _off(0x800CCF08)            # 00 X, 01 Zero
+CHAR_ZERO = 0x01
 OFF_LIVES = _off(0x800CCF09)
+# THE GAUGES ARE PER CHARACTER, and X's are the ones every guide names. Zero
+# has his own pair one byte along, found live 2026-08-27 in a save where X's
+# life gauge read 64 (maxed by 16 AP grants) while Zero's still read the base
+# 32, untouched all seed. Raising 0x800CCF2C stopped Zero's life bar drawing
+# past its own frame, which is the symptom that opened ship plan item 22 - a
+# heal clamped against X's maximum and written into a bar sized by Zero's.
 OFF_LIFE_GAUGE = _off(0x800CCF2B)      # 32 base -> 64 max, +2 per upgrade
+OFF_LIFE_GAUGE_ZERO = _off(0x800CCF2C)
 OFF_ARMOR_SELECT = _off(0x800CCF2F)    # +1 Falcon +2 Shadow +4 Blade
                                        # +8 Ultimate +10 Zero +20 Black Zero
 OFF_BEATEN = _off(0x800CCF30)          # beaten stages AND weapons - see policy 1
 OFF_WEAPON_GAUGE = _off(0x800CCF31)    # 48 base -> 64 max
+# Same +1 relationship, and it read 50 in that save - base 48 plus the one
+# Energy Up that was physically picked up, since a vanilla pickup upgrades
+# BOTH characters and an AP grant only ever wrote X's byte. Inferred from the
+# pattern and the value rather than proven by a bar, unlike the life gauge.
+OFF_WEAPON_GAUGE_ZERO = _off(0x800CCF32)
 OFF_PROGRESS = _off(0x800CCF36)        # 0 fresh, 1 intro cleared, 2 stage
                                        # select reached, >=3 endgame unlocked
 OFF_DIFFICULTY = _off(0x800CCF38)      # 00 easy, 01 normal, 02 xtreme
@@ -268,6 +281,18 @@ STAGE_SELECT_SCREENS = frozenset(names.STAGE_SELECT_SCREENS)
 PROGRESS_STAGE_SELECT = names.PROGRESS_STAGE_SELECT
 PROGRESS_ENDGAME_OPEN = names.PROGRESS_ENDGAME_OPEN
 
+
+
+def _gauge_offsets(save: bytes) -> tuple[int, int]:
+    """(life, weapon) gauge offsets for the character currently in play.
+
+    X and Zero each own a pair and the game keeps them in step only through
+    its own pickup routine, which an AP grant does not go through. Reading the
+    wrong one overfills a heal past the bar the player is actually looking at.
+    """
+    if save[OFF_CHAR] == CHAR_ZERO:
+        return OFF_LIFE_GAUGE_ZERO, OFF_WEAPON_GAUGE_ZERO
+    return OFF_LIFE_GAUGE, OFF_WEAPON_GAUGE
 
 
 class MMX6Client(BizHawkClient):
@@ -484,17 +509,23 @@ class MMX6Client(BizHawkClient):
         # Vanilla pickups also raise these, so take the max rather than the
         # computed target: the player keeps anything they earned locally on
         # top of what AP sent, and the gauge never goes backwards.
+        #
+        # BOTH characters, not just X. A vanilla pickup raises the pair
+        # together; writing the save byte directly bypasses whatever does
+        # that, so shipping X's byte alone meant a player who took
+        # `zero_unlock` silently lost every gauge upgrade in the seed. Found
+        # live 2026-08-27 with X's life gauge at 64 and Zero's still at 32.
         life_steps = got.get(names.HEART_TANK, 0) + got.get(names.LIFE_UP, 0)
         life_target = min(LIFE_GAUGE_MAX,
                           LIFE_GAUGE_BASE + GAUGE_STEP * life_steps)
-        write(OFF_LIFE_GAUGE, max(save[OFF_LIFE_GAUGE], life_target),
-              save[OFF_LIFE_GAUGE])
+        for offset in (OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO):
+            write(offset, max(save[offset], life_target), save[offset])
 
         weapon_target = min(WEAPON_GAUGE_MAX,
                             WEAPON_GAUGE_BASE
                             + GAUGE_STEP * got.get(names.ENERGY_UP, 0))
-        write(OFF_WEAPON_GAUGE, max(save[OFF_WEAPON_GAUGE], weapon_target),
-              save[OFF_WEAPON_GAUGE])
+        for offset in (OFF_WEAPON_GAUGE, OFF_WEAPON_GAUGE_ZERO):
+            write(offset, max(save[offset], weapon_target), save[offset])
 
         # --- armor parts (policy 3: withhold until the capsule is checked) --
         armor_bits = save[OFF_ARMOR_PARTS]
@@ -594,7 +625,12 @@ class MMX6Client(BizHawkClient):
         cursor = self.filler_cursor if self.filler_cursor is not None             else len(ctx.items_received)
         writes: list[tuple[int, bytes]] = []
         lives = save[OFF_LIVES]
-        max_hp = save[OFF_LIFE_GAUGE]
+        # The gauge of the character IN PLAY. Clamping a heal against X's
+        # maximum while playing as Zero is what drew his life bar past its own
+        # frame (ship plan item 22) - the overfill was visible, the lost
+        # upgrades were not.
+        life_gauge, weapon_gauge = _gauge_offsets(save)
+        max_hp = save[life_gauge]
         hp = (player[OFF_P_HP] & PLAYER_HP_MASK) if player else None
 
         # Ammo: the slot the player is actually using, and the live cap.
@@ -610,7 +646,7 @@ class MMX6Client(BizHawkClient):
                 # Cap against the array, not the save byte - the live max is
                 # latched at stage start, so a just-granted Energy Up would
                 # otherwise overfill until the next stage.
-                ammo_cap = max(slots) or (save[OFF_WEAPON_GAUGE]
+                ammo_cap = max(slots) or (save[weapon_gauge]
                                           * WEAPON_AMMO_SCALE)
 
         while cursor < len(ctx.items_received):

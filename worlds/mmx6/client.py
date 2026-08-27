@@ -722,11 +722,20 @@ class MMX6Client(BizHawkClient):
             if goal == GOAL_ALL_MAVERICKS and self.mavericks_defeated < 8:
                 if not self.short_ending_warned:
                     self.short_ending_warned = True
+                    # "Beat the rest" is what this used to say, and it is
+                    # impossible: settled live 2026-08-27, the credits return
+                    # you to the title and there is NO post-credits play. X6
+                    # saves at the stage select, so a save made before Gate's
+                    # Lab is the only way back - and this is the moment the
+                    # player decides what to do, so the instruction has to be
+                    # the one that works.
                     logger.warning(
                         "MMX6: the ending was reached with only %d/8 Mavericks "
                         "beaten, and this seed's goal is all_mavericks - so it "
-                        "is NOT complete yet. Beat the rest and the goal fires "
-                        "as soon as the eighth one is down.",
+                        "is NOT complete yet. There is no play after the "
+                        "credits: LOAD A SAVE from before Gate's Lab, beat the "
+                        "remaining Mavericks, then go back through the endgame. "
+                        "The goal fires on the ending at 8/8.",
                         self.mavericks_defeated)
                 return False
             return True

@@ -94,6 +94,20 @@ class TestAllMavericksGoal(unittest.TestCase):
                                           GOAL_ALL_MAVERICKS))
         self.assertTrue(c.short_ending_warned)
 
+    def test_the_warning_does_not_tell_the_player_to_keep_playing(self) -> None:
+        # Ship plan item 24a. It used to say "Beat the rest and the goal fires
+        # as soon as the eighth one is down", which reads as "carry on" - and
+        # there IS no carrying on: settled live 2026-08-27, the credits return
+        # you to the title. Reloading a save made before Gate's Lab is the
+        # only route back, and this warning is the one thing the player is
+        # actually reading at that moment.
+        with self.assertLogs("Client", level="WARNING") as caught:
+            client(kills=6)._goal_decision(SCREEN_END_CREDITS,
+                                           GOAL_ALL_MAVERICKS)
+        message, = caught.output
+        self.assertIn("LOAD A SAVE", message)
+        self.assertIn("no play after the credits", message)
+
     def test_it_completes_once_the_last_mavericks_die(self) -> None:
         # Reaching the credits early must not strand the run - which was the
         # worry that started this. Beat the rest and it completes.

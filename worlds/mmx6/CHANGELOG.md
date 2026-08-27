@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The intro boss is no longer randomized
+
+`boss_hp_randomization` left the tutorial boss alone from now on. A playtest
+roll took it from 32 to 110 - three and a half times vanilla, fought with a
+bare starting X before any upgrade exists. It is the first thing anyone
+playing this world meets, and randomizing it bought nothing the other fifteen
+bosses do not already provide.
+
+The intro's second boss needed no change: its health is written by a site
+outside the verified table, so it already kept vanilla values.
+
 ### Fixed: `stage_unlocks` could produce an unwinnable seed
 
 Blizzard Wolfang's Heart Tank and EX Tank sit behind a wall that only opens

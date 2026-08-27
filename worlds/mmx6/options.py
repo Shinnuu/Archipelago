@@ -234,6 +234,10 @@ class BossHpRandomization(Toggle):
     bar and the real health in the same byte: patching it means the bar you
     see is always the health the boss has.
 
+    The intro-stage boss is deliberately left alone. It is the tutorial,
+    fought with a bare starting X before any upgrade exists, and a roll that
+    tripled its health made a miserable first impression for nothing.
+
     A handful of bosses - Nightmare Mother, Dynamo, and High Max's higher
     ranks - store their health in a form this does not yet handle, and keep
     their vanilla values. Everything else is randomized.

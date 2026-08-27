@@ -76,7 +76,9 @@ class TestEdits(unittest.TestCase):
         declared = {}
         for label, where, _r, van, _p in disc.boss_hp_edits(rolls):
             declared[where] = van[0]
-        for _boss, levels in disc.BOSS_HP.items():
+        for boss, levels in disc.BOSS_HP.items():
+            if boss in disc.BOSS_HP_NEVER_ROLLED:
+                continue        # emits no edits at all, by design
             for _level, vanilla, offsets in levels:
                 for offset in offsets:
                     self.assertEqual(declared[offset], vanilla)
@@ -101,6 +103,40 @@ class TestEdits(unittest.TestCase):
             by_label.setdefault(label, set()).add(patched[0])
         for label, values in by_label.items():
             self.assertEqual(len(values), 1, f"{label} got {values}")
+
+
+class TestTutorialBossIsNeverRolled(unittest.TestCase):
+    """The intro boss keeps vanilla health however the option is set.
+
+    A real playtest rolled it 32 -> 110: three and a half times vanilla, on the
+    tutorial, fought with a bare starting X. It is the first thing any player
+    of this world meets.
+    """
+
+    def test_it_is_excluded(self) -> None:
+        self.assertIn("D-1000", disc.BOSS_HP_NEVER_ROLLED)
+        self.assertNotIn("D-1000", disc.rollable_bosses())
+
+    def test_the_exclusion_list_names_real_bosses(self) -> None:
+        for boss in disc.BOSS_HP_NEVER_ROLLED:
+            self.assertIn(boss, disc.BOSS_HP,
+                          f"{boss} is excluded but is not in the table at all")
+
+    def test_rollable_is_everything_else(self) -> None:
+        self.assertEqual(
+            set(disc.rollable_bosses()),
+            set(disc.BOSS_HP) - set(disc.BOSS_HP_NEVER_ROLLED))
+
+    def test_no_edit_is_emitted_even_if_a_roll_is_forced(self) -> None:
+        # A caller passing a stale roll dict must not be able to reintroduce
+        # it - the builder refuses, not just the roller.
+        self.assertEqual(disc.boss_hp_edits({"D-1000": 120}), [])
+
+    def test_excluding_it_does_not_disturb_the_others(self) -> None:
+        rolls = {b: 64 for b in disc.rollable_bosses()}
+        edits = disc.boss_hp_edits(rolls)
+        self.assertTrue(edits)
+        self.assertFalse([e for e in edits if e[0].startswith("D-1000")])
 
 
 if __name__ == "__main__":

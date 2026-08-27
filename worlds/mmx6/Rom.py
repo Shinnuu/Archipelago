@@ -196,7 +196,7 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
         # the disc image needs to know: no logic depends on boss health, and
         # the client never reads it.
         rolls = {boss: world.random.randint(disc.BOSS_HP_MIN, disc.BOSS_HP_MAX)
-                 for boss in disc.BOSS_HP}
+                 for boss in disc.rollable_bosses()}
         seed_edits += disc.boss_hp_edits(rolls)
 
     if world.options.weapon_damage:

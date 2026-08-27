@@ -214,6 +214,24 @@ BOSS_HP: dict[str, list[tuple[int, int, tuple[int, ...]]]] = {
 }
 
 
+# Bosses that are never rolled, however the option is set.
+#
+# D-1000 is the intro-stage boss: the tutorial, fought with a bare starting X
+# before any upgrade exists. A roll took it from 32 to 110 in a real playtest -
+# three and a half times vanilla - which is a miserable first impression and
+# the first thing any player of this world would meet. Randomizing it buys
+# nothing the other fifteen bosses do not already provide.
+#
+# The intro's SECOND boss needs no entry here: its HP is written by a site
+# outside the verified table, so it keeps vanilla values already.
+BOSS_HP_NEVER_ROLLED = ("D-1000",)
+
+
+def rollable_bosses() -> list[str]:
+    """Bosses `boss_hp_randomization` may roll, in a stable order."""
+    return [b for b in BOSS_HP if b not in BOSS_HP_NEVER_ROLLED]
+
+
 def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, bytes]]:
     """Disc edits setting each named boss's level-1 HP to `rolls[boss]`.
 
@@ -227,7 +245,7 @@ def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, byt
     """
     out: list[tuple[str, int, str, bytes, bytes]] = []
     for boss, levels in BOSS_HP.items():        # dict order, deterministic
-        if boss not in rolls:
+        if boss not in rolls or boss in BOSS_HP_NEVER_ROLLED:
             continue
         base_hp = levels[0][1]
         for level, vanilla, offsets in levels:

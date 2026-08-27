@@ -6,6 +6,7 @@ emulator. What it pins is the set of things that silently break in the wrong
 direction: a check firing off an AP grant, a grant that is not idempotent, and
 a bit written early that makes its own location uncollectable.
 """
+import asyncio
 import unittest
 
 from .. import names, reploids
@@ -44,6 +45,27 @@ class FakeCtx:
         # CommonContext always has this; the client reads it to decide when
         # withholding can stop (ship plan item 23).
         self.finished_game = False
+        # Data storage, simulated end to end rather than stubbed: the baseline
+        # gate's whole point is that its decision survives a round trip, and a
+        # stub that just remembers what was written would not test that.
+        self.team, self.slot = 0, 1
+        self.stored_data: dict = {}
+        self.notified: set = set()
+        self.sent: list = []
+
+    def set_notify(self, *keys) -> None:
+        for key in keys:
+            if key not in self.notified:
+                self.notified.add(key)
+                self.stored_data[key] = None      # server replies "unset"
+
+    async def send_msgs(self, msgs) -> None:
+        self.sent.extend(msgs)
+        for msg in msgs:
+            if msg.get("cmd") == "Set":
+                for op in msg["operations"]:
+                    if op["operation"] == "replace":
+                        self.stored_data[msg["key"]] = op["value"]
 
 
 def blank_save() -> bytearray:
@@ -665,17 +687,23 @@ class TestBaselineGate(unittest.TestCase):
 
     def setUp(self) -> None:
         self.client = MMX6Client()
+        self.ctx = FakeCtx()
         self.save = blank_save()
         self.save[OFF_PROGRESS] = 2
         self.save[OFF_BEATEN] = names.STAGE_BIT[names.YAMMARK]
         self.save[OFF_HEARTS] = names.STAGE_BIT[names.TURTLOID]
 
-    def resolve(self, checked=()):
+    def resolve(self, checked=(), ctx=None):
         # Calls the CLIENT's own gate. An earlier version of this helper
         # reimplemented the rule here, which made it self-consistent: a
         # mutation disabling the gate entirely still passed.
-        ctx = FakeCtx(checked=checked)
+        #
+        # The context is reused across calls by default so that data storage
+        # persists between polls, which is the thing under test.
+        ctx = ctx if ctx is not None else self.ctx
+        ctx.checked_locations = {location_table[c] for c in checked}
         found = self.client._detect(ctx, bytes(self.save))
+        asyncio.run(self.client._baseline_sync(ctx, found))
         return self.client._sendable(ctx, found)
 
     def test_a_progressed_save_on_a_virgin_slot_is_held(self) -> None:
@@ -698,16 +726,21 @@ class TestBaselineGate(unittest.TestCase):
         self.assertEqual(self.resolve(checked=()), set())
         self.assertFalse(self.client.baseline_held)
 
-    def test_a_held_baseline_does_not_block_live_checks(self) -> None:
+    def test_a_live_check_releases_the_held_baseline(self) -> None:
         # Holding must never stop a check the player earns while watching -
-        # that is what lets them prove the save and recover the rest.
+        # that is what lets them prove the save. Collecting one that is NOT
+        # part of the disputed baseline now releases the rest immediately,
+        # where it used to need a reconnect.
         self.resolve(checked=())
         held = set(self.client.baseline_held)
+        self.assertTrue(held)
         self.save[OFF_TANKS] = names.TANK_BIT[names.YAMMARK]   # collected live
         sendable = self.resolve(checked=())
-        self.assertEqual(sendable,
-                         {location_table[names.tank_location(names.YAMMARK)]})
-        self.assertEqual(self.client.baseline_held, held)
+        self.assertIn(location_table[names.tank_location(names.YAMMARK)],
+                      sendable)
+        self.assertTrue(held <= sendable,
+                        "the baseline was not released by the live check")
+        self.assertFalse(self.client.baseline_held)
 
 
 class TestWeaponGrants(unittest.TestCase):

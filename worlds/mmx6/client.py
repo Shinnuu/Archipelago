@@ -275,6 +275,8 @@ SLOT_ANCHOR_BYTES = names.SLOT_TABLE_ANCHOR
 # it leaves 0x800CCEDC reading 0000 with the player still in the hub. In that
 # encoding 0000 is the INTRO STAGE and vanilla never writes it there, so an
 # in-hub save would commit it. Observed four times in the research session.
+BASELINE_UNKNOWN, BASELINE_HELD, BASELINE_CLEAR = "unknown", "held", "clear"
+
 HUB_STAGE_INDEX = names.HUB_STAGE_INDEX
 STAGE_SELECT_SCREENS = frozenset(names.STAGE_SELECT_SCREENS)
 
@@ -321,7 +323,10 @@ class MMX6Client(BizHawkClient):
         # phantom checks.
         self.last_check_sig: bytes | None = None
         self.last_poll_trusted = False
-        self.baseline_resolved = False
+        # Baseline state, and it is deliberately three-valued: UNKNOWN means
+        # the server has not answered yet, which must not be read as "nothing
+        # held" - that is how the old code sent a phantom on reconnect.
+        self.baseline_state = BASELINE_UNKNOWN
         # Locations already set in the save that we are deliberately NOT
         # sending, because we cannot yet tell this seed's save from another's.
         self.baseline_held: set[int] = set()
@@ -729,13 +734,19 @@ class MMX6Client(BizHawkClient):
     def _sendable(self, ctx: "BizHawkClientContext", found: set[int]) -> set[int]:
         """Which detected locations may actually be sent.
 
-        The question on first contact: is this save one this seed has been
-        played on? If the server has ALREADY recorded checks for this slot,
-        yes - so anything extra in the save was collected while disconnected
-        and should be sent. If the server has recorded NOTHING and yet the
-        save is full of progress, a legitimate offline run and a save
-        belonging to another seed look identical, and sending would release
-        other players' items.
+        Pure, and deliberately dumb: the whole decision is taken in
+        `_baseline_sync`, which owns the durable state. All this does is
+        subtract - and refuse to send anything at all while that decision is
+        still UNKNOWN.
+
+        The question it answers is: is this save one this seed has been played
+        on? If the server has recorded NOTHING for the slot and yet the save
+        is full of progress, a legitimate offline run and a save belonging to
+        another seed look identical, and sending would release other players'
+        items. That question is asked ONCE and the answer is stored, rather
+        than re-derived at every connect from "has the slot checked anything
+        yet" - which stopped being true the moment the player checked
+        something, and so could never hold anything again.
 
         This replaces the seed/slot stamp X5 writes into a spare save byte.
         X6 cannot copy that: its memcard re-serialises the save rather than
@@ -744,22 +755,109 @@ class MMX6Client(BizHawkClient):
         no save byte and cannot be defeated by a card layout we do not fully
         understand.
         """
+        if self.baseline_state == BASELINE_UNKNOWN:
+            # The durable answer has not come back from the server yet. Send
+            # NOTHING rather than guess: this is the one decision in the
+            # client that cannot be taken back, because a released item is
+            # somebody else's.
+            return set()
+        return (found - self.sent_locations - set(ctx.checked_locations)
+                - self.baseline_held)
+
+    @staticmethod
+    def _baseline_key(ctx: "BizHawkClientContext") -> str | None:
+        if ctx.team is None or ctx.slot is None:
+            return None
+        return f"mmx6_baseline_{ctx.team}_{ctx.slot}"
+
+    async def _baseline_sync(self, ctx: "BizHawkClientContext",
+                             found: set[int]) -> None:
+        """Establish, persist and release the held baseline.
+
+        THE DECISION HAS TO OUTLIVE THE PROCESS. The old rule armed on
+        `fresh and not checked` - it withheld only while the server had
+        recorded nothing at all for the slot. Once anything was checked the
+        guard could never arm again, so a client restart mid-run released
+        every location the save showed as collected. Observed 2026-08-27: a
+        restart's first act was to send a phantom check the original client
+        had correctly withheld all session. In a real multiworld that is
+        somebody else's item, released by a crash - the exact failure the
+        mechanism exists to prevent.
+
+        So the held set lives in server data storage, keyed on the slot, and
+        a reconnect reads it back rather than re-deriving it.
+
+        The release is the SAME rule the setup guide has always promised -
+        collect a check that is not part of the disputed baseline and the
+        rest follows - but it is now a recorded one-time transition instead
+        of something re-derived at every connect, so a restart cannot trigger
+        it. It also no longer needs a reconnect to take effect.
+
+        Known limit, accepted deliberately: a save swapped in from another
+        seed AFTER this slot has been resolved is not caught, and a foreign
+        save that is then played on will release its own baseline. Positively
+        identifying the save needs a seed stamp the save carries, which is
+        what X5 does; X6's memcard re-serialises rather than copies, so
+        whether any byte survives to the card is unmeasured.
+        """
+        key = self._baseline_key(ctx)
+        if key is None:
+            return
+        ctx.set_notify(key)             # deduped by the context, safe to repeat
+        if key not in ctx.stored_data:
+            return                      # still in flight; _sendable holds
         checked = set(ctx.checked_locations)
-        if not self.baseline_resolved:
-            self.baseline_resolved = True
-            fresh = found - checked
-            if fresh and not checked:
-                self.baseline_held = fresh
-                logger.warning(
-                    "MMX6: holding back %d location(s) that are already "
-                    "collected in this save. The server has no record of this "
-                    "slot checking anything, so this could be a save from a "
-                    "different seed - sending them would release other "
-                    "players' items. If it IS this seed's save, collect any "
-                    "one check and reconnect: the server will then have a "
-                    "record and these will be sent automatically.",
-                    len(fresh))
-        return found - self.sent_locations - checked - self.baseline_held
+        stored = ctx.stored_data[key]
+
+        if self.baseline_state == BASELINE_UNKNOWN:
+            if stored is None:
+                # First contact for this slot.
+                fresh = found - checked
+                if fresh and not checked:
+                    await self._baseline_store(ctx, key, sorted(fresh))
+                    self.baseline_held = fresh
+                    self.baseline_state = BASELINE_HELD
+                    logger.warning(
+                        "MMX6: holding back %d location(s) that are already "
+                        "collected in this save. The server has no record of "
+                        "this slot checking anything, so this could be a save "
+                        "from a different seed - sending them would release "
+                        "other players' items. If it IS this seed's save, "
+                        "collect any one check and these are sent "
+                        "automatically.", len(fresh))
+                    return
+                await self._baseline_store(ctx, key, [])
+                self.baseline_state = BASELINE_CLEAR
+                return
+            self.baseline_held = set(stored)
+            self.baseline_state = BASELINE_HELD if stored else BASELINE_CLEAR
+            if stored:
+                logger.info(
+                    "MMX6: %d location(s) are still held back from an earlier "
+                    "session. Collect any check that is not one of them and "
+                    "they are sent.", len(stored))
+
+        if self.baseline_state != BASELINE_HELD:
+            return
+
+        # Release: evidence of a check that is NOT part of the disputed
+        # baseline proves this save has been played on this seed.
+        if found - self.baseline_held - checked - self.sent_locations:
+            await self._baseline_store(ctx, key, [])
+            released = len(self.baseline_held)
+            self.baseline_held = set()
+            self.baseline_state = BASELINE_CLEAR
+            logger.info(
+                "MMX6: this save is confirmed as this seed's - releasing the "
+                "%d location(s) held back earlier.", released)
+
+    @staticmethod
+    async def _baseline_store(ctx: "BizHawkClientContext", key: str,
+                              value: list[int]) -> None:
+        await ctx.send_msgs([{
+            "cmd": "Set", "key": key, "default": None, "want_reply": False,
+            "operations": [{"operation": "replace", "value": value}],
+        }])
 
     # ---- goal ----------------------------------------------------------------
 
@@ -1045,6 +1143,7 @@ class MMX6Client(BizHawkClient):
         # ---- checks --------------------------------------------------------
         found = self._detect(ctx, save)
 
+        await self._baseline_sync(ctx, found)
         new = self._sendable(ctx, found)
         if new:
             self.sent_locations |= new

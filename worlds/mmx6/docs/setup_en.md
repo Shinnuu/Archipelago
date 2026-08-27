@@ -71,8 +71,9 @@ the ROM and load your in-game save instead.
 with an explanation in the client. Archipelago works out whether a save belongs
 to this seed by asking whether the slot has ever checked anything; a save that
 has progressed on a slot with no history is ambiguous, so it waits rather than
-guessing and sending checks you did not earn. Collect any one check and
-reconnect, and it releases.
+guessing and sending checks you did not earn. **Collect any one check that is
+not one of the held ones and the rest are sent** — you no longer need to
+reconnect for it, and restarting the client will not release them by itself.
 
 **Some items wait until you visit the place they belong.** An armor part or a
 tank you receive from someone else is not applied to your save until you have

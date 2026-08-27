@@ -46,10 +46,11 @@ class FakeCtx:
 
 
 class DetectCtx:
-    """`_detect` only reads these three."""
+    """`_detect` only reads these."""
     def __init__(self) -> None:
         self.slot_data = {}
         self.checked_locations = set()
+        self.finished_game = False
         self.items_received = []
         self.item_names = type(
             "N", (), {"lookup_in_game": staticmethod(lambda i: i)})

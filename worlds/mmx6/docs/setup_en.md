@@ -73,3 +73,17 @@ to this seed by asking whether the slot has ever checked anything; a save that
 has progressed on a slot with no history is ambiguous, so it waits rather than
 guessing and sending checks you did not earn. Collect any one check and
 reconnect, and it releases.
+
+**Some items wait until you visit the place they belong.** An armor part or a
+tank you receive from someone else is not applied to your save until you have
+checked that part's own location, because setting the bit early stops the
+capsule or tank from spawning and would make the location impossible to
+collect. The client tells you when it is doing this and which check releases
+it.
+
+The consequence is worth knowing before it happens: **if you skip a stage
+entirely, an item held against something in it stays held.** You can earn a
+W Tank in the Secret Lab and never see it because Shield Sheldon's stage was
+one you decided not to play. Nothing is lost permanently — everything releases
+once you complete the goal — but during the run, skipping content can cost you
+items you won somewhere else.

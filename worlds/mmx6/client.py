@@ -415,6 +415,30 @@ class MMX6Client(BizHawkClient):
         return loc_id is not None and (
             loc_id in ctx.checked_locations or loc_id in self.sent_locations)
 
+    def _nothing_left_to_strand(self, ctx: "BizHawkClientContext") -> bool:
+        """True once the seed is finished, so withholding can stop.
+
+        Policy 3 withholds a granted armor part or tank until its own location
+        is checked, because setting the bit early stops that pickup spawning
+        and makes the location uncollectable. The stated justification is that
+        the delay is "always bounded" since everything is reachable - but
+        REACHABLE IS NOT VISITED. Seen live 2026-08-27: a W Tank earned at
+        `Secret Lab 2 - Clear` was withheld pending `Shield Sheldon - W Tank`
+        in a run where Sheldon's stage was deliberately skipped, so the player
+        lost an item they had earned somewhere else entirely.
+
+        After the goal nothing can be stranded, so the reason to withhold is
+        gone and the item should simply apply. Ship plan item 23.
+
+        `finished_game` is not restored from the server on a reconnect, so
+        this can read False in a session that starts after the goal. That
+        costs nothing under the default `release_mode: auto`, which marks
+        every remaining location checked and stops the withholding anyway; it
+        only lingers for a player who both turned release off AND reconnected
+        after finishing, whose seed is over regardless.
+        """
+        return self.victory_sent or ctx.finished_game
+
     # ---- detection ---------------------------------------------------------
 
     def _detect(self, ctx: "BizHawkClientContext", save: bytes) -> set[int]:
@@ -529,10 +553,12 @@ class MMX6Client(BizHawkClient):
 
         # --- armor parts (policy 3: withhold until the capsule is checked) --
         armor_bits = save[OFF_ARMOR_PARTS]
+        done = self._nothing_left_to_strand(ctx)
         for stage, part in names.STAGE_ARMOR_PART.items():
             if not got.get(part):
                 continue
-            if not self._checked(ctx, names.capsule_location(stage)):
+            if not done and not self._checked(ctx,
+                                              names.capsule_location(stage)):
                 self._log_withheld(part, names.capsule_location(stage))
                 continue
             armor_bits |= names.ARMOR_PART_BIT[part]
@@ -553,7 +579,7 @@ class MMX6Client(BizHawkClient):
             if got.get(item):
                 wanted.append((stage, names.TANK_BIT[stage]))
         for stage, bit in wanted:
-            if not self._checked(ctx, names.tank_location(stage)):
+            if not done and not self._checked(ctx, names.tank_location(stage)):
                 self._log_withheld(names.STAGE_TANK[stage],
                                    names.tank_location(stage))
                 continue

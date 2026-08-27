@@ -40,6 +40,9 @@ class FakeCtx:
             "N", (), {"lookup_in_game": staticmethod(lambda i: i)})
         self.checked_locations = set()
         self.slot_data = {}
+        # CommonContext always has this; the client reads it to decide when
+        # withholding can stop (ship plan item 23).
+        self.finished_game = False
 
 
 def blank_save(char=0) -> bytearray:

@@ -41,6 +41,9 @@ class FakeCtx:
         self.item_names = FakeNames()
         self.checked_locations = {location_table[c] for c in checked}
         self.slot_data = {}
+        # CommonContext always has this; the client reads it to decide when
+        # withholding can stop (ship plan item 23).
+        self.finished_game = False
 
 
 def blank_save() -> bytearray:

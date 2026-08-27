@@ -123,6 +123,42 @@ QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
         # Cutscene typing speed: addiu v0, zero, 4 -> addiu v0, zero, 2.
         ("cutscene text speed", 0x800226D8, REGION_EXE,
          bytes.fromhex("04000224"), bytes.fromhex("02000224")),
+        # ---- instant text and auto-advance, ported from X5 ----------------
+        #
+        # Everything above REMOVES dialogue. These two make what is left get
+        # on with itself, which is what the Tweaks patcher never had: its 144
+        # tweaks include DialogueDisable01-07 and nothing that touches typing
+        # or advancing. Enumerated, not sampled.
+        #
+        # Both sites are in the message STATE MACHINE, not the render loop.
+        # That distinction is the whole reason this was cheap: X5 burned four
+        # attempts on the render loop - one killed the advance button, one
+        # broke the box display outright - before finding that the layer the
+        # game's own confirm handling uses is the one to cut. We went straight
+        # there.
+        #
+        #   0x80021FD0  beq v1, zero, +2      guards `sb zero, 0xF(s3)`.
+        #                                     Zeroing that counter is exactly
+        #                                     what pressing confirm does, so
+        #                                     NOPping the guard completes
+        #                                     every box the frame it opens.
+        #   0x8002200C  beq v1, zero, +0xC4   guards the end-of-box "return
+        #                                     unless a button is down" wait.
+        #
+        # `v1` is the low byte of the pad bitfield at 0x800C4570 in both. So
+        # this does not fake a button press globally - it makes the message
+        # code alone behave as though confirm were held.
+        #
+        # X5's equivalents sit at 0x80023D48 and 0x80023D84, and BOTH are
+        # exactly 0x1D78 above ours. Two independent sites agreeing on one
+        # delta is why these were accepted; a single match would have been a
+        # coincidence. The first site's vanilla word is byte-identical to
+        # X5's, and both games write the same `+0xF` counter on the message
+        # struct.
+        ("instant text", 0x80021FD0, REGION_EXE,
+         bytes.fromhex("02006010"), bytes(4)),
+        ("text auto-advance", 0x8002200C, REGION_EXE,
+         bytes.fromhex("c4006010"), bytes(4)),
     ],
     # Boot straight to the title. Four NOPs, no code moved.
     #

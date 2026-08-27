@@ -127,10 +127,16 @@ class TextSkip(DefaultOnToggle):
     one check it is the reason the trip feels long.
 
     With this on the in-stage Navigator calls, the other in-stage dialogue, the
-    stage-select briefings and the Nightmare Souls explanation do not play, the
-    alert chime is muted, and cutscene text types at twice the speed.
+    stage-select briefings and the Nightmare Souls explanation do not play, and
+    the alert chime is muted.
 
-    Nothing that decides anything is skipped. This only removes dialogue that
+    Everything that is LEFT - cutscenes, story beats, anything the removals
+    above do not cover - now types out instantly and advances on its own, so
+    it plays through without input instead of waiting on a button at every
+    box. Cutscene text also types at twice the speed on the path that still
+    types.
+
+    Nothing that decides anything is skipped. This only affects dialogue that
     plays AT you - no prompt, menu or choice is answered for you, and the stage
     select itself is untouched.
 

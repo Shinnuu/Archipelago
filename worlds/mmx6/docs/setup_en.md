@@ -75,7 +75,7 @@ expectations.
    the `.bin` directly).
 2. Open **Tools → Lua Console**, then **Script → Open Script**, and load
    `data/lua/connector_bizhawk_generic.lua` from your Archipelago install.
-3. From the Archipelago Launcher, start the **Mega Man X6 Client** and connect
+3. From the Archipelago Launcher, start the **BizHawk Client** and connect
    it to the room's address with your slot name.
 
 The client will report whether it sees a patched disc and confirm it can see

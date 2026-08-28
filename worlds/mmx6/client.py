@@ -162,7 +162,9 @@ SOULS_GATE = 3000
 # watching 0x10, and unlike 0x10 it can actually be caught. Both are accepted:
 # 0x10 still fires on a lucky poll, 0x11 is the one that reliably does.
 #
-# NOT YET SEEN LIVE. Nobody has reached X6's credits with the client attached.
+# SEEN LIVE 2026-08-27: a seed was played to the ending with the client
+# attached and the victory was sent. (Which of the two values the poll caught
+# was not recorded; by the timing above it was almost certainly 0x11.)
 SCREEN_END_CREDITS = 0x10
 SCREEN_END_CREDITS_HELD = 0x11
 ENDING_SCREENS = frozenset({SCREEN_END_CREDITS, SCREEN_END_CREDITS_HELD})

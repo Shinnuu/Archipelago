@@ -283,6 +283,24 @@ class TestIdentification(unittest.TestCase):
         self.assertEqual(MMX6Client.patch_suffix, ".apmmx6")
         self.assertEqual(MMX6Client.system, "PSX")
 
+    def test_suffix_reaches_the_bizhawk_launcher_component(self) -> None:
+        # The class attribute alone proves nothing about the Launcher: the
+        # suffix has to arrive in the BizHawk Client component's
+        # file_identifier, which is what Open Patch actually consults.
+        # Patch.create_rom_file() bypasses that path entirely, so no
+        # patch-flow test can stand in for this one (X5's gate learned that
+        # the hard way; this is X5's TestLauncherRegistration, ported).
+        from worlds.LauncherComponents import components
+        bizhawk = [c for c in components if c.script_name == "BizHawkClient"]
+        self.assertTrue(bizhawk, "BizHawk Client component missing")
+        self.assertIn(".apmmx6", bizhawk[0].file_identifier.suffixes,
+                      "Open Patch will not offer .apmmx6 to players")
+
+    def test_suffix_matches_the_patch_file_ending(self) -> None:
+        from ..Rom import MMX6ProcedurePatch
+        self.assertEqual(MMX6Client.patch_suffix,
+                         MMX6ProcedurePatch.patch_file_ending)
+
 
 # A REAL save state, rebuilt by replaying the 2026-08-25 play-session RAM diff
 # log forward (every `old -> new` in observation order). This is the closest

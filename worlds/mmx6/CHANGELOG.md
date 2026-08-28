@@ -69,6 +69,26 @@ A standalone tool that restores an AP-patched disc to a verified clean dump,
 for anyone who patched over their only copy. It verifies the result before
 writing anything and never modifies your patched file.
 
+### What to watch in this first release
+
+Stated so nobody has to guess what was and was not seen running:
+
+- **`protect_reploids` is verified at the instruction level, not behaviourally.**
+  All three patched routines read back patched in live RAM, but nobody has yet
+  watched a Nightmare reach a Reploid and the Reploid survive it. If you lose
+  a Reploid with the option on, that is a bug report we want.
+- **The eight special-weapon item names came from a written guide** and have
+  not all been checked against the in-game weapon-get text, so a name may
+  differ slightly from what the game shows.
+- **Zero's weapon gauge is written but its bar has not been watched.** X's
+  gauges and Zero's life gauge are confirmed live; if Zero's weapon bar draws
+  wrong after an upgrade, say so.
+- **Reaching the ending early is remembered only until the client restarts.**
+  If you see the ending short of eight Mavericks, finish the rest, but the
+  client reconnected in between, the goal will not fire until you go through
+  the endgame once more. Worst case is a second Sigma fight, not a broken
+  seed.
+
 ## Development history
 
 ### The intro boss is no longer randomized
@@ -302,7 +322,7 @@ touch. A patched disc boots cleanly, and every site was confirmed *resident in
 RAM* against a vanilla control run (8/8 discrimination, with the A1 patch as a
 positive control). Behaviourally: `text_skip` is confirmed working in play;
 `skip_intro_videos` is partly confirmed and partly disproven (see above);
-`exit_stage_anytime` has not yet been exercised in a stage.
+`exit_stage_anytime` was exercised in a stage on 2026-08-27 and works.
 
 ## 0.0.1 — unreleased scaffold
 

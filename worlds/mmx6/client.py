@@ -134,6 +134,12 @@ ARMOR_BIT_BLACK_ZERO = 0x20
 
 SOULS_GATE = 3000
 
+# How many times the client will push the progress byte back to 2 before
+# concluding the game is re-asserting it and standing down. Small on purpose:
+# each correction the game undoes costs the player another unlock cutscene, so
+# the loop has to be short enough that nobody sits through it.
+ENDGAME_GATE_MAX_CORRECTIONS = 3
+
 # ---- Ending detection --------------------------------------------------------
 # Victory fires on the post-Sigma ENDING SCREEN, not on the endgame being
 # unlocked. The previous rule fired on `endgame open (+ 8 kills for
@@ -359,6 +365,12 @@ class MMX6Client(BizHawkClient):
         # counter on a weaker gate and a single stale 0xFF read would
         # have scored 8 permanently and handed out a false victory.
         self.mavericks_defeated = 0
+        # The endgame gate's OWN count, and deliberately not the latch above.
+        # None means "no trusted poll yet this session", which the gate treats
+        # as "do nothing" rather than as zero. It does not latch, because the
+        # kill record only ever goes up in game, so a fresh trusted read is
+        # self-correcting where a latch that went wrong never recovers.
+        self.mavericks_trusted: int | None = None
         self.short_ending_warned = False
         # Endgame gate: whether we are currently holding the Gate shut, and
         # whether we have already said it is too late to. Both are log
@@ -366,6 +378,10 @@ class MMX6Client(BizHawkClient):
         # losing these to a reconnect costs a repeated line and nothing else.
         self.endgame_gate_held = False
         self.endgame_gate_missed = False
+        # How many times we have corrected the progress byte, and whether we
+        # have given up doing so. See ENDGAME_GATE_MAX_CORRECTIONS.
+        self.endgame_gate_corrections = 0
+        self.endgame_gate_conceded = False
 
     # ---- identification ----------------------------------------------------
 
@@ -1023,16 +1039,46 @@ class MMX6Client(BizHawkClient):
                     "ending does not count at less than 8/8.")
             return
 
-        # Deliberately NOT the trusted latch on its own. `mavericks_defeated`
-        # only moves on a trusted poll, so a fresh connect standing at the
-        # stage select scores 0 and would hold the Gate shut against a player
-        # who has genuinely finished all eight. Taking the better of the two is
-        # safe here because BOTH of this gate's failure directions are
-        # recoverable: a wrong close reopens on the next poll, and a wrong open
-        # is just vanilla behaviour. That is exactly what the goal latch cannot
-        # afford - a false victory is irreversible - which is why that one
-        # stays trust-only.
-        beaten = max(self.mavericks_defeated, bin(save[OFF_BEATEN]).count("1"))
+        # GUARD 1: trusted data only, and silence when there is none.
+        #
+        # This used to read
+        #     beaten = max(self.mavericks_defeated,
+        #                  bin(save[OFF_BEATEN]).count("1"))
+        # which popcounts the save struct HERE, on the stage select - a screen
+        # this client explicitly does not trust (TRUSTED_SCREENS is gameplay
+        # and the Mission Report only). It was justified as "a wrong open is
+        # just vanilla behaviour", and that is false: under all_mavericks a
+        # wrong open is the exact thing this gate exists to prevent, and it
+        # sticks, where a wrong close would heal on the next poll.
+        #
+        # A tester reached 7 Mavericks and got the EIGHT-Maverick unlock
+        # cutscene replaying on every stage exit, with the Gate icon drawn but
+        # not re-selectable - which is what forcing 3 after the screen was
+        # built from a 2 looks like.
+        #
+        # So: act only on a count taken on a trusted screen, and if there has
+        # not been one yet this session, do nothing at all. Doing nothing is
+        # always safe here; the previous "score 0 and hold it shut" worry is
+        # answered by not acting rather than by guessing.
+        if self.mavericks_trusted is None:
+            return
+        beaten = self.mavericks_trusted
+
+        # GUARD 2: never fight the game for this byte.
+        #
+        # The premise this gate was built on - "a value written into this byte
+        # STAYS, the game does not recompute it" - was measured with the stage
+        # select ALREADY UP, where it holds. Vanilla opens Gate's Lab on any of
+        # 8 Mavericks, High Max in an Another Route, or 3000 Nightmare Souls,
+        # and if one of those is true the game can write 3 again on the way
+        # back into the hub. Correcting it every poll then produces exactly the
+        # cutscene loop reported.
+        #
+        # Correct it a few times, then concede and say so. A player who is told
+        # plainly not to enter Sigma yet is far better off than one watching a
+        # cutscene every stage while the lock leaks anyway.
+        if self.endgame_gate_conceded:
+            return
 
         if beaten >= 8:
             # RE-OPEN IT OURSELVES. Measured live 2026-08-27: a value written
@@ -1057,6 +1103,21 @@ class MMX6Client(BizHawkClient):
             return
 
         if progress == PROGRESS_ENDGAME_OPEN:
+            self.endgame_gate_corrections += 1
+            if self.endgame_gate_corrections > ENDGAME_GATE_MAX_CORRECTIONS:
+                # The game keeps re-opening it, so one of its own conditions
+                # is satisfied and we are not going to win this argument.
+                self.endgame_gate_conceded = True
+                logger.warning(
+                    "MMX6: the Gate keeps re-opening at %d/8 Mavericks, so the "
+                    "game has met one of its own conditions for it (High Max "
+                    "in an Another Route, or 3000 Nightmare Souls). The client "
+                    "has stopped closing it, because fighting it replays the "
+                    "unlock cutscene every stage. DO NOT FIGHT SIGMA YET - "
+                    "under this seed's goal the ending does not count below "
+                    "8/8, and there is no play after the credits. Beat the "
+                    "remaining Mavericks first.", beaten)
+                return
             await bizhawk.write(ctx.bizhawk_ctx, [
                 (SAVE_BASE + OFF_PROGRESS, [PROGRESS_STAGE_SELECT], "MainRAM")])
             if not self.endgame_gate_held:
@@ -1189,3 +1250,7 @@ class MMX6Client(BizHawkClient):
         # no later good read could undo.
         self.mavericks_defeated = max(self.mavericks_defeated,
                                       bin(save[OFF_BEATEN]).count("1"))
+        # The gate's count, taken fresh rather than latched, and only here -
+        # on the trusted path - so the gate can never act on a stage-select
+        # read. See _endgame_gate_apply.
+        self.mavericks_trusted = bin(save[OFF_BEATEN]).count("1")

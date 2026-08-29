@@ -13,6 +13,8 @@ and fill called it reachable.
 
 These tests exist so that cannot come back.
 """
+from BaseClasses import CollectionState
+
 from . import MMX6TestBase
 from .. import names
 
@@ -39,21 +41,61 @@ class TestWallWithStageUnlocks(MMX6TestBase):
         return self.multiworld.get_location(
             location, self.player).can_reach(self.multiworld.state)
 
+    def _state_with(self, *item_names: str) -> CollectionState:
+        """A state holding EXACTLY these items, with no sweep.
+
+        `collect_by_name` sweeps, which makes any assertion about something
+        being UNREACHABLE depend on where this seed's fill happened to put
+        everything else: collecting Sheldon's codes can pull in Heatnix's for
+        free if they landed in Sheldon's stage, and then the wall opens for a
+        reason the test never intended. The pre-existing version of this class
+        worked around that with an `if not self._has_opener()` guard, which
+        turns the test into a no-op on the unlucky seeds instead of failing -
+        the shape this project already has a scar about. Building the state by
+        hand removes the dependency instead of tolerating it.
+        """
+        state = CollectionState(self.multiworld)
+        for name in item_names:
+            state.collect(self.world.create_item(name), prevent_sweep=True)
+        return state
+
+    def _starts_with_heatnix(self) -> bool:
+        """Does this seed hand out Blaze Heatnix's codes for free?
+
+        `stage_unlocks` PRECOLLECTS the starting stage's Access Codes and only
+        places the other seven, and which stage that is is rolled per seed. If
+        it rolls Magma Area then Nightmare Fire is available from the first
+        moment and the Nightmare wall is legitimately open with no other item.
+        That is correct behaviour, and it is what made these tests flaky: two
+        runs in five failed purely on the roll.
+        """
+        return any(item.name == names.access_item(names.HEATNIX)
+                   for item in self.multiworld.precollected_items[self.player])
+
     def test_heart_tank_needs_an_opener(self) -> None:
-        heart = names.heart_location(names.WOLFANG)
+        heart = self.multiworld.get_location(
+            names.heart_location(names.WOLFANG), self.player)
         # Everything the vanilla rule asks for, plus the codes for Wolfang's
         # own stage (the entrance needs those under this option) - and nothing
         # that opens the Nightmare wall.
-        self.collect_by_name([names.ZERO, names.access_item(names.WOLFANG)])
-        opener = self._has_opener()
-        if not opener:
+        state = self._state_with(names.ZERO, names.access_item(names.WOLFANG))
+        # Both branches assert something real. The earlier version of this
+        # test skipped the assertion entirely when an opener happened to be in
+        # hand, which made it silently vacuous on those seeds.
+        if self._starts_with_heatnix():
+            self.assertTrue(
+                heart.can_reach(state),
+                "this seed starts in Magma Area, so Fire is free and the wall "
+                "should already be open")
+        else:
             self.assertFalse(
-                self._wolfang_reachable(heart),
+                heart.can_reach(state),
                 "the Heart Tank was reachable with no Nightmare opener - this "
                 "is the softlock the rule exists to prevent")
-        # Granting an opener must make it reachable.
-        self.collect_by_name([names.access_item(names.HEATNIX)])
-        self.assertTrue(self._wolfang_reachable(heart))
+        # Granting the opener must make it reachable either way.
+        state.collect(self.world.create_item(names.access_item(names.HEATNIX)),
+                      prevent_sweep=True)
+        self.assertTrue(heart.can_reach(state))
 
     def test_sheldon_alone_is_NOT_enough(self) -> None:
         """This asserted the opposite until 2026-08-28, and was wrong.
@@ -65,16 +107,23 @@ class TestWallWithStageUnlocks(MMX6TestBase):
         Mirror leaves the wall shut and overwrites Fire, so a seed whose only
         opener was Sheldon could not be finished. Reported on 0.1.0.
         """
-        heart = names.heart_location(names.WOLFANG)
-        self.collect_by_name([names.ZERO, names.access_item(names.WOLFANG)])
-        self.collect_by_name([names.access_item(names.SHELDON)])
-        self.assertFalse(self._wolfang_reachable(heart),
+        heart = self.multiworld.get_location(
+            names.heart_location(names.WOLFANG), self.player)
+        if self._starts_with_heatnix():
+            self.skipTest("this seed starts in Magma Area, so Fire is free "
+                          "and Sheldon's codes cannot be the deciding item")
+        state = self._state_with(names.ZERO,
+                                 names.access_item(names.WOLFANG),
+                                 names.access_item(names.SHELDON))
+        self.assertFalse(heart.can_reach(state),
                          "Sheldon's codes must NOT open the wall - only "
                          "Nightmare Fire, from Blaze Heatnix, does")
-
-    def _has_opener(self) -> bool:
-        return self.multiworld.state.has(
-            names.access_item(names.HEATNIX), self.player)
+        # ...and Heatnix's codes DO, from the same state. Without this the
+        # test would still pass if the wall were nailed permanently shut.
+        state.collect(self.world.create_item(names.access_item(names.HEATNIX)),
+                      prevent_sweep=True)
+        self.assertTrue(heart.can_reach(state),
+                        "Heatnix's codes must open the wall")
 
 
 class TestSeedsStayBeatable(MMX6TestBase):

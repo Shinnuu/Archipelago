@@ -16,10 +16,23 @@ path is one byte:
     Secret Lab 1 and 2 were cleared;
   * it must not fire under the `sigma` goal, which explicitly permits
     finishing with Mavericks skipped;
-  * and it must RE-OPEN the Gate itself at 8/8. A value written into the
-    progress byte stays - measured live 2026-08-27 - so a client that closes
-    the Gate and then leaves re-opening to the game would make the seed
-    unwinnable whenever the write it overwrote was the game's only one.
+  * and it must RE-OPEN the Gate itself at 8/8, so that closing it can never
+    strand a seed whose only write of 3 was the one we overwrote.
+
+Two guards were added 2026-08-28 after a tester reached 7 Mavericks and got
+the EIGHT-Maverick unlock cutscene replaying on every stage exit, with the
+Gate icon drawn but not re-selectable:
+
+  * the gate acts ONLY on a Maverick count taken from a TRUSTED screen. It
+    used to popcount the save struct on the stage select, which this client
+    does not trust, excused as "a wrong open is just vanilla behaviour" - and
+    under all_mavericks a wrong open is the whole thing the gate prevents.
+    With no trusted count yet, it does nothing at all;
+  * it corrects the byte at most ENDGAME_GATE_MAX_CORRECTIONS times, then
+    concedes and warns. "A value written into this byte STAYS" was measured
+    with the stage select ALREADY UP, where it holds; vanilla can still write
+    3 on the way back into the hub if High Max or 3000 souls says so, and
+    fighting that every poll is what replays the cutscene.
 
 The lock is the PROGRESS BYTE, not a slot table. Secret Lab sits on cursor 08
 and the stage-select table holds exactly eight entries for slots 0-7 with the
@@ -91,9 +104,22 @@ def save_at(progress, beaten=0x00) -> bytearray:
 SELECT = sorted(STAGE_SELECT_SCREENS)[0]
 
 
+def after_trusted_poll(beaten_bits: int = 0) -> MMX6Client:
+    """A client that has seen one TRUSTED poll showing `beaten_bits` set.
+
+    The gate refuses to act on anything else, so a test that expects it to do
+    something has to say what a trusted screen saw. Passing a plain
+    `MMX6Client()` instead is the "no trusted poll yet" case, and the gate is
+    required to stay silent there.
+    """
+    client = MMX6Client()
+    client.mavericks_trusted = bin(beaten_bits).count("1")
+    return client
+
+
 class TestTheGateCloses(unittest.TestCase):
     def test_an_open_gate_is_forced_shut_below_eight(self) -> None:
-        writes = run(MMX6Client(), FakeCtx(),
+        writes = run(after_trusted_poll(0b00000111), FakeCtx(),
                      save_at(PROGRESS_ENDGAME_OPEN, 0b00000111), SELECT)
         self.assertEqual(
             writes,
@@ -101,7 +127,7 @@ class TestTheGateCloses(unittest.TestCase):
 
     def test_it_writes_exactly_one_byte(self) -> None:
         # A wider write would run straight into the neighbouring save bytes.
-        (_addr, data, _dom), = run(MMX6Client(), FakeCtx(),
+        (_addr, data, _dom), = run(after_trusted_poll(), FakeCtx(),
                                    save_at(PROGRESS_ENDGAME_OPEN), SELECT)
         self.assertEqual(len(data), 1)
 
@@ -110,13 +136,40 @@ class TestTheGateCloses(unittest.TestCase):
         # 0x02 and 0x03. All three are treated as the stage select.
         for screen in STAGE_SELECT_SCREENS:
             self.assertTrue(
-                run(MMX6Client(), FakeCtx(), save_at(PROGRESS_ENDGAME_OPEN),
-                    screen),
+                run(after_trusted_poll(), FakeCtx(),
+                    save_at(PROGRESS_ENDGAME_OPEN), screen),
                 f"did not close on stage-select screen {screen:#04x}")
 
     def test_seven_of_eight_is_still_short(self) -> None:
-        self.assertTrue(run(MMX6Client(), FakeCtx(),
+        self.assertTrue(run(after_trusted_poll(0b01111111), FakeCtx(),
                             save_at(PROGRESS_ENDGAME_OPEN, 0b01111111), SELECT))
+
+    def test_it_will_not_act_without_a_trusted_count(self) -> None:
+        # GUARD 1. The stage select is not a trusted screen, so a save read
+        # taken here can be anything. Seven Mavericks and an open Gate is the
+        # reported case; with no trusted poll behind it the gate must stay out
+        # of the way entirely rather than guess from these bytes.
+        client = MMX6Client()
+        self.assertIsNone(client.mavericks_trusted)
+        self.assertEqual(
+            run(client, FakeCtx(), save_at(PROGRESS_ENDGAME_OPEN, 0b01111111),
+                SELECT), [])
+
+    def test_it_stops_correcting_and_says_so(self) -> None:
+        # GUARD 2. If the game keeps re-opening the Gate, one of ITS conditions
+        # is met - High Max, or 3000 souls - and every correction we make costs
+        # the player another unlock cutscene. Bail out and warn instead.
+        client = after_trusted_poll(0b00000111)
+        save = save_at(PROGRESS_ENDGAME_OPEN, 0b00000111)
+        for _ in range(client_module.ENDGAME_GATE_MAX_CORRECTIONS):
+            self.assertTrue(run(client, FakeCtx(), save, SELECT))
+        with self.assertLogs("Client", level="WARNING") as caught:
+            self.assertEqual(run(client, FakeCtx(), save, SELECT), [])
+        self.assertTrue(any("DO NOT FIGHT SIGMA YET" in m
+                            for m in caught.output))
+        self.assertTrue(client.endgame_gate_conceded)
+        # And it stays quiet afterwards rather than warning twice a second.
+        self.assertEqual(run(client, FakeCtx(), save, SELECT), [])
 
 
 class TestTheGateOpens(unittest.TestCase):
@@ -126,22 +179,27 @@ class TestTheGateOpens(unittest.TestCase):
                 SELECT), [])
 
     def test_a_cold_connect_does_not_lock_a_finished_save(self) -> None:
-        # THE REGRESSION THIS GUARDS. `mavericks_defeated` only moves on a
-        # TRUSTED poll, and the stage select is not one, so a client that has
-        # just connected scores 0. Reading the save as well is what stops the
-        # gate slamming shut on a player who has genuinely beaten all eight.
+        # THE REGRESSION THIS GUARDS. A client that has just connected has no
+        # trusted count, and the stage select will never give it one. It must
+        # not slam the Gate shut on a player who has genuinely beaten all
+        # eight.
+        #
+        # This used to be answered by ALSO popcounting the save read here,
+        # which is what let a bad stage-select read force the Gate open. The
+        # answer now is to do nothing without trusted data - safe in both
+        # directions rather than trading one failure for the other.
         c = MMX6Client()
-        self.assertEqual(c.mavericks_defeated, 0)
+        self.assertIsNone(c.mavericks_trusted)
         self.assertEqual(
             run(c, FakeCtx(), save_at(PROGRESS_ENDGAME_OPEN, 0xFF), SELECT), [])
 
-    def test_the_trusted_latch_alone_is_enough(self) -> None:
-        # The other direction: the latch was set in play, so a save read that
-        # happens to be stale must not re-close a gate already earned.
-        c = MMX6Client()
-        c.mavericks_defeated = 8
+    def test_a_stale_save_read_cannot_re_close_an_earned_gate(self) -> None:
+        # The other direction: a trusted poll saw all eight, so a later save
+        # read that happens to be stale must not re-close a gate already
+        # earned. The gate believes the trusted count, not these bytes.
         self.assertEqual(
-            run(c, FakeCtx(), save_at(PROGRESS_ENDGAME_OPEN, 0x00), SELECT), [])
+            run(after_trusted_poll(0xFF), FakeCtx(),
+                save_at(PROGRESS_ENDGAME_OPEN, 0x00), SELECT), [])
 
 
 class TestTheGateReopens(unittest.TestCase):
@@ -155,20 +213,21 @@ class TestTheGateReopens(unittest.TestCase):
     """
 
     def test_eight_beaten_with_the_gate_held_shut_re_opens_it(self) -> None:
-        writes = run(MMX6Client(), FakeCtx(),
+        writes = run(after_trusted_poll(0xFF), FakeCtx(),
                      save_at(PROGRESS_STAGE_SELECT, 0xFF), SELECT)
         self.assertEqual(
             writes,
             [(SAVE_BASE + OFF_PROGRESS, [PROGRESS_ENDGAME_OPEN], "MainRAM")])
 
     def test_close_then_re_open_is_a_round_trip(self) -> None:
-        c, ctx = MMX6Client(), FakeCtx()
+        c, ctx = after_trusted_poll(0b01111111), FakeCtx()
         save = save_at(PROGRESS_ENDGAME_OPEN, 0b01111111)     # seven of eight
         (_a, (held,), _d), = run(c, ctx, save, SELECT)
         self.assertEqual(held, PROGRESS_STAGE_SELECT)
 
         save[OFF_PROGRESS] = held
         save[OFF_BEATEN] = 0xFF                               # the eighth dies
+        c.mavericks_trusted = 8                               # ...on a trusted poll
         (_a, (opened,), _d), = run(c, ctx, save, SELECT)
         self.assertEqual(opened, PROGRESS_ENDGAME_OPEN)
 
@@ -190,7 +249,7 @@ class TestTheGateReopens(unittest.TestCase):
         # The decision is taken from the SAVE, not from an in-memory "did we
         # hold it?" flag - which `_reset_state` clears on every BizHawk
         # reconnect, and reconnects are routine.
-        c = MMX6Client()
+        c = after_trusted_poll(0xFF)
         self.assertFalse(c.endgame_gate_held)
         self.assertTrue(
             run(c, FakeCtx(), save_at(PROGRESS_STAGE_SELECT, 0xFF), SELECT))
@@ -258,7 +317,8 @@ class TestItNeverDoesHarm(unittest.TestCase):
         ctx = FakeCtx()
         ctx.slot_data = {}
         self.assertTrue(
-            run(MMX6Client(), ctx, save_at(PROGRESS_ENDGAME_OPEN), SELECT))
+            run(after_trusted_poll(), ctx, save_at(PROGRESS_ENDGAME_OPEN),
+                SELECT))
 
 
 class TestConstants(unittest.TestCase):

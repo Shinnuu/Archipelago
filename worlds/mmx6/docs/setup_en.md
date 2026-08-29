@@ -128,16 +128,22 @@ exactly as much as "rescued", so losing one never costs you the item. With
 `protect_reploids` on (the default) it is not even destroyed — it reappears
 next time you enter the stage.
 
-**Under the `all_mavericks` goal you cannot enter Gate's Lab early.** The
-client holds it shut until all eight Mavericks are down and opens it itself on
-the eighth. This is deliberate: vanilla can open the Gate early, there is no
-play after the credits, and reaching the ending short would leave you needing a
-save from before the endgame.
+**Under the `all_mavericks` goal the client holds Gate's Lab shut** until all
+eight Mavericks are down, and opens it itself on the eighth. This is
+deliberate: vanilla can open the Gate early, there is no play after the
+credits, and reaching the ending short would leave you needing a save from
+before the endgame. One honest limit: the game itself opens the Gate on 3000
+Nightmare Souls or on beating High Max in an Another Route, and if it keeps
+re-opening it the client stops fighting (fighting replays the unlock cutscene
+every stage) and instead warns you plainly **not to fight Sigma yet**. Heed
+that warning — under this goal the ending does not count below 8/8.
 
 ## Getting your clean dump back
 
 If you patched over your only copy, download the standalone
-**MMX6-Unpatcher** from the apworld's release page and drag any AP-patched
+**MMX6-Unpatcher** from the apworld's release page
+([the MMX6 releases](https://github.com/Shinnuu/Archipelago/releases?q=mmx6) —
+the unfiltered list interleaves the MMX5 releases) and drag any AP-patched
 X6 `.bin` onto it. It writes the original bytes back over every site the
 patcher can touch, regenerates each modified sector's error-correction data,
 and verifies the result against the two accepted MD5s **before** writing

@@ -1,5 +1,74 @@
 # Mega Man X6 apworld — changelog
 
+## 0.1.1 — 2026-08-28
+
+**RE-PATCH YOUR DISC.** Two of the fixes below change the disc patch, so
+updating the apworld alone is not enough: after installing it, patch a clean
+dump again through Open Patch and play the new `.bin`.
+
+**Seeds GENERATED on 0.1.0 should be REGENERATED**, not just re-patched. Two
+of the fixes are logic bugs — the generator itself placed items on wrong
+assumptions — and a re-patch cannot repair where a 0.1.0 fill already put
+things. A `stage_unlocks` seed whose only Nightmare-wall opener is Shield
+Sheldon is unwinnable and stays unwinnable until regenerated.
+
+### An unkillable boss under `boss_hp_randomization` (re-patch)
+
+Nightmare Pressure's entry wrote the rolled HP to two disc sites, and only
+one of them is HP — the other is the exact-match threshold of the counter
+that drives the fight's scripted transition. Rolling it meant the transition
+never fired: you could destroy the boss's parts and then nothing could hurt
+it. The non-HP site is removed, and the release gate now disassembles every
+boss-HP site and requires the life-bar store nearby, so a lookalike byte can
+never get in again.
+
+### The Nightmare wall opens on Fire only (regenerate)
+
+Blizzard Wolfang's fire-room wall was treated as opening on either Blaze
+Heatnix's or Shield Sheldon's Nightmare Effect, because both can afflict
+North Pole. Both afflict it; **only Fire opens the wall** (the game compares
+the active effect against exactly one value), and Mirror overwrites Fire on
+top of leaving the wall shut. Logic now requires Blaze Heatnix — beaten, and
+under `stage_unlocks` therefore his Access Codes.
+
+### Reploids have logic rules now (regenerate)
+
+Reploid rescues carried no requirements at all, because which of a stage's
+sixteen sat where was unknown. A full roster ended that: **40 of the 128**
+now inherit the rule of the pickup they stand beside — the fire-room seven
+in North Pole, the high-ledge and Another Route groups elsewhere — and only
+where that pickup was already gated, so nothing is gated on a guess.
+
+### The endgame gate stops fighting the game (client only)
+
+The game opens Gate's Lab on its own at 3000 Nightmare Souls or on beating
+High Max in an Another Route. The 0.1.0 client wrote it shut, the game wrote
+it open again on the next stage exit, and the result was the unlock cutscene
+replaying every stage while the Gate stayed enterable anyway. The client now
+acts only on a Maverick count read on a screen it trusts, corrects the byte
+at most three times, then stops and tells you plainly **not to fight Sigma
+yet**. When the eighth Maverick falls it says the Gate is open, and the
+early-entry warning no longer scolds a player who is legitimately inside the
+endgame at 8/8.
+
+### Honesty in the options
+
+`zero_unlock`'s description now says what the game does: beating the Zero
+Nightmare (the first Another Route boss) makes Zero playable with no item
+involved, so the option gates Zero only for players who leave Another Routes
+alone. Logic never assumes that shortcut — the fight is missable — so
+nothing strands either way.
+
+### What to watch in this release
+
+- The endgame-gate concession is built from one tester's report and unit
+  tests; the exact concede threshold has not been watched live. If you see
+  the "DO NOT FIGHT SIGMA YET" warning, heed it and tell us.
+- The Reploid gating derives from a community roster cross-checked against
+  our own captures; individual fine positions are still guide-sourced. A
+  Reploid the tracker calls reachable that you provably cannot reach (or the
+  reverse) is a wanted report — say which Reploid number and stage.
+
 ## 0.1.0 — 2026-08-27
 
 First release. Everything below was in development before it.

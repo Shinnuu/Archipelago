@@ -32,7 +32,7 @@ and Shadow sets), 8 Heart Tanks, 2 Sub Tanks, the W Tank and the EX Tank.
 |---|---|
 | `reploid_checks` (**on by default**) | **+128 locations** and **+16 items** — every rescuable Reploid becomes a check, and the Life Ups and Energy Ups they carry join the pool |
 | `parts_in_pool` (**on by default**) | **+24 items** — the equippable Power-up Parts |
-| `zero_unlock` (**on by default**) | **+1 item** — Zero has to be found before you can play as him, which is how the base game works |
+| `zero_unlock` (**on by default**) | **+1 item** — Zero joins the pool instead of being available from the start. Note the game can still unlock him on its own: the first Another Route boss is the Zero Nightmare, and beating it makes him playable with no item involved. Logic never assumes that, because that fight is missable |
 | `endgame_checks` (**on by default**) | **+3 locations** — the Gate opening, and clearing Secret Lab 1 and Secret Lab 2. Adds no items, so it can only make room. Clearing Secret Lab 3 is not a check: that is beating Sigma, which is the goal |
 | `secret_armors_in_pool` | **+2 items** — Ultimate Armor and Black Zero |
 | `stage_unlocks` | **+7 items** — only one investigation site is open at the start, and each of the others needs its own Access Codes |

@@ -91,12 +91,23 @@ class PartsInPool(DefaultOnToggle):
 
 
 class ZeroUnlock(DefaultOnToggle):
-    """Zero has to be found before you can play as him.
+    """Put Zero in the item pool instead of starting with him.
 
     This is how the base game works - Zero is unlocked partway through, not
     available from the start - and it makes him a real Archipelago item.
     Several locations can be reached either with Zero or with the Blade Armor
     plus a dash Part, so he genuinely opens up the seed.
+
+    Be aware that the GAME can still unlock him without the item. The first
+    Another Route boss you fight is the Zero Nightmare, and beating it makes
+    Zero playable exactly as it does in vanilla. This option controls the
+    Archipelago item, not that fight, so if you want Zero to be a real unlock
+    you have to leave Another Routes alone until his item arrives.
+
+    Logic never assumes that shortcut, deliberately: the Zero Nightmare is
+    missable - once Gate's Lab opens it is gone for that file - so a seed that
+    counted on it could strand. Locations needing Zero stay out of logic until
+    you actually receive him.
 
     Turn this off to start with Zero already available.
     """

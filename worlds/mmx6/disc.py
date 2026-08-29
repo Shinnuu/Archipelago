@@ -280,7 +280,23 @@ BOSS_HP: dict[str, list[tuple[int, int, tuple[int, ...]]]] = {
     "Shield Sheldon":       [(1,  32, (0x08E8C8, 0x16D4D0))],
     "Infinity Mijinion":    [(1,  48, (0x0A2F28, 0x173CB4))],
     "D-1000":               [(1,  32, (0x018768,))],
-    "Nightmare Pressure":   [(1,  48, (0x058FE0, 0x0591E8))],
+    # ONE offset, not two. 0x0591E8 was here until 2026-08-28 and is NOT this
+    # boss's HP - it is the operand of an exact-match test on an incrementing
+    # counter, 0x208 further into the same overlay:
+    #
+    #   lbu   v0, 0x5C(s0)        counter on the object
+    #   addiu v1, zero, 48        <- the byte that was being randomized
+    #   addiu v0, v0, 1
+    #   sb    v0, 0x5C(s0)
+    #   bne   v0, v1, ...         fires two calls only on an EXACT match
+    #
+    # Roll it and the gated transition never fires, or fires early. A tester
+    # on 0.1.0 cleared the boss's parts and could not damage it afterwards.
+    # It passed review because the only check was "the byte here equals the
+    # vanilla value", and both sites are literally `addiu v1, zero, 48`.
+    # The real site below is confirmed by what consumes it: its immediate is
+    # stored to 0x8C(save_base) = 0x800CCF5C, the boss life-bar byte.
+    "Nightmare Pressure":   [(1,  48, (0x058FE0,))],
     "Illumina":             [(1,  64, (0x09EB4C,))],
     "Nightmare Zero":       [(1,  48, (0x17A1D4,))],
     "High Max (Hidden Area)": [(1, 48, (0x17F39C,))],

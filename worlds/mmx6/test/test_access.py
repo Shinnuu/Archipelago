@@ -37,17 +37,53 @@ class TestDefaultSeed(MMX6TestBase):
                              if " - Reploid " in loc.name]
         self.assertEqual(len(reploid_locations), 128)
 
-    def test_reploids_need_no_items(self) -> None:
-        # Walking into a Reploid is execution, not inventory. A rule here
-        # would be wrong, and would also make 128 checks depend on a guess.
+    def test_only_the_roster_reploids_need_items(self) -> None:
+        """This asserted that NO Reploid needs items, on the reasoning that
+        "walking into a Reploid is execution, not inventory" and that a rule
+        would "make 128 checks depend on a guess".
+
+        The first half was never the issue: the question was always whether
+        you can REACH the Reploid, not whether you can touch it once there.
+        The second half was true only while we had no idea which of a stage's
+        sixteen sat where, and `mmx6-reploid-roster.md` ended that. Every gate
+        now comes from a landmark this world already gates, so it is not a
+        guess about a Reploid, it is the scope of a decision already made.
+
+        Reversed 2026-08-28, after a tester found the Wolfang wall stranding
+        seeds: under-gating breaks a run silently, over-gating at worst fails
+        generation loudly.
+        """
         state = self.multiworld.get_all_state()
         for item in list(state.prog_items[self.player]):
             state.prog_items[self.player][item] = 0
         state.sweep_for_advancements()
-        for stage, _index, _n, name in reploids.REPLOIDS:
-            self.assertTrue(
-                self.multiworld.get_location(name, self.player).can_reach(state),
-                f"{name} needs items to reach")
+        for stage, _index, number, name in reploids.REPLOIDS:
+            reachable = self.multiworld.get_location(
+                name, self.player).can_reach(state)
+            if (stage, number) in reploids.REPLOID_GATES:
+                # `stage_unlocks` is off in this seed and Zero is precollected,
+                # so "wall" and "mob" are both satisfied from the start; only
+                # the Shadow rooms should actually be shut.
+                gates = reploids.REPLOID_GATES[(stage, number)]
+                if "shadow" in gates:
+                    self.assertFalse(
+                        reachable, f"{name} is behind Shadow Armor and should "
+                        "not be reachable with an empty inventory")
+                continue
+            self.assertTrue(reachable, f"{name} needs items to reach")
+
+    def test_every_gated_reploid_is_a_real_location(self) -> None:
+        # A typo'd stage name or an index outside 1-16 would silently gate
+        # nothing at all, which is the failure this whole change exists to
+        # prevent. Assert every row lands on a location that exists.
+        for (stage, number), gates in reploids.REPLOID_GATES.items():
+            self.assertIn(stage, names.STAGES, f"{stage} is not a stage")
+            self.assertIn(number, range(1, 17), f"{stage} {number} out of range")
+            location = names.reploid_location(stage, number)
+            self.multiworld.get_location(location, self.player)
+            self.assertTrue(gates, f"{location} has an empty gate tuple")
+            for gate in gates:
+                self.assertIn(gate, ("wall", "mob", "shadow"))
 
 
 class TestNoOptions(MMX6TestBase):

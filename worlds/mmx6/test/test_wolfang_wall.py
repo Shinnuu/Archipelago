@@ -55,17 +55,26 @@ class TestWallWithStageUnlocks(MMX6TestBase):
         self.collect_by_name([names.access_item(names.HEATNIX)])
         self.assertTrue(self._wolfang_reachable(heart))
 
-    def test_either_opener_is_enough(self) -> None:
+    def test_sheldon_alone_is_NOT_enough(self) -> None:
+        """This asserted the opposite until 2026-08-28, and was wrong.
+
+        NightEftTable lists Fire (Heatnix) and Mirror (Sheldon) as the two
+        effects that can afflict North Pole, and the rule concluded that
+        either therefore opens the wall. Only Fire does: the routine at
+        0x800EEEC0 compares the current effect against 3h and nothing else.
+        Mirror leaves the wall shut and overwrites Fire, so a seed whose only
+        opener was Sheldon could not be finished. Reported on 0.1.0.
+        """
         heart = names.heart_location(names.WOLFANG)
         self.collect_by_name([names.ZERO, names.access_item(names.WOLFANG)])
         self.collect_by_name([names.access_item(names.SHELDON)])
-        self.assertTrue(self._wolfang_reachable(heart),
-                        "Sheldon's codes alone should open the wall")
+        self.assertFalse(self._wolfang_reachable(heart),
+                         "Sheldon's codes must NOT open the wall - only "
+                         "Nightmare Fire, from Blaze Heatnix, does")
 
     def _has_opener(self) -> bool:
-        state = self.multiworld.state
-        return (state.has(names.access_item(names.HEATNIX), self.player)
-                or state.has(names.access_item(names.SHELDON), self.player))
+        return self.multiworld.state.has(
+            names.access_item(names.HEATNIX), self.player)
 
 
 class TestSeedsStayBeatable(MMX6TestBase):

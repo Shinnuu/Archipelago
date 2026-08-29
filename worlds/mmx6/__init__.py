@@ -402,11 +402,27 @@ class MMX6World(World):
         # only other opener was Heatnix whose codes were two spheres later,
         # and fill had happily called it reachable. Nobody could have finished
         # that seed.
+        # ONLY Nightmare Fire opens it. The rule used to accept Sheldon's
+        # codes too, on the reasoning that NightEftTable lists both Fire
+        # (Heatnix) and Mirror (Sheldon) as afflicting North Pole. Both do
+        # afflict it; only Fire opens the wall. The routine, from the Tweaks
+        # workbook's NightEftOp sheet and disassembled 2026-08-28:
+        #
+        #   800EEEC0  movbs r3,[r19+43Ah]   current effect on this stage
+        #   800EEEC4  mov   r2,3h           Nightmare Fire
+        #   800EEEC8  je    r3,r2,...       only 3 proceeds
+        #
+        # Mirror leaves the wall shut AND overwrites Fire, so accepting
+        # Sheldon made seeds unwinnable. Reported by a tester on 0.1.0.
+        #
+        # Fire is a permanent capability, not a state: a player who can enter
+        # Magma Area can always go re-trigger it. So "can reach Heatnix" is
+        # the right monotonic condition, and modelling last-visit ordering
+        # would be both impossible in AP logic and unnecessary.
         def wolfang_wall(state) -> bool:
             if not self.options.stage_unlocks:
-                return True     # both openers are free, as before
-            return (state.has(names.access_item(names.HEATNIX), player)
-                    or state.has(names.access_item(names.SHELDON), player))
+                return True     # Heatnix is always enterable
+            return state.has(names.access_item(names.HEATNIX), player)
 
         def also_needs(location: str, extra) -> None:
             """AND a rule onto whatever this location already requires."""
@@ -416,6 +432,44 @@ class MMX6World(World):
 
         also_needs(names.heart_location(names.WOLFANG), wolfang_wall)
         also_needs(names.tank_location(names.WOLFANG), wolfang_wall)
+
+        # --- Reploids behind the same gates ---------------------------------
+        # Reploids carried no rules at all until 2026-08-28, because until
+        # then we had no idea which of a stage's sixteen sat where. The roster
+        # in Reference/mmx6-reploid-roster.md fixed that.
+        #
+        # The table is `reploids.REPLOID_GATES`, and its header carries the
+        # discipline and the per-entry landmarks: a Reploid only inherits the
+        # rule of the pickup the roster puts beside it, and only when that
+        # pickup is a location this world already gates. A wrong row can
+        # therefore mis-scope an existing decision but never invent a new one.
+        #
+        # Erring toward MORE gating is deliberate. Over-gating narrows where
+        # fill may place progression and at worst fails generation loudly.
+        # Under-gating strands a seed silently, which is exactly how the
+        # Wolfang wall reached a release. Same reading the capsule rules above
+        # already take: strict only narrows, loose strands.
+        #
+        # NOTE ON EVIDENCE. An earlier draft cited our own session log as
+        # proof that Turtloid's Another Route needs nothing, because its four
+        # Reploids were reached there with no Zero and no complete armor set.
+        # That log was recorded with FLY MODE AND GOD MODE ON, so it proves
+        # nothing about reachability and the claim was withdrawn - those four
+        # are gated on Shadow like the rest of that room, which the player who
+        # reported it also remembers as a spike side room. `mmx6-ram-notes.md`
+        # has carried the warning since X5: nothing in a log marks a cheated
+        # run, so a log can show that something WAS reached and never that it
+        # needed nothing.
+        if self.options.reploid_checks:
+            gate_rules = {"wall": wolfang_wall, "mob": has_mobility,
+                          "shadow": has_shadow}
+
+            def gated(gates: tuple[str, ...]):
+                rules = [gate_rules[g] for g in gates]
+                return lambda state: all(rule(state) for rule in rules)
+
+            for (stage, number), gates in reploids.REPLOID_GATES.items():
+                needs(names.reploid_location(stage, number), gated(gates))
 
         # Both goals complete on the VICTORY event in The Gate, which already
         # carries the all-weapons entrance rule. all_mavericks needs no extra

@@ -85,3 +85,81 @@ RESCUED = 2
 DEAD = 3
 MISSING = 4
 LOST_STATES = (DEAD, MISSING)
+
+
+# ---- Which Reploids sit behind something -------------------------------------
+# Source: Reference/mmx6-reploid-roster.md, which names where each of the 128
+# stands. Added 2026-08-28; before that Reploids carried no rules at all,
+# because we did not know which of a stage's sixteen sat where.
+#
+# THE RULE FOR THIS TABLE: a Reploid inherits the requirement of the landmark
+# the roster puts it beside, and only when that landmark is a location this
+# world ALREADY gates. Nothing is invented here - every gate below is one the
+# world had already committed to for a Heart Tank, capsule or tank, so a wrong
+# entry can only mis-scope an existing decision, never introduce a new one.
+#
+#   "wall"   Nightmare Fire on North Pole (the Wolfang wall)
+#   "mob"    has_mobility - Zero, or the full Blade Armor
+#   "shadow" has_shadow - the full Shadow Armor
+#
+# Deliberately NOT gated:
+#   Scaravich - every one of 1-15 is exhibit-locked and 16 is in an Another
+#     Route reached through an exhibit. That is reroll-on-re-entry, which is
+#     persistence rather than inventory, so AP logic cannot express it. Same
+#     call the Scaravich Heart Tank and Blade Helmet already make.
+#   Mijinion - its Another Route opens by beating Illumina, which needs no
+#     items, and this world already treats the Mijinion Heart Tank and Blade
+#     Arms capsule, both inside that AR, as requiring nothing.
+REPLOID_GATES: dict[tuple[str, int], tuple[str, ...]] = {
+    # -- Amazon Area: the high cave ledges, same height the Sub Tank needs ----
+    ("Commander Yammark", 4):  ("mob",),      # high right ledge (roster: height)
+    ("Commander Yammark", 5):  ("mob",),      # by the Life Sub Tank (mob)
+
+    # -- North Pole ----------------------------------------------------------
+    ("Blizzard Wolfang", 3):   ("mob",),          # next to Shadow Foot (mob)
+    ("Blizzard Wolfang", 4):   ("wall", "mob"),   # fire room, across from Heart
+    ("Blizzard Wolfang", 5):   ("wall", "mob"),   # fire room, next to Heart
+    ("Blizzard Wolfang", 6):   ("wall", "shadow"),  # fire room, by the EX Tank
+    ("Blizzard Wolfang", 13):  ("wall", "shadow"),  # fire room, above the EX
+    ("Blizzard Wolfang", 14):  ("wall", "mob"),   # the AR, off a high ledge
+    ("Blizzard Wolfang", 15):  ("wall",),         # fire room, under the portal
+    ("Blizzard Wolfang", 16):  ("wall", "mob"),   # fire room, below the Heart
+
+    # -- Magma Area: the upper split, same height the Heart and capsule need --
+    ("Blaze Heatnix", 2):      ("mob",),      # the AR, where the Sub Tank is
+    ("Blaze Heatnix", 6):      ("mob",),
+    ("Blaze Heatnix", 7):      ("mob",),
+    ("Blaze Heatnix", 8):      ("mob",),
+    ("Blaze Heatnix", 9):      ("mob",),      # just below Shadow Arms
+    ("Blaze Heatnix", 10):     ("mob",),      # next to Shadow Arms
+    ("Blaze Heatnix", 11):     ("mob",),
+    ("Blaze Heatnix", 12):     ("mob",),
+    ("Blaze Heatnix", 13):     ("mob",),      # next to the AR entrance
+
+    # -- Recycle Lab: across the pit, same crossing the Shadow Helmet needs ---
+    ("Metal Shark Player", 12): ("mob",),     # next to Shadow Head
+    ("Metal Shark Player", 16): ("mob",),     # the AR, past Shadow Head
+
+    # -- Inami Temple: the last acid-rain room's spike alcoves ---------------
+    ("Rainy Turtloid", 8):     ("shadow",),   # by the Heart Tank (shadow)
+    ("Rainy Turtloid", 9):     ("shadow",),   # by the AR mouth
+    ("Rainy Turtloid", 10):    ("shadow",),   # by Shadow Body (shadow)
+    ("Rainy Turtloid", 12):    ("shadow",),   # bottom-right spike alcove
+    ("Rainy Turtloid", 13):    ("shadow",),   # the AR, through the spike tunnel
+    ("Rainy Turtloid", 14):    ("shadow",),
+    ("Rainy Turtloid", 15):    ("shadow",),
+    ("Rainy Turtloid", 16):    ("shadow",),
+
+    # -- Laser Institute: the spike path to the AR, and the AR itself --------
+    ("Shield Sheldon", 6):     ("shadow",),   # left of the Heart (shadow)
+    ("Shield Sheldon", 7):     ("shadow",),   # ledge above the Heart
+    ("Shield Sheldon", 8):     ("shadow",),   # left of the Heart
+    ("Shield Sheldon", 9):     ("shadow",),   # the AR, where the W Tank is
+    ("Shield Sheldon", 10):    ("shadow",),
+    ("Shield Sheldon", 11):    ("shadow",),
+    ("Shield Sheldon", 12):    ("shadow",),
+    ("Shield Sheldon", 13):    ("shadow",),
+    ("Shield Sheldon", 14):    ("shadow",),
+    ("Shield Sheldon", 15):    ("shadow",),
+    ("Shield Sheldon", 16):    ("shadow",),
+}

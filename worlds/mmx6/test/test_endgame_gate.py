@@ -34,6 +34,11 @@ Gate icon drawn but not re-selectable:
     3 on the way back into the hub if High Max or 3000 souls says so, and
     fighting that every poll is what replays the cutscene.
 
+Refined 2026-08-28 during the 0.1.1 review: the early-entry warning also
+speaks only from trusted data - it used to fire on any progress >= 4, which
+told a legitimate 8/8 player mid-endgame that they had entered early - and
+conceding stops the CLOSE only, never the 8/8 all-clear.
+
 The lock is the PROGRESS BYTE, not a slot table. Secret Lab sits on cursor 08
 and the stage-select table holds exactly eight entries for slots 0-7 with the
 next row butted against it, so there is no slot to zero - measured live
@@ -171,6 +176,34 @@ class TestTheGateCloses(unittest.TestCase):
         # And it stays quiet afterwards rather than warning twice a second.
         self.assertEqual(run(client, FakeCtx(), save, SELECT), [])
 
+    def test_conceding_never_blocks_the_all_clear(self) -> None:
+        # Concede at seven, then the eighth falls on a trusted poll. The
+        # concession stops the client CLOSING the Gate; it must not swallow
+        # the all-clear (the player was just told not to fight Sigma, and
+        # needs to hear when that stops being true) nor the re-open write.
+        client = after_trusted_poll(0b00000111)
+        save = save_at(PROGRESS_ENDGAME_OPEN, 0b00000111)
+        for _ in range(client_module.ENDGAME_GATE_MAX_CORRECTIONS):
+            run(client, FakeCtx(), save, SELECT)
+        with self.assertLogs("Client", level="WARNING"):
+            run(client, FakeCtx(), save, SELECT)
+        self.assertTrue(client.endgame_gate_conceded)
+        self.assertTrue(client.endgame_gate_held)
+
+        client.mavericks_trusted = 8
+        with self.assertLogs("Client", level="INFO") as caught:
+            self.assertEqual(
+                run(client, FakeCtx(), save_at(PROGRESS_ENDGAME_OPEN, 0xFF),
+                    SELECT), [])
+        self.assertTrue(any("the Gate is open" in m for m in caught.output))
+        self.assertFalse(client.endgame_gate_held)
+        # And if the byte somehow read 2 at 8/8, conceded or not, it is
+        # re-opened - the stranding case the re-open exists for.
+        self.assertEqual(
+            run(client, FakeCtx(), save_at(PROGRESS_STAGE_SELECT, 0xFF),
+                SELECT),
+            [(SAVE_BASE + OFF_PROGRESS, [PROGRESS_ENDGAME_OPEN], "MainRAM")])
+
 
 class TestTheGateOpens(unittest.TestCase):
     def test_all_eight_beaten_opens_it(self) -> None:
@@ -288,13 +321,36 @@ class TestItNeverDoesHarm(unittest.TestCase):
                 f"clobbered progress {progress}")
 
     def test_entering_the_endgame_early_is_reported_once(self) -> None:
-        c = MMX6Client()
+        # A TRUSTED count of seven: the player really is inside short.
+        c = after_trusted_poll(0b01111111)
         with self.assertLogs("Client", level="WARNING") as caught:
             run(c, FakeCtx(), save_at(4), SELECT)
         self.assertTrue(any("before all 8" in m for m in caught.output))
         self.assertTrue(c.endgame_gate_missed)
         # Second time it stays quiet - this is polled twice a second.
         run(c, FakeCtx(), save_at(4), SELECT)
+
+    def test_a_legit_endgame_run_is_not_warned(self) -> None:
+        # The warning used to fire on ANY progress >= 4, count unseen - so a
+        # player who beat all eight, cleared Lab 1 and came back to the hub
+        # was told they had "entered before all 8 Mavericks were beaten".
+        c = after_trusted_poll(0xFF)
+        with self.assertNoLogs("Client", level="WARNING"):
+            self.assertEqual(run(c, FakeCtx(), save_at(4), SELECT), [])
+        self.assertFalse(c.endgame_gate_missed)
+
+    def test_early_entry_with_no_trusted_count_waits(self) -> None:
+        # No trusted poll yet: the client cannot tell a legitimate endgame
+        # run from an early entry, so it says nothing - and does not latch,
+        # so the warning can still fire once a trusted count arrives. The
+        # labs are gameplay, so that count arrives before Sigma.
+        c = MMX6Client()
+        with self.assertNoLogs("Client", level="WARNING"):
+            self.assertEqual(run(c, FakeCtx(), save_at(4), SELECT), [])
+        self.assertFalse(c.endgame_gate_missed)
+        c.mavericks_trusted = 7
+        with self.assertLogs("Client", level="WARNING"):
+            run(c, FakeCtx(), save_at(4), SELECT)
 
     def test_a_shut_gate_is_left_alone(self) -> None:
         # Nothing to do, and writing anyway would fight the intro sequence.

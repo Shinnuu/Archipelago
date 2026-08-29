@@ -1023,21 +1023,6 @@ class MMX6Client(BizHawkClient):
             return
 
         progress = save[OFF_PROGRESS]
-        if progress > PROGRESS_ENDGAME_OPEN:
-            # The player is INSIDE the endgame sequence, and forcing 2 here
-            # would destroy real progress - the same byte is how the Lab 1 and
-            # Lab 2 clears are recorded, and it is their only durable record.
-            # That can only happen if the Gate opened while no client was
-            # watching, so say so rather than silently doing nothing.
-            if not self.endgame_gate_missed:
-                self.endgame_gate_missed = True
-                logger.warning(
-                    "MMX6: the endgame was entered before all 8 Mavericks were "
-                    "beaten. It cannot be closed again without discarding the "
-                    "Lab clears already recorded, so beat the remaining "
-                    "Mavericks BEFORE Sigma - under this seed's goal the "
-                    "ending does not count at less than 8/8.")
-            return
 
         # GUARD 1: trusted data only, and silence when there is none.
         #
@@ -1059,25 +1044,33 @@ class MMX6Client(BizHawkClient):
         # So: act only on a count taken on a trusted screen, and if there has
         # not been one yet this session, do nothing at all. Doing nothing is
         # always safe here; the previous "score 0 and hold it shut" worry is
-        # answered by not acting rather than by guessing.
+        # answered by not acting rather than by guessing. Since 2026-08-28
+        # this also gates the early-entry WARNING below: it used to fire on
+        # any progress >= 4 with no idea of the real count, which told a
+        # legitimate 8/8 player mid-endgame that they had entered early. A
+        # trusted count arrives with the first gameplay poll, and the labs
+        # are gameplay, so a deferred warning still lands before Sigma.
         if self.mavericks_trusted is None:
             return
         beaten = self.mavericks_trusted
 
-        # GUARD 2: never fight the game for this byte.
-        #
-        # The premise this gate was built on - "a value written into this byte
-        # STAYS, the game does not recompute it" - was measured with the stage
-        # select ALREADY UP, where it holds. Vanilla opens Gate's Lab on any of
-        # 8 Mavericks, High Max in an Another Route, or 3000 Nightmare Souls,
-        # and if one of those is true the game can write 3 again on the way
-        # back into the hub. Correcting it every poll then produces exactly the
-        # cutscene loop reported.
-        #
-        # Correct it a few times, then concede and say so. A player who is told
-        # plainly not to enter Sigma yet is far better off than one watching a
-        # cutscene every stage while the lock leaks anyway.
-        if self.endgame_gate_conceded:
+        if progress > PROGRESS_ENDGAME_OPEN:
+            # The player is INSIDE the endgame sequence, and forcing 2 here
+            # would destroy real progress - the same byte is how the Lab 1 and
+            # Lab 2 clears are recorded, and it is their only durable record.
+            if beaten >= 8:
+                return          # legitimately inside the endgame
+            # Entered short - the Gate opened while no client was watching,
+            # or the gate below conceded. Say so rather than silently doing
+            # nothing.
+            if not self.endgame_gate_missed:
+                self.endgame_gate_missed = True
+                logger.warning(
+                    "MMX6: the endgame was entered before all 8 Mavericks were "
+                    "beaten. It cannot be closed again without discarding the "
+                    "Lab clears already recorded, so beat the remaining "
+                    "Mavericks BEFORE Sigma - under this seed's goal the "
+                    "ending does not count at less than 8/8.")
             return
 
         if beaten >= 8:
@@ -1100,6 +1093,26 @@ class MMX6Client(BizHawkClient):
             if self.endgame_gate_held:
                 self.endgame_gate_held = False
                 logger.info("MMX6: all 8 Mavericks beaten - the Gate is open.")
+            return
+
+        # GUARD 2: never fight the game for this byte.
+        #
+        # The premise this gate was built on - "a value written into this byte
+        # STAYS, the game does not recompute it" - was measured with the stage
+        # select ALREADY UP, where it holds. Vanilla opens Gate's Lab on any of
+        # 8 Mavericks, High Max in an Another Route, or 3000 Nightmare Souls,
+        # and if one of those is true the game can write 3 again on the way
+        # back into the hub. Correcting it every poll then produces exactly the
+        # cutscene loop reported.
+        #
+        # Correct it a few times, then concede and say so. A player who is told
+        # plainly not to enter Sigma yet is far better off than one watching a
+        # cutscene every stage while the lock leaks anyway.
+        #
+        # BELOW the 8/8 branch, deliberately: conceding stops the client
+        # CLOSING the Gate, it must not stop the all-clear (and, if it were
+        # ever needed, the re-open) once the eighth Maverick really falls.
+        if self.endgame_gate_conceded:
             return
 
         if progress == PROGRESS_ENDGAME_OPEN:

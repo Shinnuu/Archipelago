@@ -61,14 +61,24 @@ class TestDefaultSeed(MMX6TestBase):
             reachable = self.multiworld.get_location(
                 name, self.player).can_reach(state)
             if (stage, number) in reploids.REPLOID_GATES:
-                # `stage_unlocks` is off in this seed and Zero is precollected,
-                # so "wall" and "mob" are both satisfied from the start; only
-                # the Shadow rooms should actually be shut.
                 gates = reploids.REPLOID_GATES[(stage, number)]
-                if "shadow" in gates:
+                # `stage_unlocks` is off in this seed, so "wall" is satisfied
+                # (Heatnix is always enterable). Nothing else is: zero_unlock
+                # defaults ON, so Zero sits in the POOL rather than being
+                # precollected, and with prog_items emptied and no fill run
+                # there is no Zero and no armor set. So every row carrying
+                # "mob" or "shadow" must be shut, and a wall-only row must
+                # still be free - both directions asserted, because an
+                # earlier version of this branch asserted nothing for the
+                # mob rows and its comment claimed Zero was precollected.
+                if set(gates) - {"wall"}:
                     self.assertFalse(
-                        reachable, f"{name} is behind Shadow Armor and should "
+                        reachable, f"{name} is gated on {gates} and should "
                         "not be reachable with an empty inventory")
+                else:
+                    self.assertTrue(
+                        reachable, f"{name} is wall-only, and without "
+                        "stage_unlocks the wall is open")
                 continue
             self.assertTrue(reachable, f"{name} needs items to reach")
 

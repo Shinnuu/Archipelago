@@ -69,6 +69,71 @@ expectations.
 4. This produces a patched `.cue` + `.bin` beside the patch file. **This** is
    the disc you play; keep your original untouched.
 
+## Player colours (optional)
+
+**This is the only setting that does not live in your YAML.** Every other
+option is decided when the seed is generated. Colours are decided on your own
+machine, at the moment the patch is opened.
+
+That cuts both ways:
+
+- You never need a new seed to change a colour, and it never affects anyone
+  else in a multiworld.
+- But it is **not a live toggle** — the colour is written into the disc as it
+  is built, so a disc you already made will never change. You re-open the patch
+  to get a new one.
+
+### Setting them
+
+Colours live in Archipelago's own `host.yaml` (the same file that remembers
+where your disc image is), under `mmx6_options`:
+
+```yaml
+mmx6_options:
+  rom_file: "Megaman X6.bin"
+  x_palette: emerald
+  zero_palette: violet
+  shadow_palette: vanilla
+  blade_palette: vanilla
+  ultimate_palette: vanilla
+```
+
+Each accepts `vanilla` (leave it alone), `random`, or one of:
+
+> crimson · scarlet · amber · gold · olive · forest · emerald · teal · cyan ·
+> azure · blue · indigo · violet · magenta · rose · silver · black · white
+
+Set them **before** you open the patch. If you have not patched yet, that is
+all there is to it.
+
+### Changing them afterwards
+
+1. Edit `host.yaml` and save it.
+2. **Delete the `.bin` and `.cue` you made last time.** The patcher skips its
+   work if a disc of that name is already there, so if you miss this step
+   nothing happens and you get no warning.
+3. Open the same `.apmmx6` again. No new seed, and no need to restart the
+   Launcher.
+
+Deleting the old disc and patching to the **same filename** is deliberate:
+BizHawk keys memory cards *and* savestates to the disc's filename, so keeping
+the name keeps your progress. Patch to a new name and the game will look like
+it has an empty card.
+
+### Notes
+
+- **Falcon Armor follows X.** It is different artwork drawn from X's palette,
+  so `x_palette` recolours it too. It has no setting of its own.
+- Faces and skin are never repainted, and Zero keeps his blond hair and his
+  helmet crystal — only armour and trim change, so shading and outlines stay
+  intact.
+- `random` is tied to your player name, so re-patching gives the same colour
+  again rather than re-rolling.
+- **Black Zero is not covered.** He keeps his usual colours whatever you set.
+- Nothing here touches items, locations or logic. Two players in the same
+  multiworld can pick different colours, and a seed generated before this
+  feature existed can still be recoloured.
+
 ## Playing
 
 1. Open **BizHawk** and load the patched **`.cue`** (not the original, and not
@@ -154,6 +219,11 @@ If the result does not hash to a known clean dump, it writes nothing and tells
 you so, rather than handing you a subtly broken image.
 
 ## Troubleshooting
+
+**I changed a colour and nothing happened.** The patcher does no work if a
+`.bin`/`.cue` of that name already exists — it says so in the log and stops.
+Delete the old pair and open the patch again. Colours are baked in as the disc
+is built, so a disc you already made never changes afterwards.
 
 **The client connects to the room but never sees the game.** The connector Lua
 is not running in BizHawk, or your BizHawk is older than 2.7.

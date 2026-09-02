@@ -22,6 +22,7 @@ from .client import MMX6Client  # noqa: F401  (import registers the client)
 from .items import MMX6Item, event_table, item_groups, item_table
 from .locations import MMX6Location, location_groups, location_table
 from .options import RANDOMIZED_OPTIONS, MMX6Options
+from . import palettes
 from .Rom import ACCEPTED_HASHES, MMX6ProcedurePatch, patch_rom
 
 
@@ -33,6 +34,18 @@ class MMX6Settings(settings.Group):
         md5s = sorted(ACCEPTED_HASHES)
 
     rom_file: RomFile = RomFile(RomFile.copy_to)
+
+    # Cosmetic player colours, applied when the patch is opened. Purely local:
+    # NOT seed data, so changing one is a re-patch, never a re-roll. Each takes
+    # "vanilla", "random", or a preset name - see palettes.PRESETS.
+    # Falcon Armor and Black Zero are not offered: Falcon's CLUT record is
+    # still unidentified (four wrong candidates so far - see palettes.py), and
+    # nothing here has a Black Zero save to capture from.
+    x_palette: str = palettes.VANILLA
+    zero_palette: str = palettes.VANILLA
+    shadow_palette: str = palettes.VANILLA
+    blade_palette: str = palettes.VANILLA
+    ultimate_palette: str = palettes.VANILLA
 
 
 class MMX6Web(WebWorld):

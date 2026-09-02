@@ -136,6 +136,48 @@ class MMX6PatchExtension(APPatchExtension):
             pass    # no per-seed edits in this patch
         return disc.apply_basepatch(rom, extra)
 
+    @staticmethod
+    def apply_palettes(caller: APProcedurePatch, rom: bytes) -> bytes:
+        """Cosmetic recolour, read from the player's LOCAL settings.
+
+        Not seed data: colours live in host.yaml, so changing one is a re-patch
+        rather than a re-generation. Runs after apply_basepatch; the two never
+        touch the same sectors - the palettes are in ROCK_X6.DAT, far from the
+        code the basepatch edits.
+        """
+        import random
+
+        from . import palettes
+
+        # settings.get_settings() memoises on the function object, so a player
+        # who patches, edits host.yaml and patches again WITHOUT restarting the
+        # Launcher would silently get their previous colours. Re-read from disk
+        # for this lookup, then hand the old cache back. (Found on X5 by testing
+        # the re-patch workflow rather than assuming it.)
+        cached = getattr(settings.get_settings, "_cache", None)
+        try:
+            settings.get_settings._cache = None
+            group = settings.get_settings().mmx6_options
+        except Exception:
+            return rom
+        finally:
+            settings.get_settings._cache = cached
+
+        choices = {
+            target: getattr(group, f"{target}_palette", palettes.VANILLA)
+            for target in palettes.TARGETS
+        }
+        if all((c or palettes.VANILLA).strip().lower() == palettes.VANILLA
+               for c in choices.values()):
+            return rom
+
+        rng = random.Random(getattr(caller, "player_name", "") or None)
+        image = bytearray(rom)
+        touched = palettes.apply(image, choices, rng)
+        for sector in sorted(touched):
+            disc.regenerate_sector(image, sector)
+        return bytes(image)
+
 
 class MMX6ProcedurePatch(APProcedurePatch):
     hash = sorted(ACCEPTED_HASHES)
@@ -144,6 +186,7 @@ class MMX6ProcedurePatch(APProcedurePatch):
     result_file_ending = ".cue"
     procedure = [
         ("apply_basepatch", []),
+        ("apply_palettes", []),
     ]
 
     @classmethod

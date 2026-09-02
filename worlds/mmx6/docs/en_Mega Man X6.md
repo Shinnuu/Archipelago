@@ -59,6 +59,13 @@ The first four are **on by default**. The quality-of-life edits are adapted
 from acediez's **Mega Man X6 Tweaks**, with every site re-verified against both
 supported disc images.
 
+**Player colours are the odd one out.** X, Zero, Shadow, Blade and Ultimate can
+each be recoloured, but the choice is not in your YAML — it lives in your own
+`host.yaml` and is applied while the patch is opened. Changing your mind costs
+nothing (no new seed, no effect on anyone else), but it is not a live toggle:
+delete your old `.bin`/`.cue` and open the same `.apmmx6` again. Falcon Armor
+follows X's colour; Black Zero is not covered. The setup guide has the details.
+
 ## Anything unusual I should know?
 
 - **Special weapons are separated from boss kills.** In the base game, beating

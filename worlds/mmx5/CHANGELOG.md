@@ -1,5 +1,28 @@
 # Mega Man X5 apworld changelog
 
+## Unreleased
+
+**New: player colours.** X, Zero, Falcon, Gaea and Ultimate can each be
+recoloured independently, from a set of 18 presets or `random`. Purely
+cosmetic — no logic, items or locations are touched.
+
+The colours are **not seed data**. They live in your own `host.yaml` under
+`mmx5_options` and are applied while the patch is opened, so changing one is a
+re-patch of the same `.apmmx5`, never a re-generation. Set them before opening
+the patch.
+
+Fourth Armor has no setting of its own: its sprite is different artwork drawn
+from X's palette, so `x_palette` covers it — confirmed in game.
+
+Each preset keeps every colour's original brightness and changes only hue and
+saturation, so shading survives; faces and skin are never repainted, and Zero
+keeps his hair and helmet crystal.
+
+Colours are re-read from `host.yaml` every time a patch is opened, so you do
+not have to restart the Launcher between changes. Note that the patcher skips
+work when a `.bin`/`.cue` of the same name is already sitting there — delete or
+rename the old one, or patch to a new name, or you will keep the old colours.
+
 ## 0.5.4 — 2026-08-16
 
 **No re-patch needed** unless you turn on one of the two new options. Both are

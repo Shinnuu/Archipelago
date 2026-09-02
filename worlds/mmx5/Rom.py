@@ -60,6 +60,47 @@ class MMX5PatchExtension(APPatchExtension):
             pass  # no per-seed edits in this patch
         return disc.apply_basepatch(rom, extra)
 
+    @staticmethod
+    def apply_palettes(caller: APProcedurePatch, rom: bytes) -> bytes:
+        """Cosmetic recolour, read from the player's LOCAL settings.
+
+        Deliberately not seed data: colours live in host.yaml, so changing them
+        is a re-patch rather than a re-generation. Runs after apply_basepatch;
+        the two never touch the same sectors (palettes sit far below 23433).
+        """
+        import random
+
+        from . import palettes
+
+        # settings.get_settings() memoises on the function object, so a player
+        # who patches, edits host.yaml and patches again WITHOUT restarting the
+        # Launcher would silently get their previous colours. Re-read from disk
+        # for this lookup, then hand the old cache back so nothing else in the
+        # process sees a different Settings instance.
+        cached = getattr(settings.get_settings, "_cache", None)
+        try:
+            settings.get_settings._cache = None
+            group = settings.get_settings().mmx5_options
+        except Exception:
+            return rom
+        finally:
+            settings.get_settings._cache = cached
+        choices = {
+            target: getattr(group, f"{target}_palette", palettes.VANILLA)
+            for target in palettes.TARGETS
+        }
+        if all((c or palettes.VANILLA).strip().lower() == palettes.VANILLA
+               for c in choices.values()):
+            return rom
+
+        # seeded on the player name so re-patching reproduces the same "random"
+        rng = random.Random(getattr(caller, "player_name", "") or None)
+        image = bytearray(rom)
+        touched = palettes.apply(image, choices, rng)
+        for sector in sorted(touched):
+            disc.regenerate_sector(image, sector)
+        return bytes(image)
+
 
 class MMX5ProcedurePatch(APProcedurePatch):
     hash = sorted(ACCEPTED_HASHES)
@@ -68,6 +109,7 @@ class MMX5ProcedurePatch(APProcedurePatch):
     result_file_ending = ".cue"
     procedure = [
         ("apply_basepatch", []),
+        ("apply_palettes", []),
     ]
 
     @classmethod

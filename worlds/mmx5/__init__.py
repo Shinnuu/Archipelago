@@ -19,6 +19,7 @@ from .client import MMX5Client  # noqa: F401  (import registers the client)
 from .items import BASE_ID, MMX5Item, event_table, item_groups, item_table
 from .locations import MMX5Location, event_location_table, location_groups, location_table
 from .options import RANDOMIZED_OPTIONS, DNAPartsInPool, LaunchOdds, MMX5Options
+from . import palettes
 from .Rom import ACCEPTED_HASHES, MMX5ProcedurePatch, patch_rom
 
 
@@ -32,6 +33,18 @@ class MMX5Settings(settings.Group):
         md5s = sorted(ACCEPTED_HASHES)
 
     rom_file: RomFile = RomFile(RomFile.copy_to)
+
+    # Cosmetic player colours, applied when the patch is opened. Purely local:
+    # they are NOT seed data, so changing one is a re-patch, never a re-roll.
+    # Each accepts "vanilla", "random", or a preset name - see palettes.PRESETS
+    # (crimson, scarlet, amber, gold, olive, forest, emerald, teal, cyan,
+    # azure, blue, indigo, violet, magenta, rose, silver, black, white).
+    # Fourth Armor has no entry of its own: it is drawn from X's palette.
+    x_palette: str = palettes.VANILLA
+    zero_palette: str = palettes.VANILLA
+    falcon_palette: str = palettes.VANILLA
+    gaea_palette: str = palettes.VANILLA
+    ultimate_palette: str = palettes.VANILLA
 
 
 class MMX5Web(WebWorld):

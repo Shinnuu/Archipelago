@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from Options import (Choice, DefaultOnToggle, PerGameCommonOptions,
-                     Range, StartInventoryPool, Toggle)
+from Options import (Choice, DefaultOnToggle, OptionSet,
+                     PerGameCommonOptions, Range, StartInventoryPool, Toggle)
 
 
 class Goal(Choice):
@@ -250,6 +250,51 @@ class StageUnlocks(Toggle):
     display_name = "Stage Unlocks"
 
 
+class DisabledNightmareEffects(OptionSet):
+    """Switch off individual Nightmare Effects.
+
+    List the ones you do not want. An empty list is vanilla and leaves the
+    disc byte-for-byte unchanged; listing all eight turns the Nightmare
+    Effects off entirely.
+
+    Valid names: Bug, Ice, Fire, Iron, Cube, Rain, Mirror, Dark.
+
+    Each stage can be afflicted by exactly two of the eight, so disabling one
+    does not clear a stage on its own - it leaves the other:
+
+        Amazon Area     Rain, Dark          Central Museum  Iron, Rain
+        North Pole      Fire, Mirror        Inami Temple    Mirror, Dark
+        Magma Area      Bug, Iron           Laser Institute Bug, Cube
+        Recycle Lab     Ice, Cube           Weapon Center   Fire, Iron
+
+    **Fire also opens North Pole's ice wall, and disabling it patches that
+    wall permanently open.** Nine locations are behind it - Blizzard Wolfang's
+    Heart Tank, his EX Tank and seven of his Reploids - so switching Fire off
+    without that would strand them. The wall edit rides in the same group and
+    logic drops the Fire requirement to match, so the nine stay reachable
+    either way.
+
+    Two knock-on effects worth knowing, neither of which costs you a check:
+
+    * **Nightmare Souls get much harder to farm.** The Nightmare Virus only
+      drops a fresh Orb after a stage has been afflicted, so a stage with no
+      effects left stops replenishing them. Nothing in this randomizer needs
+      Souls - the endgame opens on your eighth Maverick - but the vanilla
+      3000-Soul route to Gate's Lab effectively closes.
+    * **It makes the endgame gate behave better.** The client's gate loses a
+      write-fight when the game opens Gate's Lab early on 3000 Souls; fewer
+      Souls means that is far less likely to come up.
+
+    Ice blocks and Nightmare Cubes double as platforms in one spot each, most
+    obviously the long jump to Recycle Lab's capsule - but logic already
+    requires Blade Armor or Zero there, which is the stronger requirement, so
+    turning them off changes nothing a seed depends on.
+    """
+    display_name = "Disabled Nightmare Effects"
+    valid_keys = ("Bug", "Ice", "Fire", "Iron", "Cube", "Rain", "Mirror",
+                  "Dark")
+
+
 class ScaravichNoProgression(Toggle):
     """Put nothing important in Ground Scaravich's stage.
 
@@ -468,6 +513,7 @@ class MMX6Options(PerGameCommonOptions):
     stage_unlocks: StageUnlocks
     boss_hp_randomization: BossHpRandomization
     weapon_damage: WeaponDamage
+    disabled_nightmare_effects: DisabledNightmareEffects
     scaravich_no_progression: ScaravichNoProgression
     starting_hp: StartingHp
     heart_tank_value: HeartTankValue

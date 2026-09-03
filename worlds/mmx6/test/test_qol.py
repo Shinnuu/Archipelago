@@ -16,7 +16,7 @@ import unittest
 
 from .. import disc
 from ..Rom import QOL_OPTIONS, qol_features
-from ..options import MMX6Options
+from ..options import DisabledNightmareEffects, MMX6Options
 
 ROM = r"C:\Users\Ivor\Documents\Game Modding\Games\Megaman X6\Megaman X6.bin"
 have_rom = os.path.exists(ROM)
@@ -42,7 +42,20 @@ class TestQoLData(unittest.TestCase):
     def test_every_edit_group_is_reachable_from_an_option(self) -> None:
         # An edit group nothing can turn on is dead weight that still looks
         # supported from the inside.
-        self.assertEqual(set(QOL_OPTIONS.values()), set(disc.QOL_EDITS))
+        #
+        # The eight Nightmare groups are reachable from ONE option that picks
+        # a subset, so they cannot appear in QOL_OPTIONS' one-to-one map. They
+        # are unioned in rather than excused: an orphan is still an orphan.
+        nightmare = {disc.nightmare_group_name(e)
+                     for e in disc.NIGHTMARE_EFFECTS}
+        self.assertEqual(set(QOL_OPTIONS.values()) | nightmare,
+                         set(disc.QOL_EDITS))
+
+    def test_every_nightmare_group_is_selectable_by_name(self) -> None:
+        # The other half of the same guarantee: a group could be in QOL_EDITS
+        # and named by nightmare_group_name while the option refuses the key.
+        for effect in disc.NIGHTMARE_EFFECTS:
+            self.assertIn(effect, DisabledNightmareEffects.valid_keys)
 
     def test_every_option_exists_on_the_options_dataclass(self) -> None:
         fields = MMX6Options.type_hints
@@ -51,11 +64,31 @@ class TestQoLData(unittest.TestCase):
 
     def test_vanilla_and_patched_payloads_are_the_same_length(self) -> None:
         # A shorter patched payload would leave half an instruction behind.
+        # This half applies to every edit, data or code.
         for group, edits in disc.QOL_EDITS.items():
             for label, _where, _region, van, pat in edits:
                 self.assertEqual(len(van), len(pat), f"{group}/{label}")
+
+    def test_every_code_edit_is_whole_instructions(self) -> None:
+        # Scoped rather than relaxed: the Nightmare creation records are three
+        # bytes of TABLE, so "whole instructions" was never a claim about
+        # them. Everything else in QOL_EDITS is MIPS and still has to be.
+        for group, edits in disc.QOL_EDITS.items():
+            for label, where, _region, van, _pat in edits:
+                if where in disc.DATA_EDIT_SITES:
+                    continue
                 self.assertEqual(len(van) % 4, 0,
                                  f"{group}/{label} is not whole instructions")
+
+    def test_the_data_edits_are_exactly_the_creation_records(self) -> None:
+        # Otherwise the exemption above could quietly grow to cover a code
+        # edit somebody got wrong.
+        self.assertEqual(
+            disc.DATA_EDIT_SITES,
+            frozenset(w for w, _v in disc.NIGHTMARE_EFFECTS.values()))
+        for where in disc.DATA_EDIT_SITES:
+            self.assertEqual(len(disc.NIGHTMARE_EFFECTS["Bug"][1]) // 2, 3)
+            self.assertIsInstance(where, int)
 
     def test_no_qol_edit_overlaps_a1(self) -> None:
         a1 = set()
@@ -92,14 +125,24 @@ class TestQoLData(unittest.TestCase):
                 self.value = value
 
         class _Options:
-            def __init__(self, **kw):
+            def __init__(self, nightmare=(), **kw):
                 for option in QOL_OPTIONS:
                     setattr(self, option, _Opt(kw.get(option, 0)))
+                self.disabled_nightmare_effects = DisabledNightmareEffects(
+                    set(nightmare))
 
         self.assertEqual(qol_features(_Options()), [])
         self.assertEqual(qol_features(_Options(text_skip=1)), ["text_skip"])
+        # Every boolean on but no effects named: the Nightmare groups must
+        # stay out, or a player who never asked would get a patched disc.
         self.assertEqual(
             sorted(qol_features(_Options(**{o: 1 for o in QOL_OPTIONS}))),
+            sorted(set(QOL_OPTIONS.values())))
+        # Everything on, including all eight effects.
+        self.assertEqual(
+            sorted(qol_features(_Options(
+                nightmare=DisabledNightmareEffects.valid_keys,
+                **{o: 1 for o in QOL_OPTIONS}))),
             sorted(ALL_GROUPS))
 
 

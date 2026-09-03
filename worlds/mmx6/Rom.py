@@ -219,10 +219,23 @@ QOL_OPTIONS = {
 }
 
 
+def nightmare_groups(options) -> list[str]:
+    """The Nightmare-effect edit groups this seed asks for.
+
+    Separate from QOL_OPTIONS because this one option selects any subset of
+    eight groups rather than mapping one-to-one onto a single group. Sorted
+    into the table's own order so two seeds with the same set produce the same
+    edit list, whatever order the YAML listed them in.
+    """
+    wanted = set(options.disabled_nightmare_effects.value)
+    return [disc.nightmare_group_name(e) for e in disc.NIGHTMARE_EFFECTS
+            if e in wanted]
+
+
 def qol_features(options) -> list[str]:
     """The QoL edit groups this seed's options ask for, in a stable order."""
     return [group for option, group in QOL_OPTIONS.items()
-            if getattr(options, option).value]
+            if getattr(options, option).value] + nightmare_groups(options)
 
 
 def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:

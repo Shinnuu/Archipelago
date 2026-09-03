@@ -245,6 +245,105 @@ def qol_edits(features: Iterable[str]) -> list[tuple[str, int, str, bytes, bytes
             out.extend(QOL_EDITS[name])
     return out
 
+# ---- Nightmare Effects -------------------------------------------------------
+# The effect CREATION TABLE, ROCK_X6.BIN +0x0C5EB4, resident at RAM 0x800F0F14.
+# Eight records of three bytes, one per effect, in the id order the save uses
+# at 0x800CD039 (01 Bug, 02 Ice, 03 Fire, 04 Iron, 05 Cube, 06 Rain, 07 Mirror,
+# 08 Dark).
+#
+# DECODED 2026-09-02, and the decode is what makes zeroing a record safe to
+# reason about: each record is THREE STAGE INDICES this effect can afflict,
+# repeated where it can afflict fewer than three. Read out that way:
+#
+#   Bug    3, 7      Heatnix, Sheldon        Cube   4, 7      Shark, Sheldon
+#   Ice    4         Shark                   Rain   1, 5      Yammark, Scaravich
+#   Fire   2, 8      Wolfang, Mijinion       Mirror 2, 6      Wolfang, Turtloid
+#   Iron   3, 5, 8   Heatnix, Scaravich,     Dark   1, 6      Yammark, Turtloid
+#                    Mijinion
+#
+# Two independent controls agree with that reading, which is why it is not a
+# guess:
+#   * only Fire and Mirror contain stage 2, and the research notes already say
+#     North Pole is afflicted by Fire or Mirror and nothing else;
+#   * every stage 1-8 appears in exactly two records, and the notes already say
+#     each stage can be afflicted by exactly two of the eight.
+#
+# Zeroing a record therefore leaves the effect naming stage 0 three times, so
+# it is never assigned to a real stage. The offsets and the vanilla bytes below
+# were read off BOTH accepted dumps and are identical on each; the BEHAVIOUR -
+# that a zeroed record means "this effect never happens" and nothing else - is
+# still [W], taken from acediez's Tweaks patcher, and wants one live look.
+NIGHTMARE_TABLE = 0x0C5EB4
+
+NIGHTMARE_EFFECTS: dict[str, tuple[int, str]] = {
+    "Bug":    (NIGHTMARE_TABLE + 0,  "030707"),
+    "Ice":    (NIGHTMARE_TABLE + 3,  "040404"),
+    "Fire":   (NIGHTMARE_TABLE + 6,  "020808"),
+    "Iron":   (NIGHTMARE_TABLE + 9,  "030508"),
+    "Cube":   (NIGHTMARE_TABLE + 12, "040707"),
+    "Rain":   (NIGHTMARE_TABLE + 15, "010505"),
+    "Mirror": (NIGHTMARE_TABLE + 18, "020606"),
+    "Dark":   (NIGHTMARE_TABLE + 21, "010606"),
+}
+
+# The North Pole ice wall. Disabling Fire without this shuts NINE locations
+# for good - Wolfang's Heart Tank, his EX Tank and seven of his sixteen
+# Reploids - which is the same class of bug that made v0.1.1 a seed-breaking
+# release. So it is bundled INTO the Fire group rather than offered beside it,
+# and cannot be forgotten.
+#
+# The check, identical at all four sites:
+#
+#   lb    v1, 0x43A(s3)    the effect currently on this stage
+#   addiu v0, zero, 3      Nightmare Fire
+#   beq   v1, v0, +24      equal -> skip the call that builds the wall
+#   addu  s1, a0, zero     (delay slot, runs either way)
+#   jal   0x8002C9B0       not Fire -> the wall exists
+#
+# We make the branch unconditional: beq v1,v0 -> beq zero,zero, same offset.
+# One word, IDENTICAL at every site, and it leaves v1 holding the real effect
+# for anything downstream that reads it.
+#
+# THE TWEAKS PATCHER ONLY COVERS TWO OF THESE FOUR. Its payloads are
+# overlay-relative jumps (j 0x800EF0BC and j 0x800ED684), so they are not
+# copyable to the other two sites, and the two it skips - ROCK 0x0996F0 and
+# 0x1493D4 - are byte-identical routines reading the same field. Since we
+# disable Fire outright, a site left vanilla is a wall that never opens, so
+# all four are patched. Found by searching ROCK for the instruction rather
+# than trusting the tweak's site list.
+NIGHTMARE_WALL_SITES = (0x038E60, 0x0996F0, 0x122BDC, 0x1493D4)
+NIGHTMARE_WALL_VANILLA = "05006210"      # beq v1, v0, +24
+NIGHTMARE_WALL_PATCHED = "05000010"      # beq zero, zero, +24
+
+
+def _nightmare_group(effect: str) -> list:
+    where, vanilla = NIGHTMARE_EFFECTS[effect]
+    edits = [(f"Nightmare {effect}: creation record", where, REGION_ROCK,
+              bytes.fromhex(vanilla), bytes(3))]
+    if effect == "Fire":
+        edits += [
+            (f"North Pole ice wall, copy {i + 1} of 4", site + 8, REGION_ROCK,
+             bytes.fromhex(NIGHTMARE_WALL_VANILLA),
+             bytes.fromhex(NIGHTMARE_WALL_PATCHED))
+            for i, site in enumerate(NIGHTMARE_WALL_SITES)]
+    return edits
+
+
+def nightmare_group_name(effect: str) -> str:
+    return "nightmare_" + effect.lower()
+
+
+# The only QoL edits that are DATA rather than code. Everything else in
+# QOL_EDITS is whole MIPS instructions and is checked as such; a creation
+# record is three bytes of table and would fail that check for the right
+# reason, so it is named here instead of exempted by group name.
+DATA_EDIT_SITES: frozenset = frozenset(
+    where for where, _van in NIGHTMARE_EFFECTS.values())
+
+
+QOL_EDITS.update({nightmare_group_name(e): _nightmare_group(e)
+                  for e in NIGHTMARE_EFFECTS})
+
 # ---- Boss HP ----------------------------------------------------------------
 # X6 stores a boss's life bar and its HP in the SAME byte, 0x800CCF5C, written
 # at boss init from an immediate in that boss's overlay code. That is why this

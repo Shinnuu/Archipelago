@@ -3,6 +3,33 @@
 
 ## Unreleased
 
+**New: `disabled_nightmare_effects`.** Switch Nightmare Effects off — name
+the ones you do not want, or list all eight. Empty is vanilla and leaves the
+disc byte-for-byte unchanged.
+
+Each stage can be afflicted by exactly two of the eight, so turning one off
+does not clear a stage on its own:
+
+| stage | effects | | stage | effects |
+|---|---|---|---|---|
+| Amazon Area | Rain, Dark | | Central Museum | Iron, Rain |
+| North Pole | Fire, Mirror | | Inami Temple | Mirror, Dark |
+| Magma Area | Bug, Iron | | Laser Institute | Bug, Cube |
+| Recycle Lab | Ice, Cube | | Weapon Center | Fire, Iron |
+
+**Turning Fire off also opens North Pole's ice wall permanently**, and it has
+to: Fire is what melts that wall, and nine locations are behind it — Blizzard
+Wolfang's Heart Tank, his EX Tank and seven of his Reploids. The wall edit is
+part of the same option and logic drops the Fire requirement to match, so
+nothing is stranded.
+
+Two knock-ons worth knowing, neither costing a check. Nightmare Souls become
+much harder to farm, since the Virus only drops a fresh Orb after a stage has
+been afflicted — nothing in this randomizer needs Souls, the endgame opens on
+your eighth Maverick, but the vanilla 3000-Soul route to Gate's Lab
+effectively closes. That also makes the endgame gate behave better, because
+the cutscene-loop bug comes from the game opening Gate's Lab early on Souls.
+
 **New: `scaravich_no_progression`.** Ground Scaravich's stage is built from
 totem-pole rooms the game picks at random — four of eight per entry — and its
 Heart Tank, its Blade Armor Helmet and fifteen of its sixteen Reploids sit

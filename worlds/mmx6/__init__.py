@@ -150,8 +150,14 @@ class MMX6World(World):
                 option.value = self.random.randint(cls.range_start,
                                                    cls.range_end)
             else:
-                # Toggle is just 0/1.
-                option.value = self.random.choice([0, 1])
+                # Toggle has .options and is handled above, so reaching here
+                # means a type with neither - an OptionSet, say. Rolling that
+                # to 0 or 1 would produce a value its own option cannot mean.
+                # Fail loudly instead: this is only ever a mistake in
+                # RANDOMIZED_OPTIONS, never something a player can cause.
+                raise Exception(
+                    f"RANDOMIZED_OPTIONS lists {name!r}, whose type "
+                    f"{cls.__name__} cannot be rolled")
 
         # Make room rather than refusing. reploid_checks adds 128 locations
         # against at most 16 items, so it covers every combination.
@@ -459,7 +465,15 @@ class MMX6World(World):
         # Magma Area can always go re-trigger it. So "can reach Heatnix" is
         # the right monotonic condition, and modelling last-visit ordering
         # would be both impossible in AP logic and unnecessary.
+        # ...unless the seed turned Nightmare Fire off, which patches the
+        # wall permanently open. Then there is nothing to trigger and nothing
+        # to require: keeping the rule would only make fill more conservative
+        # than the disc it is generating for.
+        fire_off = "Fire" in self.options.disabled_nightmare_effects
+
         def wolfang_wall(state) -> bool:
+            if fire_off:
+                return True     # the wall is patched open on this disc
             if not self.options.stage_unlocks:
                 return True     # Heatnix is always enterable
             return state.has(names.access_item(names.HEATNIX), player)

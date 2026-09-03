@@ -96,6 +96,23 @@ has the details.
   that beats you to one costs you the rescue, never the item. This is belt and
   braces on purpose: the option is what lets you go back for it, and this is
   what makes sure a multiworld can never lose an item to it.
+- **`disabled_nightmare_effects` switches Nightmare Effects off, one at a
+  time or all eight.** Each stage can be afflicted by exactly two of the eight
+  (North Pole gets Fire or Mirror, Magma Area gets Bug or Iron, and so on), so
+  turning one off does not clear a stage by itself. Turning **Fire** off also
+  patches North Pole's ice wall permanently open, because that wall is what
+  Fire melts and nine locations sit behind it — Blizzard Wolfang's Heart Tank,
+  his EX Tank and seven of his Reploids. Logic drops the Fire requirement to
+  match, so those nine stay reachable either way.
+
+  Two side effects, neither of which costs you a check. **Nightmare Souls get
+  much harder to farm**, because the Nightmare Virus only drops a fresh Orb
+  after a stage has been afflicted — nothing here needs Souls, since the
+  endgame opens on your eighth Maverick, but the vanilla 3000-Soul route to
+  Gate's Lab effectively closes. And for the same reason it **makes the
+  endgame gate behave better**: the client loses a write-fight when the game
+  opens Gate's Lab early on Souls, and fewer Souls means that comes up far
+  less.
 - **`scaravich_no_progression` answers Central Museum's random rooms.** Ground
   Scaravich's stage is assembled from totem-pole rooms the game picks four of
   at random each time you enter, and its Heart Tank, its Blade Armor Helmet and

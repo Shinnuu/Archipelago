@@ -272,12 +272,16 @@ class DisabledNightmareEffects(OptionSet):
         Magma Area      Bug, Iron           Laser Institute Bug, Cube
         Recycle Lab     Ice, Cube           Weapon Center   Fire, Iron
 
-    **Fire also opens North Pole's ice wall, and disabling it patches that
-    wall permanently open.** Nine locations are behind it - Blizzard Wolfang's
-    Heart Tank, his EX Tank and seven of his Reploids - so switching Fire off
-    without that would strand them. The wall edit rides in the same group and
-    logic drops the Fire requirement to match, so the nine stay reachable
-    either way.
+    **Turning Fire off puts nothing important behind North Pole's ice wall.**
+    That wall only opens while Nightmare Fire is on the stage, and nine
+    locations sit behind it - Blizzard Wolfang's Heart Tank, his EX Tank and
+    seven of his Reploids. With Fire disabled they are marked excluded, the
+    same way `scaravich_no_progression` treats Central Museum, so the fill
+    puts only junk there and no seed can ever depend on getting through.
+
+    The patch does also try to hold that wall open, so those nine stay
+    collectable - but nothing rests on it. If that part failed you would lose
+    the chance to pick up nine junk items and nothing else.
 
     Two knock-on effects worth knowing, neither of which costs you a check:
 

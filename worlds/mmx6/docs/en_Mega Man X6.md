@@ -100,11 +100,12 @@ has the details.
   at a time in any combination, or `all` for every one of them. Each stage can
   be afflicted by exactly two of the eight
   (North Pole gets Fire or Mirror, Magma Area gets Bug or Iron, and so on), so
-  turning one off does not clear a stage by itself. Turning **Fire** off also
-  patches North Pole's ice wall permanently open, because that wall is what
-  Fire melts and nine locations sit behind it — Blizzard Wolfang's Heart Tank,
-  his EX Tank and seven of his Reploids. Logic drops the Fire requirement to
-  match, so those nine stay reachable either way.
+  turning one off does not clear a stage by itself. Turning **Fire** off puts
+  nothing important behind North Pole's ice wall — that wall only opens while
+  Fire is on the stage, and nine locations sit behind it (Blizzard Wolfang's
+  Heart Tank, his EX Tank and seven Reploids), so they are excluded and hold
+  junk. The patch also tries to hold the wall open so you can still collect
+  them, but no seed depends on it.
 
   Two side effects, neither of which costs you a check. **Nightmare Souls get
   much harder to farm**, because the Nightmare Virus only drops a fresh Orb

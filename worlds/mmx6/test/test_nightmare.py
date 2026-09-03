@@ -286,6 +286,62 @@ class TestAllAlsoRelaxesTheWallRule(_WallBase):
             self.assertTrue(ok, f"{loc} still needs Heatnix under `all`")
 
 
+class TestFireExcludesWhatIsBehindTheWall(_WallBase):
+    """The fail-safe, and the reason the wall edits are not load-bearing.
+
+    Disabling Fire relaxes the wall rule, so logic calls those nine reachable.
+    If that promise rested on the wall edits alone and they turned out not to
+    work, a seed with progression behind the wall could not be finished. So
+    the nine are excluded as well: fill puts only junk there, and whether the
+    wall physically opens decides nothing but whether nine filler checks can
+    be collected.
+    """
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["Fire"]}
+
+    def test_all_nine_hold_filler_only(self) -> None:
+        from BaseClasses import LocationProgressType
+        for loc in FIRE_GATED:
+            self.assertEqual(
+                self.multiworld.get_location(loc, 1).progress_type,
+                LocationProgressType.EXCLUDED, loc)
+
+    def test_nothing_else_in_that_stage_is_excluded(self) -> None:
+        # Only what the wall gates. Wolfang's boss clear and his other nine
+        # Reploids are in front of it and stay usable.
+        from BaseClasses import LocationProgressType
+        for loc in self.multiworld.get_region(names.WOLFANG, 1).locations:
+            if loc.name in FIRE_GATED:
+                continue
+            self.assertNotEqual(loc.progress_type,
+                                LocationProgressType.EXCLUDED, loc.name)
+
+
+class TestAllExcludesThemToo(_WallBase):
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["all"]}
+
+    def test_all_nine_hold_filler_only(self) -> None:
+        from BaseClasses import LocationProgressType
+        for loc in FIRE_GATED:
+            self.assertEqual(
+                self.multiworld.get_location(loc, 1).progress_type,
+                LocationProgressType.EXCLUDED, loc)
+
+
+class TestFireOnLeavesThemUsable(_WallBase):
+    """The control: with Fire live the nine are ordinary progression spots."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["Mirror"]}
+
+    def test_none_of_the_nine_is_excluded(self) -> None:
+        from BaseClasses import LocationProgressType
+        for loc in FIRE_GATED:
+            self.assertNotEqual(
+                self.multiworld.get_location(loc, 1).progress_type,
+                LocationProgressType.EXCLUDED, loc)
+
+
 class TestFireOnKeepsTheWallRule(_WallBase):
     """The control. Without this, the two above prove nothing."""
     options = {"stage_unlocks": True, "reploid_checks": True,

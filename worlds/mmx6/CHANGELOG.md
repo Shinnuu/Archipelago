@@ -22,11 +22,13 @@ does not clear a stage on its own:
 | Magma Area | Bug, Iron | | Laser Institute | Bug, Cube |
 | Recycle Lab | Ice, Cube | | Weapon Center | Fire, Iron |
 
-**Turning Fire off also opens North Pole's ice wall permanently**, and it has
-to: Fire is what melts that wall, and nine locations are behind it — Blizzard
-Wolfang's Heart Tank, his EX Tank and seven of his Reploids. The wall edit is
-part of the same option and logic drops the Fire requirement to match, so
-nothing is stranded.
+**Turning Fire off puts nothing important behind North Pole's ice wall.** That
+wall only opens while Nightmare Fire is on the stage, and nine locations sit
+behind it — Blizzard Wolfang's Heart Tank, his EX Tank and seven of his
+Reploids. With Fire off those nine are excluded, exactly the way
+`scaravich_no_progression` treats Central Museum, so no seed can depend on
+getting through. The patch also tries to hold the wall open so they stay
+collectable, but nothing rests on that working.
 
 Two knock-ons worth knowing, neither costing a check. Nightmare Souls become
 much harder to farm, since the Virus only drops a fresh Orb after a stage has

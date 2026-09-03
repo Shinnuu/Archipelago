@@ -465,10 +465,16 @@ class MMX6World(World):
         # Magma Area can always go re-trigger it. So "can reach Heatnix" is
         # the right monotonic condition, and modelling last-visit ordering
         # would be both impossible in AP logic and unnecessary.
-        # ...unless the seed turned Nightmare Fire off, which patches the
-        # wall permanently open. Then there is nothing to trigger and nothing
-        # to require: keeping the rule would only make fill more conservative
-        # than the disc it is generating for.
+        # ...unless the seed turned Nightmare Fire off. Then there is
+        # nothing to trigger and nothing to require - Fire can never arrive,
+        # so a rule demanding its opener could never be satisfied and every
+        # location behind the wall would be logically unreachable, which under
+        # `accessibility: full` refuses to generate at all.
+        #
+        # This relaxation is SAFE ONLY BECAUSE those locations are excluded
+        # below. Logic says reachable, fill puts nothing important there, and
+        # whether the wall physically opens decides only whether a player can
+        # collect nine filler checks.
         # .effects, not the option itself: a plain `in` test would say
         # False for a seed that asked for `all`, quietly leaving the Fire
         # requirement on a disc whose wall is patched open.
@@ -489,6 +495,31 @@ class MMX6World(World):
 
         also_needs(names.heart_location(names.WOLFANG), wolfang_wall)
         also_needs(names.tank_location(names.WOLFANG), wolfang_wall)
+
+        if fire_off:
+            # FAIL-SAFE, and the reason it is here rather than a wall patch:
+            # with Fire disabled, nothing behind North Pole's ice wall may be
+            # worth having. The disc edits that open that wall are our own
+            # disassembly and have never been watched in a running game, so
+            # relying on them would mean logic promising nine locations on the
+            # strength of an unverified patch - and if the wall stayed shut the
+            # seed would be unfinishable. Excluding them instead means the wall
+            # edits can fail completely and the worst case is nine filler
+            # checks nobody can pick up.
+            #
+            # Same shape as scaravich_no_progression, and taken off the RULE
+            # rather than a hand-written list: anything the wall gates is
+            # covered, including Reploids added to REPLOID_GATES later.
+            behind_wall = [names.heart_location(names.WOLFANG),
+                           names.tank_location(names.WOLFANG)]
+            if self.options.reploid_checks:
+                behind_wall += [
+                    names.reploid_location(stage, number)
+                    for (stage, number), gates in reploids.REPLOID_GATES.items()
+                    if "wall" in gates]
+            for _name in behind_wall:
+                self.multiworld.get_location(_name, player).progress_type = \
+                    LocationProgressType.EXCLUDED
 
         # --- Reploids behind the same gates ---------------------------------
         # Reploids carried no rules at all until 2026-08-28, because until

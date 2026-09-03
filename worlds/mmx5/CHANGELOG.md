@@ -1,6 +1,10 @@
 # Mega Man X5 apworld changelog
 
-## Unreleased
+## 0.6.0 — 2026-09-02
+
+**No re-patch needed** unless you set a colour. Everything else in this
+release is the same disc 0.5.4 produced, so an existing patched disc and an
+in-flight seed both stay valid.
 
 **New: player colours.** X, Zero, Falcon, Gaea and Ultimate can each be
 recoloured independently, from a set of 18 presets or `random`. Purely
@@ -17,6 +21,11 @@ from X's palette, so `x_palette` covers it — confirmed in game.
 Each preset keeps every colour's original brightness and changes only hue and
 saturation, so shading survives; faces and skin are never repainted, and Zero
 keeps his hair and helmet crystal.
+
+**MMX5-Unpatcher is updated to v1.1 and you want the new one** if you use
+colours. It restores the palette records as well, so a recoloured disc still
+unpatches back to a byte-verified clean dump; the old build would fail its md5
+check and refuse to write, leaving you unable to recover your dump.
 
 Colours are re-read from `host.yaml` every time a patch is opened, so you do
 not have to restart the Launcher between changes. Note that the patcher skips

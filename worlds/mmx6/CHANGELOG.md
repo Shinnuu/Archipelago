@@ -1,7 +1,38 @@
 # Mega Man X6 apworld — changelog
 
 
-## Unreleased
+## 0.2.0 — 2026-09-03
+
+**REGENERATE your seeds to get the endgame fix.** It is per-seed disc data:
+the edits are baked into the `.apmmx6` when the seed is generated, so
+re-opening a 0.1.1 patch file cannot deliver them. Seeds generated on 0.1.1
+are not broken — they stay winnable and keep the old client-side gate — but
+the Gate can still open early on them. Player colours are the exception (see
+below): changing one is a re-patch of the same file, never a regeneration.
+
+**If you use player colours, get this release's `MMX6-Unpatcher`.** The 0.1.1
+one refuses a recoloured disc.
+
+### The endgame opens on eight Mavericks and nothing else (regenerate)
+
+Under `all_mavericks`, vanilla could still open Gate's Lab early — on 3000
+Nightmare Souls, or by beating High Max in an Another Route — and the client
+could not hold it shut: it wrote the byte closed and the game wrote it open
+again on the next stage exit, which is the replaying unlock cutscene testers
+reported. The disc now switches those two conditions off where the game
+decides them, in eight one-immediate edits, so the only thing that opens the
+Gate is your eighth Maverick. Verified live with a control: on an unpatched
+disc, 3500 Souls at 2/8 opened the Gate; on the patched disc the same steps
+left it shut, with no cutscene.
+
+Not applied under the `sigma` goal, where opening on Souls is the game's own
+design. The client's guard stays as a backstop, and the client still opens
+the Gate itself at 8/8.
+
+**One thing to watch for:** the eighth-Maverick unlock itself has not yet
+been observed on a patched disc. If your Gate does not appear after the
+eighth Maverick, please report it — the client should open it on the next
+stage select regardless.
 
 **New: `disabled_nightmare_effects`.** Switch Nightmare Effects off. Name the
 ones you do not want in any combination, or just write `all`. Empty is vanilla
@@ -34,8 +65,8 @@ Two knock-ons worth knowing, neither costing a check. Nightmare Souls become
 much harder to farm, since the Virus only drops a fresh Orb after a stage has
 been afflicted — nothing in this randomizer needs Souls, the endgame opens on
 your eighth Maverick, but the vanilla 3000-Soul route to Gate's Lab
-effectively closes. That also makes the endgame gate behave better, because
-the cutscene-loop bug comes from the game opening Gate's Lab early on Souls.
+effectively closes. The endgame gate does not care either way: under
+`all_mavericks` the Souls opening is switched off on the disc (see above).
 
 **New: `scaravich_no_progression`.** Ground Scaravich's stage is built from
 totem-pole rooms the game picks at random — four of eight per entry — and its
@@ -80,6 +111,9 @@ armours.
 Each preset keeps every colour's original brightness and changes only hue and
 saturation, so shading survives; faces and skin are never repainted, and Zero
 keeps his hair and helmet crystal.
+
+A recoloured disc can only be restored to a clean dump by the `MMX6-Unpatcher`
+from this release or later; the 0.1.1 unpatcher refuses it.
 ## 0.1.1 — 2026-08-28
 
 **RE-PATCH YOUR DISC.** Two of the fixes below change the disc patch, so

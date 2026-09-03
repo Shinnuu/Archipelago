@@ -217,7 +217,8 @@ X6 `.bin` onto it. It writes the original bytes back over every site the
 patcher can touch, regenerates each modified sector's error-correction data,
 and verifies the result against the two accepted MD5s **before** writing
 anything. Your patched file is not modified — the restored image is written
-next to it as `<name> (unpatched).bin`.
+next to it as `<name> (unpatched).bin`. A disc with player colours applied
+needs the unpatcher from release 0.2.0 or later; the earlier one refuses it.
 
 If the result does not hash to a known clean dump, it writes nothing and tells
 you so, rather than handing you a subtly broken image.

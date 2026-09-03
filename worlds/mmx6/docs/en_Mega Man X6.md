@@ -111,10 +111,9 @@ has the details.
   much harder to farm**, because the Nightmare Virus only drops a fresh Orb
   after a stage has been afflicted — nothing here needs Souls, since the
   endgame opens on your eighth Maverick, but the vanilla 3000-Soul route to
-  Gate's Lab effectively closes. And for the same reason it **makes the
-  endgame gate behave better**: the client loses a write-fight when the game
-  opens Gate's Lab early on Souls, and fewer Souls means that comes up far
-  less.
+  Gate's Lab effectively closes. The endgame gate does not care either way:
+  under `all_mavericks` the Souls opening is already switched off on the disc
+  (see below).
 - **`scaravich_no_progression` answers Central Museum's random rooms.** Ground
   Scaravich's stage is assembled from totem-pole rooms the game picks four of
   at random each time you enter, and its Heart Tank, its Blade Armor Helmet and
@@ -129,8 +128,10 @@ has the details.
   does not enforce that goal — beating High Max in an Another Route opens
   Gate's Lab early, and there is **no play after the credits**, so reaching the
   ending short would leave you with no way back except a save from before the
-  endgame. The client holds the Gate shut until all eight are down and opens it
-  itself on the eighth. Under the `sigma` goal nothing is gated.
+  endgame. The disc patch switches off the game's two early openings — 3000
+  Nightmare Souls and the High Max route — so the only thing that opens the
+  Gate is your eighth Maverick, and the client opens it itself on the eighth
+  as a backstop. Under the `sigma` goal nothing is gated.
 - **`text_skip` makes dialogue get out of the way.** It removes the in-stage
   Navigator calls, the other in-stage dialogue, the stage-select briefings and
   the Nightmare Souls explanation, and mutes the alert chime. Everything that

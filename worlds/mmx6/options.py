@@ -290,9 +290,9 @@ class DisabledNightmareEffects(OptionSet):
       effects left stops replenishing them. Nothing in this randomizer needs
       Souls - the endgame opens on your eighth Maverick - but the vanilla
       3000-Soul route to Gate's Lab effectively closes.
-    * **It makes the endgame gate behave better.** The client's gate loses a
-      write-fight when the game opens Gate's Lab early on 3000 Souls; fewer
-      Souls means that is far less likely to come up.
+    * **The endgame gate does not care either way.** Under `all_mavericks`
+      the 3000-Soul opening is already switched off on the disc, so the gate
+      never depends on how many Souls you can farm.
 
     Ice blocks and Nightmare Cubes double as platforms in one spot each, most
     obviously the long jump to Recycle Lab's capsule - but logic already

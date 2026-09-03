@@ -122,14 +122,18 @@ it has an empty card.
 
 ### Notes
 
-- **Falcon Armor follows X.** It is different artwork drawn from X's palette,
-  so `x_palette` recolours it too. It has no setting of its own.
+- **Falcon Armor is not covered.** It keeps its usual colours whatever you
+  set, and it has no setting of its own. Worth knowing before you pick: X6
+  starts you in Falcon, so `x_palette` does not show up until you are playing
+  as plain X or you switch armours. (Falcon's colours are not stored in the
+  disc in a form this feature can reach.)
 - Faces and skin are never repainted, and Zero keeps his blond hair and his
   helmet crystal — only armour and trim change, so shading and outlines stay
   intact.
 - `random` is tied to your player name, so re-patching gives the same colour
   again rather than re-rolling.
-- **Black Zero is not covered.** He keeps his usual colours whatever you set.
+- **Black Zero is not covered either.** He keeps his usual colours whatever
+  you set.
 - Nothing here touches items, locations or logic. Two players in the same
   multiworld can pick different colours, and a seed generated before this
   feature existed can still be recoloured.

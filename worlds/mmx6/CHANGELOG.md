@@ -13,9 +13,10 @@ re-patch of the same `.apmmx6`, never a re-generation. Set them before opening
 the patch, and delete the previous `.bin`/`.cue` first or the patcher will skip
 its work and leave you on the old colours.
 
-**Falcon Armor follows X** — it is different artwork drawn from X's palette, so
-`x_palette` covers it and it has no setting of its own. **Black Zero is not
-covered** and keeps his usual colours.
+**Falcon Armor is not covered**, and neither is **Black Zero** — both keep
+their usual colours whatever you set. Note that X6 starts you in Falcon, so
+`x_palette` only shows once you are playing as plain X or have switched
+armours.
 
 Each preset keeps every colour's original brightness and changes only hue and
 saturation, so shading survives; faces and skin are never repainted, and Zero

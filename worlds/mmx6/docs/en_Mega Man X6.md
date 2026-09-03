@@ -64,7 +64,8 @@ each be recoloured, but the choice is not in your YAML — it lives in your own
 `host.yaml` and is applied while the patch is opened. Changing your mind costs
 nothing (no new seed, no effect on anyone else), but it is not a live toggle:
 delete your old `.bin`/`.cue` and open the same `.apmmx6` again. Falcon Armor
-follows X's colour; Black Zero is not covered. The setup guide has the details.
+and Black Zero are not covered and keep their usual colours. The setup guide
+has the details.
 
 ## Anything unusual I should know?
 

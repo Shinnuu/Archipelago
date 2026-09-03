@@ -21,7 +21,7 @@ import settings
 import Utils
 from worlds.Files import APPatchExtension, APProcedurePatch
 
-from . import damage, disc
+from . import damage, disc, palettes
 
 if TYPE_CHECKING:
     from . import MMX6World
@@ -138,16 +138,28 @@ class MMX6PatchExtension(APPatchExtension):
 
     @staticmethod
     def apply_palettes(caller: APProcedurePatch, rom: bytes) -> bytes:
-        """Cosmetic recolour, read from the player's LOCAL settings.
+        """Cosmetic recolour: the seed's own choice, or a host.yaml override.
 
-        Not seed data: colours live in host.yaml, so changing one is a re-patch
-        rather than a re-generation. Runs after apply_basepatch; the two never
-        touch the same sectors - the palettes are in ROCK_X6.DAT, far from the
-        code the basepatch edits.
+        The colour normally comes from the player's YAML and rides inside the
+        patch, so it shows on the website generator, is validated at
+        generation rather than failing quietly here, and lands in the spoiler.
+        host.yaml remains as an override, which is what still allows a colour
+        to be changed without a new seed.
+
+        Runs after apply_basepatch; the two never touch the same sectors - the
+        palettes are in ROCK_X6.DAT, far from the code the basepatch edits.
         """
         import random
 
-        from . import palettes
+        # The seed's own choice. GUARDED rather than required: a patch built
+        # before these were YAML options carries no such file, and must still
+        # open - for those, host.yaml is the only source, exactly as before.
+        seed_choice: dict = {}
+        try:
+            seed_choice = json.loads(
+                caller.get_file("palettes.json").decode("utf-8"))
+        except Exception:
+            pass
 
         # settings.get_settings() memoises on the function object, so a player
         # who patches, edits host.yaml and patches again WITHOUT restarting the
@@ -159,14 +171,21 @@ class MMX6PatchExtension(APPatchExtension):
             settings.get_settings._cache = None
             group = settings.get_settings().mmx6_options
         except Exception:
-            return rom
+            group = None
         finally:
             settings.get_settings._cache = cached
 
-        choices = {
-            target: getattr(group, f"{target}_palette", palettes.VANILLA)
+        host_values = {
+            target: (getattr(group, f"{target}_palette", palettes.UNSET)
+                     if group is not None else palettes.UNSET)
             for target in palettes.TARGETS
         }
+        choices = palettes.choose(seed_choice, host_values)
+        for target, value in choices.items():
+            if palettes.overrides(host_values.get(target)):
+                logger.info("MMX6 palette %s: %s, overridden from host.yaml",
+                            target, value)
+
         if all((c or palettes.VANILLA).strip().lower() == palettes.VANILLA
                for c in choices.values()):
             return rom
@@ -288,3 +307,14 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
               "hex": patched.hex(), "van": van.hex()}
              for _label, where, region, van, patched in seed_edits]
     patch.write_file("seed_edits.json", json.dumps(edits).encode("utf-8"))
+
+    # Cosmetic colours. Resolved HERE, at generation, so `random` is rolled
+    # once and recorded rather than re-rolled from the player's name every
+    # time the patch is opened. host.yaml can still override any of these when
+    # the patch is opened - see MMX6PatchExtension.apply_palettes.
+    patch.write_file("palettes.json", json.dumps({
+        target: palettes.resolve(
+            getattr(world.options, f"{target}_palette").current_key,
+            world.random)
+        for target in palettes.TARGETS
+    }).encode("utf-8"))

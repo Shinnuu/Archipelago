@@ -35,17 +35,25 @@ class MMX6Settings(settings.Group):
 
     rom_file: RomFile = RomFile(RomFile.copy_to)
 
-    # Cosmetic player colours, applied when the patch is opened. Purely local:
-    # NOT seed data, so changing one is a re-patch, never a re-roll. Each takes
-    # "vanilla", "random", or a preset name - see palettes.PRESETS.
+    # Cosmetic player colours. The colour itself is an ORDINARY YAML OPTION
+    # (see options.py); what lives here is an OVERRIDE, so a colour can be
+    # changed without regenerating a seed. Leave these alone and the YAML wins.
+    #
+    # An override fires only on a value naming a real colour or "random".
+    # "vanilla" here does nothing, deliberately: Archipelago materialises
+    # settings defaults into host.yaml, so every install that has ever run this
+    # world already carries `x_palette: "vanilla"` on disk, and honouring that
+    # would silently revert the YAML choice of every existing player. The full
+    # argument is on palettes.overrides().
+    #
     # Falcon Armor and Black Zero are not offered: Falcon's CLUT record is
     # still unidentified (four wrong candidates so far - see palettes.py), and
     # nothing here has a Black Zero save to capture from.
-    x_palette: str = palettes.VANILLA
-    zero_palette: str = palettes.VANILLA
-    shadow_palette: str = palettes.VANILLA
-    blade_palette: str = palettes.VANILLA
-    ultimate_palette: str = palettes.VANILLA
+    x_palette: str = palettes.UNSET
+    zero_palette: str = palettes.UNSET
+    shadow_palette: str = palettes.UNSET
+    blade_palette: str = palettes.UNSET
+    ultimate_palette: str = palettes.UNSET
 
 
 class MMX6Web(WebWorld):

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from Options import (Choice, DefaultOnToggle, OptionSet,
                      PerGameCommonOptions, Range, StartInventoryPool, Toggle)
 
+from . import palettes
+
 
 class Goal(Choice):
     """Victory condition.
@@ -405,6 +407,72 @@ class HeartTankValue(Range):
     default = 2
 
 
+# ---- Player colours ---------------------------------------------------------
+# Cosmetic recolouring of the player sprites. Chosen here like every other
+# option and baked into the .apmmx6 when the seed is generated, so they appear
+# on the website generator, are validated at generation rather than failing
+# quietly at patch time, and land in the spoiler.
+#
+# They started life as host.yaml-only settings, which is where the X5 feature
+# began, and player feedback was consistently "why do I have to edit a file I
+# have never opened". host.yaml still works, but only as an OVERRIDE - see
+# MMX6Settings and palettes.overrides() for why `vanilla` there cannot mean
+# "force vanilla".
+_PALETTE_DOC = """Recolour {subject}.
+
+    Cosmetic only - no logic, items or locations change, and two players in the
+    same multiworld can pick differently.
+
+    `vanilla` leaves it alone. `random` works as it does on any Archipelago
+    option: it is rolled when the seed is generated, so your colour is fixed
+    and appears in the spoiler rather than shifting under you. It picks from
+    the whole list, so it can land on vanilla.
+
+    Every repainted entry keeps its original brightness and takes only the
+    preset's hue and saturation, so shading and outlines survive. Faces and
+    skin are never repainted.{extra}
+
+    You do not need a new seed to change your mind: name a colour under
+    `mmx6_options` in your own host.yaml and re-patch. Anything named there
+    wins over this setting.
+    """
+
+
+def _palette_option(class_name: str, display_name: str, subject: str,
+                    extra: str = ""):
+    """Build one 20-value Choice: vanilla, random, and the eighteen presets.
+
+    Generated rather than hand-written so the option can never offer a preset
+    palettes.py does not have, or miss one it does.
+    """
+    namespace = {
+        "__doc__": _PALETTE_DOC.format(subject=subject, extra=extra),
+        "__module__": __name__,
+        "display_name": display_name,
+        "default": 0,
+    }
+    for value, key in enumerate(palettes.OPTION_KEYS):
+        namespace["option_" + key] = value
+    return type(class_name, (Choice,), namespace)
+
+
+XPalette = _palette_option(
+    "XPalette", "X Colour", "X's own armour",
+    "\n\n    Mega Man X6 starts you in Falcon Armor, which is NOT covered and"
+    "\n    keeps its usual colours, so this shows once you are playing as"
+    "\n    plain X or have switched armours.")
+ZeroPalette = _palette_option(
+    "ZeroPalette", "Zero Colour", "Zero",
+    "\n\n    Zero keeps his blond hair and his helmet crystal. Black Zero is"
+    "\n    not covered and keeps its usual colours.")
+ShadowPalette = _palette_option(
+    "ShadowPalette", "Shadow Armor Colour", "the Shadow Armor")
+BladePalette = _palette_option(
+    "BladePalette", "Blade Armor Colour", "the Blade Armor")
+UltimatePalette = _palette_option(
+    "UltimatePalette", "Ultimate Armor Colour", "the Ultimate Armor")
+
+
 class EndgameChecks(DefaultOnToggle):
     """Make clearing the Secret Laboratory stages into checks.
 
@@ -513,6 +581,9 @@ class RandomizeOptions(Toggle):
 # difficulty dial. Rolling starting life to 127 does not make a seed
 # interesting, and rolling it to 1 is a run nobody asked for.
 #
+# The palettes are absent because they are cosmetic, and `random` is already
+# on every one of them for anyone who wants the dice.
+#
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
@@ -543,3 +614,8 @@ class MMX6Options(PerGameCommonOptions):
     scaravich_no_progression: ScaravichNoProgression
     starting_hp: StartingHp
     heart_tank_value: HeartTankValue
+    x_palette: XPalette
+    zero_palette: ZeroPalette
+    shadow_palette: ShadowPalette
+    blade_palette: BladePalette
+    ultimate_palette: UltimatePalette

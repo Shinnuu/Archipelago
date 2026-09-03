@@ -59,13 +59,14 @@ The first four are **on by default**. The quality-of-life edits are adapted
 from acediez's **Mega Man X6 Tweaks**, with every site re-verified against both
 supported disc images.
 
-**Player colours are the odd one out.** X, Zero, Shadow, Blade and Ultimate can
-each be recoloured, but the choice is not in your YAML — it lives in your own
-`host.yaml` and is applied while the patch is opened. Changing your mind costs
-nothing (no new seed, no effect on anyone else), but it is not a live toggle:
-delete your old `.bin`/`.cue` and open the same `.apmmx6` again. Falcon Armor
-and Black Zero are not covered and keep their usual colours. The setup guide
-has the details.
+**Player colours** are five more options in your YAML: X, Zero, Shadow, Blade
+and Ultimate can each be recoloured from eighteen presets, or `random`. Purely
+cosmetic — no items, locations or logic change, and two players in the same
+multiworld can pick differently. Falcon Armor and Black Zero are not covered
+and keep their usual colours; since X6 starts you in Falcon, `x_palette` shows
+once you are playing as plain X or have switched armours. If you want to change
+a colour without generating a new seed, your own `host.yaml` can override it
+when the patch is opened — the setup guide explains how.
 
 ## Anything unusual I should know?
 

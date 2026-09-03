@@ -1,6 +1,32 @@
 # Mega Man X6 apworld — changelog
 
 
+## 0.2.1 — 2026-09-03
+
+**Player colours are YAML options now.** They were settings in `host.yaml`,
+and the feedback was consistent: people did not want to edit a file they had
+never opened, and many never found out the feature existed at all. So the five
+colours join every other option in your YAML, where the website generator
+lists them and a typo is refused at generation instead of silently falling
+back to vanilla.
+
+Nothing breaks, and nothing needs regenerating:
+
+- **A colour already set in `host.yaml` keeps working exactly as before.** It
+  is an override now, and it still wins.
+- **YAMLs written for 0.2.0 still generate.** The new options default to
+  vanilla.
+- You only need a new seed if you want your colour to come from the YAML.
+  Anyone mid-seed can keep changing colours by re-patching, as now.
+
+Two details worth knowing. `random` is rolled at generation now rather than
+from your player name, so it is fixed and appears in the spoiler, and it can
+land on vanilla because it picks from the whole list. And **`vanilla` in
+`host.yaml` does not override anything** — it means "nothing set here".
+Archipelago writes those entries into `host.yaml` by itself with `vanilla` in
+them, so honouring it would have quietly overridden the YAML of every existing
+player. To play in vanilla colours, pick `vanilla` in your YAML.
+
 ## 0.2.0 — 2026-09-03
 
 **REGENERATE your seeds to get the endgame fix.** It is per-seed disc data:

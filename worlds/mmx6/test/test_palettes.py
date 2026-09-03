@@ -17,6 +17,7 @@ import struct
 import unittest
 
 from worlds.mmx6 import disc, palettes
+from worlds.mmx6.test import MMX6TestBase
 
 
 def _rng():
@@ -256,6 +257,133 @@ class TestAgainstRealDisc(unittest.TestCase):
         # SLUS_013.95 and ROCK_X6.BIN, both far below it.
         self.assertGreater(min(touched), 211998,
                            "a palette record is not inside ROCK_X6.DAT")
+
+
+# ---- the YAML option, and host.yaml as an override -------------------------
+# Added when the colours moved out of host.yaml and into the player YAML.
+# Player feedback on 0.2.0 was consistently "why do I have to edit a file I
+# have never opened", so the YAML is the normal route now and host.yaml is an
+# override nobody needs to know about.
+
+
+class TestTheYamlOptions(unittest.TestCase):
+    def test_every_target_has_an_option(self):
+        from worlds.mmx6.options import MMX6Options
+        for target in palettes.TARGETS:
+            self.assertIn(f"{target}_palette", MMX6Options.type_hints, target)
+
+    def test_the_option_offers_vanilla_and_every_preset(self):
+        from worlds.mmx6.options import XPalette
+        self.assertEqual(set(XPalette.options),
+                         {palettes.VANILLA} | set(palettes.PRESETS))
+
+    def test_random_is_not_declared_by_us(self):
+        # Archipelago reserves it on every Choice and asserts if a world
+        # declares it. It still WORKS in a YAML - AP rolls it at generation -
+        # which is the behaviour we wanted, so this is a guard against
+        # someone "helpfully" adding it back and breaking world load.
+        from worlds.mmx6.options import XPalette
+        self.assertNotIn(palettes.RANDOM, XPalette.options)
+        self.assertNotIn(palettes.RANDOM, palettes.OPTION_KEYS)
+
+    def test_the_default_is_vanilla(self):
+        from worlds.mmx6.options import XPalette
+        self.assertEqual(XPalette(XPalette.default).current_key,
+                         palettes.VANILLA)
+
+    def test_a_typo_is_refused_at_generation(self):
+        # The whole point of moving into the YAML: this used to be a log
+        # warning at patch time that a player would never see.
+        from worlds.mmx6.options import XPalette
+        with self.assertRaises(KeyError):
+            XPalette.from_any("chartreuse")
+
+
+class TestOverridePrecedence(unittest.TestCase):
+    """host.yaml beats the seed, but only when it names a real colour."""
+
+    def test_a_colour_overrides(self):
+        self.assertTrue(palettes.overrides("emerald"))
+        self.assertTrue(palettes.overrides("  EMERALD  "))
+
+    def test_random_overrides(self):
+        # host.yaml is plain text with no AP option handling, so `random`
+        # there is ours to resolve.
+        self.assertTrue(palettes.overrides("random"))
+
+    def test_vanilla_does_not_override(self):
+        # THE load-bearing case. Archipelago materialises settings defaults
+        # into host.yaml, so every install that has ever run this world
+        # already has `x_palette: "vanilla"` on disk. Honouring it would
+        # silently revert the YAML choice of every existing player.
+        self.assertFalse(palettes.overrides("vanilla"))
+
+    def test_unset_and_junk_do_not_override(self):
+        for value in (palettes.UNSET, "", None, "chartreuse"):
+            self.assertFalse(palettes.overrides(value), repr(value))
+
+    def test_choose_prefers_the_seed_when_host_is_untouched(self):
+        seed = {t: "emerald" for t in palettes.TARGETS}
+        for untouched in (palettes.UNSET, palettes.VANILLA):
+            got = palettes.choose(seed, {t: untouched
+                                         for t in palettes.TARGETS})
+            self.assertEqual(got, seed, untouched)
+
+    def test_choose_prefers_host_when_it_names_a_colour(self):
+        seed = {t: "emerald" for t in palettes.TARGETS}
+        got = palettes.choose(seed, {t: "crimson" for t in palettes.TARGETS})
+        self.assertEqual(set(got.values()), {"crimson"})
+
+    def test_choose_is_per_target(self):
+        seed = {t: "emerald" for t in palettes.TARGETS}
+        host = {t: palettes.UNSET for t in palettes.TARGETS}
+        host["zero"] = "gold"
+        got = palettes.choose(seed, host)
+        self.assertEqual(got["zero"], "gold")
+        self.assertEqual(got["x"], "emerald")
+
+    def test_an_old_patch_still_takes_host_values(self):
+        # A .apmmx6 generated before this change carries no colours at all.
+        # It must still open, and host.yaml must still drive it.
+        got = palettes.choose({}, {t: "gold" for t in palettes.TARGETS})
+        self.assertEqual(set(got.values()), {"gold"})
+
+    def test_an_old_patch_with_no_host_value_is_vanilla(self):
+        got = palettes.choose({}, {t: palettes.UNSET
+                                   for t in palettes.TARGETS})
+        self.assertEqual(set(got.values()), {palettes.VANILLA})
+
+
+class TestTheSeedCarriesTheColour(MMX6TestBase):
+    options = {"x_palette": "emerald", "zero_palette": "gold"}
+
+    def _carried(self):
+        import json
+
+        from worlds.mmx6.Rom import MMX6ProcedurePatch, patch_rom
+
+        written = {}
+
+        class _Capture(MMX6ProcedurePatch):
+            def write_file(self, name, data):
+                written[name] = data
+
+        patch_rom(self.world, _Capture(player=self.world.player,
+                                       player_name="P"))
+        return json.loads(written["palettes.json"].decode("utf-8"))
+
+    def test_the_chosen_colours_ride_in_the_patch(self):
+        carried = self._carried()
+        self.assertEqual(carried["x"], "emerald")
+        self.assertEqual(carried["zero"], "gold")
+
+    def test_untouched_targets_are_vanilla(self):
+        carried = self._carried()
+        for target in ("shadow", "blade", "ultimate"):
+            self.assertEqual(carried[target], palettes.VANILLA, target)
+
+    def test_every_target_is_present(self):
+        self.assertEqual(set(self._carried()), set(palettes.TARGETS))
 
 
 if __name__ == "__main__":

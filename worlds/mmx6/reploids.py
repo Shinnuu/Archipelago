@@ -98,6 +98,13 @@ LOST_STATES = (DEAD, MISSING)
 # world had already committed to for a Heart Tank, capsule or tank, so a wrong
 # entry can only mis-scope an existing decision, never introduce a new one.
 #
+# ONE ROW BREAKS THAT RULE, and says so where it sits: Shield Sheldon 5 comes
+# from live play (2026-09-03), not from a gated landmark. The landmark it
+# stands beside - the Blade Body capsule - is one this world calls free, so
+# the rule above produced no gate and a multiworld put another stage's Access
+# Codes on an unreachable Reploid. A landmark being ungated is not evidence
+# that its neighbours are reachable; it only means nobody has checked.
+#
 #   "wall"   Nightmare Fire on North Pole (the Wolfang wall)
 #   "mob"    has_mobility - Zero, or the full Blade Armor
 #   "shadow" has_shadow - the full Shadow Armor
@@ -150,7 +157,21 @@ REPLOID_GATES: dict[tuple[str, int], tuple[str, ...]] = {
     ("Rainy Turtloid", 15):    ("shadow",),
     ("Rainy Turtloid", 16):    ("shadow",),
 
-    # -- Laser Institute: the spike path to the AR, and the AR itself --------
+    # -- Laser Institute: the Blade Body ledge, the spike path, and the AR ---
+    # 5 is the exception to the inherit-a-landmark rule at the top of this
+    # table. LIVE, from a multiworld (Ivor, 2026-09-03): the roster puts it
+    # "right of Blade Body", which read as main path and so carried no rule -
+    # and a seed placed another stage's Access Codes on it. That ledge is out
+    # of X's plain jump: it needs Zero, the Blade Armor, or the Jumper Part.
+    #
+    # Only the first two are modelled, deliberately. Parts are `useful` and
+    # never progression, so they never enter CollectionState and a
+    # `state.has(JUMPER)` branch would be dead code; promoting Jumper to make
+    # it live would put weight on the unresolved N/X/Z/L part-type
+    # disagreement (which character may equip it), which is exactly the guess
+    # this table refuses to make. `mob` is the strict reading - a player
+    # holding Jumper can still take it early, logic just does not count on it.
+    ("Shield Sheldon", 5):     ("mob",),     # ledge right of Blade Body [L]
     ("Shield Sheldon", 6):     ("shadow",),   # left of the Heart (shadow)
     ("Shield Sheldon", 7):     ("shadow",),   # ledge above the Heart
     ("Shield Sheldon", 8):     ("shadow",),   # left of the Heart

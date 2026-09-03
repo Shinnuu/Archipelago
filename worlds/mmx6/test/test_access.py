@@ -4,6 +4,8 @@ These are the invariants that, on X5, only failed once real seeds existed:
 item/location arithmetic that silently drops items, and a logic graph that
 looks fine until one rule quietly makes another unreachable.
 """
+from BaseClasses import CollectionState
+
 from . import MMX6TestBase
 from .. import names, reploids
 from ..items import item_table
@@ -302,3 +304,50 @@ class TestCapacityArithmetic(MMX6TestBase):
         finally:
             world.options.reploid_checks.value = 1
             world.options.endgame_checks.value = 1
+
+
+class TestTheBladeBodyLedge(MMX6TestBase):
+    """Shield Sheldon's Reploid 5 needs Zero or the Blade Armor.
+
+    Found in live play (2026-09-03): a multiworld put another stage's Access
+    Codes on it and the ledge could not be reached. It is the one
+    REPLOID_GATES row that comes from play rather than from a landmark this
+    world already gates, so it gets its own test - delete the row and every
+    generic assertion in this file still passes, because an ungated Reploid
+    is simply reachable and that is what they assert.
+    """
+    options = {"reploid_checks": True}
+
+    def _reachable(self, *item_names: str) -> bool:
+        # Built by hand rather than with collect_by_name, which sweeps: a
+        # sweep also collects whatever this seed's fill put behind the items
+        # being collected, so an "unreachable" assertion would then pass or
+        # fail on the seed rather than on the rule. Same reasoning, and the
+        # same scar, as test_wolfang_wall.py.
+        state = CollectionState(self.multiworld)
+        for name in item_names:
+            state.collect(self.world.create_item(name), prevent_sweep=True)
+        return self.multiworld.get_location(
+            names.reploid_location(names.SHELDON, 5),
+            self.player).can_reach(state)
+
+    def test_shut_with_an_empty_inventory(self) -> None:
+        self.assertFalse(self._reachable())
+
+    def test_zero_opens_it(self) -> None:
+        self.assertTrue(self._reachable(names.ZERO))
+
+    def test_the_whole_blade_armor_opens_it(self) -> None:
+        self.assertTrue(self._reachable(*names.BLADE_PARTS))
+
+    def test_three_blade_parts_do_not(self) -> None:
+        self.assertFalse(self._reachable(*names.BLADE_PARTS[:3]))
+
+    def test_jumper_is_deliberately_not_modelled(self) -> None:
+        # The Jumper Part clears that ledge in game too, and logic still does
+        # not count on it: Parts are `useful`, so they never enter
+        # CollectionState, and making the branch real would mean promoting
+        # Jumper to progression - which puts weight on the unresolved N/X/Z/L
+        # part-type disagreement about who may equip it. Pinned so that
+        # promoting it later is a decision someone takes on purpose.
+        self.assertFalse(self._reachable(names.JUMPER))

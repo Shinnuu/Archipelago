@@ -96,6 +96,16 @@ has the details.
   that beats you to one costs you the rescue, never the item. This is belt and
   braces on purpose: the option is what lets you go back for it, and this is
   what makes sure a multiworld can never lose an item to it.
+- **`scaravich_no_progression` answers Central Museum's random rooms.** Ground
+  Scaravich's stage is assembled from totem-pole rooms the game picks four of
+  at random each time you enter, and its Heart Tank, its Blade Armor Helmet and
+  fifteen of its sixteen Reploids are behind that roll — so hunting one
+  particular check there can mean walking the stage again and again. With the
+  option on, every location in that stage holds junk. The checks are still
+  real and still send if you go and get them; they are simply never worth
+  re-rolling for. It also stops the client holding your Blade Armor Helmet
+  back until you find that capsule, which is the one case where the usual
+  hold could wait on a room you never see.
 - **The endgame is gated on all 8 Mavericks under `all_mavericks`.** Vanilla
   does not enforce that goal — beating High Max in an Another Route opens
   Gate's Lab early, and there is **no play after the credits**, so reaching the

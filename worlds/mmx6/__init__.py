@@ -13,7 +13,7 @@ import os
 from typing import Any, ClassVar
 
 import settings
-from BaseClasses import Region, Tutorial
+from BaseClasses import LocationProgressType, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
 
@@ -134,10 +134,24 @@ class MMX6World(World):
         roll asked for more items than the seed can hold."""
         for name in RANDOMIZED_OPTIONS:
             option = getattr(self.options, name)
-            # Choice exposes its valid values; Toggle is just 0/1.
-            values = sorted(set(type(option).options.values())) \
-                if getattr(type(option), "options", None) else [0, 1]
-            option.value = self.random.choice(values)
+            cls = type(option)
+            if getattr(cls, "options", None):
+                # Choice exposes its valid values.
+                option.value = self.random.choice(
+                    sorted(set(cls.options.values())))
+            elif hasattr(cls, "range_start"):
+                # Range. Nothing in RANDOMIZED_OPTIONS is one today and the
+                # comment beside that tuple says why, but the old code fell
+                # through to [0, 1] for anything that was not a Choice - so
+                # adding a Range to the tuple would have quietly rolled
+                # starting_hp to 0, outside its own declared range, and the
+                # only thing standing between that and the save file was the
+                # client's clamp. Handle it properly rather than leave a trap.
+                option.value = self.random.randint(cls.range_start,
+                                                   cls.range_end)
+            else:
+                # Toggle is just 0/1.
+                option.value = self.random.choice([0, 1])
 
         # Make room rather than refusing. reploid_checks adds 128 locations
         # against at most 16 items, so it covers every combination.
@@ -229,6 +243,19 @@ class MMX6World(World):
                 {name: location_table[name]
                  for name, _threshold in names.ENDGAME_CHECKS},
                 MMX6Location)
+
+        if self.options.scaravich_no_progression:
+            # Central Museum picks four of eight totem-pole rooms per entry,
+            # and its Heart Tank, its Blade Helmet and fifteen of its sixteen
+            # Reploids live behind that roll. Excluded means fill puts only
+            # junk here, so nothing a seed needs can be behind the dice.
+            #
+            # Taken off the REGION rather than a hand-written name list, so a
+            # location added to this stage later is covered without anyone
+            # remembering to come back here.
+            for _loc in self.multiworld.get_region(
+                    names.SCARAVICH, self.player).locations:
+                _loc.progress_type = LocationProgressType.EXCLUDED
 
         victory = MMX6Location(self.player, names.VICTORY, None, gate)
         victory.place_locked_item(self.create_item(names.VICTORY))
@@ -516,4 +543,10 @@ class MMX6World(World):
             "zero_unlock": self.options.zero_unlock.value,
             "secret_armors_in_pool": self.options.secret_armors_in_pool.value,
             "stage_unlocks": self.options.stage_unlocks.value,
+            # The client needs this one to know it must NOT withhold the Blade
+            # Helmet pending a capsule that may be behind an unrolled room.
+            "scaravich_no_progression":
+                self.options.scaravich_no_progression.value,
+            "starting_hp": self.options.starting_hp.value,
+            "heart_tank_value": self.options.heart_tank_value.value,
         }

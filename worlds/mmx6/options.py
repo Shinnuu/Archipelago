@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from Options import (Choice, DefaultOnToggle, PerGameCommonOptions,
-                     StartInventoryPool, Toggle)
+                     Range, StartInventoryPool, Toggle)
 
 
 class Goal(Choice):
@@ -250,6 +250,90 @@ class StageUnlocks(Toggle):
     display_name = "Stage Unlocks"
 
 
+class ScaravichNoProgression(Toggle):
+    """Put nothing important in Ground Scaravich's stage.
+
+    Central Museum is built out of totem-pole rooms the game picks at random,
+    and it picks four of the eight each time you enter. Its Heart Tank and its
+    Blade Armor Helmet both sit inside those rooms, and fifteen of its sixteen
+    Reploids are behind the exhibits, so finding any particular one of them
+    can mean walking the stage again and again hoping for the right roll.
+
+    With this on, every location in that stage is marked excluded: the fill
+    puts only junk there, and nothing you need to finish the seed can be
+    behind the randomness. The checks still exist and still send - you are
+    welcome to go and get them - they are simply never worth re-rolling for.
+
+    The boss clear is excluded too, even though it is not behind the random
+    rooms, because "nothing in this stage is worth a second visit" is the
+    point of the option. You will still have to beat Scaravich if your goal
+    needs all eight Mavericks; his clear just will not be holding anything.
+
+    It also stops the client withholding the Blade Armor Helmet. Normally a
+    granted armor part is held back until its own capsule is checked, so that
+    setting the bit early cannot make the capsule stop spawning - but here
+    that would mean an item earned in someone else's world still waiting on a
+    room you may never roll. Nothing important is in the stage under this
+    option, so nothing is lost by handing the part straight over.
+
+    Costs 19 of the seed's locations as progression spots with Reploid checks
+    on, or 3 without them. That is the trade, and it is a stopgap: pinning the
+    room order, or being made to see all eight rooms, would be the real fixes
+    and both are much larger.
+    """
+    display_name = "Nothing Important In Central Museum"
+
+
+class StartingHp(Range):
+    """How much life X and Zero start a new save with.
+
+    Vanilla is 32, and 64 is the most the game can draw - the life bar is
+    sized from this same byte, so this stops there rather than at 255.
+
+    Raising it does not give you extra upgrades, it moves the floor: Heart
+    Tanks and Life Ups still add on top, and the total is still capped at 64,
+    so a high starting value simply means the later upgrades find you already
+    at maximum.
+
+    It cannot go below 32. The client never lowers a gauge - a vanilla pickup
+    raises it locally and the grant takes whichever is higher, so anything
+    under the game's own starting value would be overwritten the moment you
+    collected anything. Starting weaker than vanilla needs a disc change and
+    is not built.
+    """
+    display_name = "Starting Life"
+    range_start = 32
+    range_end = 64
+    default = 32
+
+
+class HeartTankValue(Range):
+    """How much life each Heart Tank or Life Up is worth.
+
+    Vanilla is 2. X6 has 8 Heart Tanks and 8 Life Up Reploids, sixteen
+    upgrades in all, which is exactly what takes a vanilla run from 32 life to
+    the maximum of 64.
+
+    One setting covers both kinds because the game does: a Life Up Reploid and
+    a Heart Tank raise the same gauge by the same amount, and neither the save
+    nor the client tells them apart afterwards.
+
+    The 64 cap still applies, so a larger value does not raise your ceiling -
+    it gets you there sooner, and the upgrades after that point stop mattering.
+    At 4 it takes eight of them, at 8 it takes four.
+
+    It cannot go below 2, for the same reason Starting Life cannot go below
+    32: the game's own pickup adds 2 on the spot and the client never writes a
+    gauge downwards.
+
+    Weapon energy is untouched - Energy Ups keep their vanilla step.
+    """
+    display_name = "Life Per Upgrade"
+    range_start = 2
+    range_end = 16
+    default = 2
+
+
 class EndgameChecks(DefaultOnToggle):
     """Make clearing the Secret Laboratory stages into checks.
 
@@ -347,6 +431,17 @@ class RandomizeOptions(Toggle):
 # protect_reploids is absent for a related reason: rolling it off would hand
 # the player a run where checks they can see are quietly destroyed as they
 # play. That is attrition, not a gamble worth taking.
+#
+# scaravich_no_progression is absent because it is an ACCESSIBILITY setting,
+# not a flavour gamble: someone takes it because they do not want to re-roll a
+# stage, and rolling it off would hand them exactly the run they were avoiding.
+# Rolling it on is no better - it silently moves 19 locations out of the
+# progression pool for a player who never asked.
+#
+# starting_hp and heart_tank_value are absent because they are the player's own
+# difficulty dial. Rolling starting life to 64 does not make a seed
+# interesting, it removes a whole axis of one.
+#
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (
     "goal", "difficulty", "parts_in_pool", "zero_unlock",
@@ -373,3 +468,6 @@ class MMX6Options(PerGameCommonOptions):
     stage_unlocks: StageUnlocks
     boss_hp_randomization: BossHpRandomization
     weapon_damage: WeaponDamage
+    scaravich_no_progression: ScaravichNoProgression
+    starting_hp: StartingHp
+    heart_tank_value: HeartTankValue

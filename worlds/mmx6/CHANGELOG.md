@@ -3,6 +3,31 @@
 
 ## Unreleased
 
+**New: `scaravich_no_progression`.** Ground Scaravich's stage is built from
+totem-pole rooms the game picks at random — four of eight per entry — and its
+Heart Tank, its Blade Armor Helmet and fifteen of its sixteen Reploids sit
+behind that roll. Turn this on and every location in that stage holds junk, so
+nothing you need can be behind the dice. The checks still exist and still send;
+they are just never worth re-rolling for. The client also stops holding your
+Blade Armor Helmet back until that capsule is found, which is the one place
+the usual hold could wait on a room you never get.
+
+Costs 19 of the seed's locations as places progression can go (3 if you have
+Reploid checks off). It is a stopgap rather than a cure — pinning the room
+order, or being shown all eight rooms, would be the real fixes.
+
+**New: `starting_hp` and `heart_tank_value`.** Set the life gauge a new save
+starts with (32–64, vanilla 32) and how much each Heart Tank or Life Up is
+worth (2–16, vanilla 2). One setting covers Heart Tanks and Life Up Reploids
+because the game does not tell them apart. 64 is still the ceiling — the life
+bar is drawn from that byte — so a bigger step reaches maximum sooner rather
+than going past it. Neither can be set below its vanilla value: the game's own
+pickup raises the gauge locally and the client never writes one downwards.
+Weapon energy is untouched.
+
+Both are client-side and need no disc change, so they work on a disc you have
+already patched.
+
 **New: player colours.** X, Zero, Shadow Armor, Blade Armor and Ultimate Armor
 can each be recoloured independently, from 18 presets or `random`. Purely
 cosmetic — no logic, items or locations are touched.

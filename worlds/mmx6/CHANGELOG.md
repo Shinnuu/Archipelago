@@ -1,7 +1,7 @@
 # Mega Man X6 apworld — changelog
 
 
-## Unreleased
+## 0.3.0 — 2026-09-03
 
 **Shield Sheldon's Reploid 5 needs Zero or the Blade Armor.** It stands on a
 ledge beside the Blade Body capsule that X cannot reach with a plain jump, and

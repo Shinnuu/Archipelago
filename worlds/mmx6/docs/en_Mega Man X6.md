@@ -47,8 +47,9 @@ enough for one player, let alone a multiworld. It is there for completeness.
 ## Which options change the disc?
 
 **`text_skip`**, **`skip_intro_videos`**, **`exit_stage_anytime`**,
-**`protect_reploids`**, **`boss_hp_randomization`**, **`weapon_damage`** and
-**`difficulty`** are all applied to the disc image itself rather than by the
+**`protect_reploids`**, **`boss_hp_randomization`**, **`weapon_damage`**,
+**`starting_hp`**, **`starting_rank`**, **`disabled_nightmare_effects`** and
+your **goal** are all applied to the disc image itself rather than by the
 client. Patch from the file the seed produced rather than reusing an older
 image, and re-patch whenever you change one of them.
 
@@ -110,9 +111,12 @@ when the patch is opened — the setup guide explains how.
 
   Two side effects, neither of which costs you a check. **Nightmare Souls get
   much harder to farm**, because the Nightmare Virus only drops a fresh Orb
-  after a stage has been afflicted — nothing here needs Souls, since the
+  after a stage has been afflicted — no check here needs Souls, since the
   endgame opens on your eighth Maverick, but the vanilla 3000-Soul route to
-  Gate's Lab effectively closes. The endgame gate does not care either way:
+  Gate's Lab effectively closes. **Souls are also what lets you equip Parts**,
+  so this is not free: Hunter Rank comes from Souls, separately for X and for
+  Zero, and below Rank A — 500 of that character's own Souls — you can equip
+  nothing at all. The endgame gate does not care either way:
   under `all_mavericks` the Souls opening is already switched off on the disc
   (see below).
 - **`scaravich_no_progression` answers Central Museum's random rooms.** Ground
@@ -125,6 +129,31 @@ when the patch is opened — the setup guide explains how.
   re-rolling for. It also stops the client holding your Blade Armor Helmet
   back until you find that capsule, which is the one case where the usual
   hold could wait on a room you never see.
+- **`no_progression_behind` keeps what you need out of places you would
+  rather not go.** Name the kinds of place fill may not hide progression in:
+  `spikes` for the Shadow Armor rooms (Rainy Turtloid's Heart Tank, Shield
+  Sheldon's Heart Tank and W Tank, Blizzard Wolfang's EX Tank, and the
+  Reploids in those rooms), `movement` for what needs Zero or the full Blade
+  Armor, `nightmare_wall` for North Pole's ice wall, or `all` for every one of
+  them. Nothing is removed and no rule changes — those checks still exist,
+  still need exactly what they always did, and still send their item to
+  whoever owns it. They just hold junk, so no seed can require you to do that
+  kind of thing. An empty list, the default, is the base game's deal where
+  anything can be anywhere. Note that an excluded location can only hold junk,
+  and a seed with `reploid_checks` off has very little to spare; if you ask
+  for more than the seed can fill, generation says so and names the fix.
+- **`starting_rank` gives you Part slots you would otherwise have to earn.**
+  Hunter Rank is what decides how many Power-up Parts you may equip, and Rank
+  is bought with Nightmare Souls — **separately for X and for Zero**. The
+  disc's thresholds are 200 (C), 300 (B), 500 (A), 800 (SA), 1200 (GA), 5000
+  (PA), 9999 (UH), and below Rank A you can equip **nothing at all**. So in
+  the base game the first slot costs 500 of that character's own Souls, which
+  is a long way into a run to be handed 24 Parts as items and be unable to
+  wear one — and if you play mostly as one character, the other never gets a
+  slot. This makes the rank you name free; the ranks above it still cost what
+  they always did. Note that rank also drives boss fight level (Lv.2 at SA,
+  Lv.3 at GA, Lv.4 at PA and UH), so `rank_a` is the only value that is purely
+  a convenience.
 - **The endgame is gated on all 8 Mavericks under `all_mavericks`.** Vanilla
   does not enforce that goal — beating High Max in an Another Route opens
   Gate's Lab early, and there is **no play after the credits**, so reaching the
@@ -148,7 +177,10 @@ when the patch is opened — the setup guide explains how.
   found out the hard way.
 - **`exit_stage_anytime` lets you leave before beating the boss.** A randomized
   run is full of trips into a stage for one check, and of entering stages you
-  cannot finish yet. Without this, leaving means dying on purpose.
+  cannot finish yet. Without this, leaving means dying on purpose. It works
+  everywhere, including Another Routes — which the base game gives you no way
+  out of at all — and the Intro Stage, which is the one place it has not been
+  tested.
 - **`stage_unlocks` turns the stage select into a progression gate.** Exactly
   one investigation site is open at the start — the seed picks which — and each
   of the other seven needs its own "&lt;Boss&gt; Access Codes" item. A locked

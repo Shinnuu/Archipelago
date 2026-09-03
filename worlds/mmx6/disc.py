@@ -223,12 +223,35 @@ QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
         ("attract demos", 0x8001DF74, REGION_EXE,
          bytes.fromhex("ffff4224"), bytes.fromhex("00000000")),
     ],
-    # beqz v1, +3 -> nop, so the pause menu offers Exit Stage before the
-    # stage's boss is down. Dropping the branch is safe on R3000: its delay
-    # slot instruction simply always executes, which is the intent.
+    # TWO branches, because the button has two conditions and dropping one
+    # leaves the other standing. Read off our own disc (2026-09-03):
+    #
+    #   80032FF4  lbu   a0, 0x0C(v1)     the current area id
+    #   80032FFC  addiu v0, a0, -1
+    #   80033000  sltiu v0, v0, 8        one of the eight Maverick stages?
+    #   80033004  beq   v0, zero, +11    no  -> no button        <- edit 2
+    #   8003300C  lbu   v1, 0x60(v1)     the beaten-stage bitfield, 0x800CCF30
+    #   80033018  srav  v1, v1, v0       shift to this area's bit
+    #   8003301C  andi  v1, v1, 1
+    #   80033020  beqz  v1, +3           not beaten -> no button <- edit 1
+    #
+    # Edit 1 alone is Tweaks' `ExitButton02`, "always available, but only on
+    # the main eight stages" - which is what shipped through 0.2.1, and it is
+    # why a player who tried to leave Shield Sheldon's Another Route found
+    # nothing there (2026-09-03). Hidden Areas, the Intro Stage and Gate's Lab
+    # all fail the range test, so vanilla never offers the button in them and
+    # edit 1 never gets that far. Edit 2 is the rest of `ExitButton03`,
+    # "always available, even on the Intro Stage" - Ivor's call, taken with
+    # the intro risk stated: X5 keeps its own range test for exactly this
+    # reason, and leaving X6's intro early is untested.
+    #
+    # Dropping either branch is safe on R3000: the delay-slot instruction
+    # simply always executes, which is the intent in both cases.
     "exit_stage_anytime": [
         ("exit stage before clear", 0x80033020, REGION_EXE,
          bytes.fromhex("03006010"), bytes.fromhex("00000000")),
+        ("exit outside the eight main stages", 0x80033004, REGION_EXE,
+         bytes.fromhex("0b004010"), bytes.fromhex("00000000")),
     ],
 }
 
@@ -421,6 +444,74 @@ ENDGAME_GATE_EDITS: list = [
     ("gate cutscene on souls (c)", 0x800347D8, REGION_EXE,
      bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
 ]
+
+# ---- Hunter Rank thresholds -------------------------------------------------
+# Rank is what buys Power-up Part slots, and it is bought with Nightmare Souls
+# - separately for X and for Zero. Below Rank A you can equip NOTHING, which
+# is how a playtest ended up with a Zero who could not use any of the Parts
+# the multiworld had sent (2026-09-03).
+#
+# The thresholds are DATA, eight u16 descending, at `0x8006D624` in the EXE.
+# Read byte-exact off our own image, not taken from the workbook (which
+# exposes the first seven as RankSouls01..07 at the same offsets):
+#
+#     9999  5000  1200  800  500  300  200  0
+#     UH    PA    GA    SA   A    B    C    D
+#
+# THE SCAN, disassembled from ROCK+0x0DEC74 (X) and ROCK+0x0DECD4 (Zero) -
+# both read THIS table, so one edit covers both characters:
+#
+#     lh    a2, -12382(v0)    souls (0x800CCFA2 X / 0x800CCFA4 Zero)
+#     lh    v0, -10716(a1)    table[0]
+#     slt   v0, a2, v0        souls < table[0] ?
+#     beq   v0, zero, out     no  -> keep index 0
+#   loop:
+#     slti  v0, s0, 8         eight entries, the last a hard 0
+#     beq   v0, zero, out
+#     lh    v0, 0(a1)         table[s0]
+#     slt   v0, a2, v0
+#     bne   v0, zero, loop    souls < threshold -> keep walking down
+#
+# So the rank is the FIRST index, scanning from UH downwards, whose threshold
+# the player's Souls have reached. Two consequences this option depends on:
+#
+#   * a zero written at index i is reached BEFORE any lower entry, so ties at
+#     0 resolve to the HIGHER rank. Zeroing one entry is enough; the entries
+#     below it simply become unreachable, and they were worth nothing anyway.
+#   * entries ABOVE the zeroed one are untouched, so the ranks past the floor
+#     still cost exactly what they cost in the base game.
+#
+# NOT VERIFIED BY US: that the Parts screen's slot count reads the rank this
+# routine computes. The scan above is ours; "Rank A = 1 slot, SA = 2, GA =
+# 2+1, PA = 3+1, UH = 4+1" is [G], from the player's guides, and the reader we
+# traced is on the Mission Report path. The option is off by default and the
+# check is a two-minute one - patch, open the Parts screen - so it is stated
+# here rather than assumed away.
+RANK_TABLE_ADDR = 0x8006D624
+RANK_TABLE_VANILLA = bytes.fromhex("0f278813b0042003f4012c01c8000000")
+# Table order, descending. Index 7 is the hard 0 the scan lands on for rank D.
+RANK_ORDER = ("UH", "PA", "GA", "SA", "A", "B", "C", "D")
+
+
+def rank_threshold_edits(rank: str) -> list:
+    """Make `rank` free, by zeroing its Souls threshold.
+
+    Emits the WHOLE table with one entry changed rather than a two-byte
+    write: the declared vanilla is then the entire table, so a wrong offset
+    or a different dump fails on 16 bytes instead of on two, and every edit in
+    this world stays a whole number of instructions long.
+    """
+    key = rank.upper()                      # the YAML key is lower case
+    if key == "OFF":
+        return []
+    index = RANK_ORDER.index(key)           # raises on a name that is not one
+    if index >= RANK_ORDER.index("D"):
+        raise ValueError("rank D is the floor and already costs nothing")
+    table = bytearray(RANK_TABLE_VANILLA)
+    table[index * 2:index * 2 + 2] = b"\x00\x00"
+    return [(f"Hunter Rank {RANK_ORDER[index]} from zero Souls", RANK_TABLE_ADDR, REGION_EXE,
+             RANK_TABLE_VANILLA, bytes(table))]
+
 
 # ---- Starting life gauge ----------------------------------------------------
 # The new-game initialiser, EXE 0x8001E088..: one immediate feeds BOTH

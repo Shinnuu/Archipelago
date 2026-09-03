@@ -1,6 +1,46 @@
 # Mega Man X6 apworld — changelog
 
 
+## Unreleased
+
+**Shield Sheldon's Reploid 5 needs Zero or the Blade Armor.** It stands on a
+ledge beside the Blade Body capsule that X cannot reach with a plain jump, and
+logic called it free — so a multiworld put another stage's Access Codes on it
+and there was no way to get them. Found in play. **Regenerate to get this**:
+it is a logic change, so seeds made before it keep the old rule. Its two
+neighbours, Reploid 4 and the Blade Body capsule itself, were checked at the
+same time and really are free.
+
+**New: `starting_rank`, because Souls are what let you equip Parts.** Hunter
+Rank decides how many Power-up Parts you may wear, Rank is bought with
+Nightmare Souls, and **X and Zero each have their own count** — so a run
+played mostly as one character leaves the other unable to equip anything at
+all. The disc's thresholds are 200 (C), 300 (B), 500 (A), 800 (SA), 1200 (GA),
+5000 (PA), 9999 (UH), and **below Rank A there are no slots**: the first one
+costs 500 of that character's own Souls, long after a seed has handed you 24
+Parts as items. This option makes the rank you name cost nothing, leaving the
+ranks above it exactly as they were. `rank_a` is the free one — one slot each
+and no other change; SA and above also raise every boss's fight level, which
+the option says plainly. Off by default. **Changes the disc.**
+
+**New: `no_progression_behind`.** Name the kinds of place the fill may not
+hide anything important in — `spikes` for the Shadow Armor rooms, `movement`
+for what needs Zero or the full Blade Armor, `nightmare_wall` for North Pole's
+ice wall, or `all`. Those checks still exist, still need exactly what they
+always did and still send their item; they simply hold junk, so no seed can
+require you to do that kind of thing. The default is an empty list, which is
+the game as it has always been here. If you ask for more than a seed has junk
+to fill, generation refuses it and names what to change rather than failing
+late.
+
+**`exit_stage_anytime` now works everywhere** — Another Routes, Gate's Lab and
+the Intro Stage included. It only ever covered the eight Maverick stages,
+which is why leaving an Another Route still meant dying on purpose; the base
+game does not treat one as part of its stage and offers no way out at all.
+**Re-patch for this** — it changes the disc. Leaving the Intro Stage early is
+the one case nobody has tested.
+
+
 ## 0.2.1 — 2026-09-03
 
 **Player colours are YAML options now.** They were settings in `host.yaml`,

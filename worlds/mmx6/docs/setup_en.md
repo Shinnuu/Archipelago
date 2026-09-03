@@ -252,8 +252,9 @@ in `host.yaml`) back at your original dump. If you no longer have it, see
 
 **Do I have to re-patch for every seed?** Only if a disc-changing option
 differs. `text_skip`, `skip_intro_videos`, `exit_stage_anytime`,
-`protect_reploids`, `difficulty`, `boss_hp_randomization` and `weapon_damage`
-are applied to the image; everything else is handled by the client. Two seeds
+`protect_reploids`, `boss_hp_randomization`, `weapon_damage`, `starting_hp`,
+`starting_rank`, `disabled_nightmare_effects` and your goal are applied to the
+image; everything else is handled by the client. Two seeds
 with the same values for those produce byte-identical discs, so you can keep
 one patched disc per option combination and reuse it. That is also kinder to
 your saves: BizHawk keys memory cards **and savestates** to the disc's

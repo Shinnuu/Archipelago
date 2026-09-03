@@ -26,6 +26,72 @@ from . import palettes
 from .Rom import ACCEPTED_HASHES, MMX6ProcedurePatch, patch_rom
 
 
+# ---- Which pickups sit behind something --------------------------------------
+# The non-Reploid half of the vocabulary `reploids.REPLOID_GATES` already uses
+# ("mob", "shadow", "wall"). This is DATA rather than a dozen `needs(...)`
+# calls because three separate things have to agree on it: the access rules,
+# the `no_progression_behind` exclusions, and the capacity check in
+# generate_early - which runs before a single Location object exists, so it
+# cannot ask the multiworld. A hand-written second copy for the last two is
+# precisely the drift this project keeps getting bitten by.
+#
+# Every requirement here comes from the third-party items guide [G] and is
+# UNVERIFIED against our own play. Where the guide is vague the stricter
+# reading is taken, because strict only narrows placement while loose strands
+# seeds.
+#
+# Acyclic by construction, and worth saying out loud because it is the thing
+# that would break first: nothing needed for a BLADE part requires Blade or
+# Shadow, so the order is
+#   (no items) -> Blade parts -> Blade Armor -> Shadow parts -> Shadow.
+#
+# DELIBERATELY ABSENT:
+#   * The Yammark (Blade Legs), Sheldon (Blade Body) and Mijinion (Blade Arms)
+#     capsules, and the Yammark, Shark and Mijinion Heart Tanks - all free.
+#     Sheldon's Blade Body was checked in play 2026-09-03, which is how the
+#     Reploid on the ledge beside it came to be gated.
+#   * Everything in Ground Scaravich. Its Heart Tank and Blade Helmet sit in
+#     the randomly chosen totem-pole rooms: persistence, not inventory, and
+#     inexpressible in AP logic. `scaravich_no_progression` is the answer to
+#     that, not a rule.
+#
+# The "wall" rows do NOT apply their rule from here - the Wolfang wall is
+# ANDed on separately in set_rules, because what it requires depends on other
+# options. They carry the tag so classification and counting can see them.
+PICKUP_GATES: dict[str, tuple[str, ...]] = {
+    names.capsule_location(names.WOLFANG):   ("mob",),
+    names.capsule_location(names.SHARK):     ("mob",),
+    names.capsule_location(names.TURTLOID):  ("mob",),
+    # The Heatnix Shadow X-Buster sits at the top of the shaft ABOVE that
+    # stage's Heart Tank, which itself needs mobility - so it needs at least
+    # as much. Inferred, not stated by the guide; strict on purpose.
+    names.capsule_location(names.HEATNIX):   ("mob",),
+
+    names.heart_location(names.TURTLOID):    ("shadow",),
+    names.heart_location(names.SHELDON):     ("shadow",),
+    names.heart_location(names.HEATNIX):     ("mob",),
+    names.heart_location(names.WOLFANG):     ("mob", "wall"),
+
+    names.tank_location(names.SHELDON):      ("shadow",),          # W Tank
+    names.tank_location(names.WOLFANG):      ("shadow", "wall"),   # EX Tank
+    names.tank_location(names.YAMMARK):      ("mob",),             # Sub Tank
+    names.tank_location(names.HEATNIX):      ("mob",),             # Sub Tank
+}
+
+# `no_progression_behind`'s player-facing names -> the gate each one covers.
+GATE_CLASSES = {"spikes": "shadow", "movement": "mob", "nightmare_wall": "wall"}
+
+
+def gated_locations(gate: str, reploid_checks: bool) -> set[str]:
+    """Every location behind `gate`, Reploids included when they are checks."""
+    found = {loc for loc, gates in PICKUP_GATES.items() if gate in gates}
+    if reploid_checks:
+        found |= {names.reploid_location(stage, number)
+                  for (stage, number), gates in reploids.REPLOID_GATES.items()
+                  if gate in gates}
+    return found
+
+
 class MMX6Settings(settings.Group):
     class RomFile(settings.UserFilePath):
         """File path of the Mega Man X6 (USA) disc image (raw 2352-byte .bin)."""
@@ -137,6 +203,34 @@ class MMX6World(World):
             items += len(names.STAGES) - 1
         return items, locations
 
+    def _excluded_locations(self) -> set[str]:
+        """Locations fill may not hide progression in, without a multiworld.
+
+        generate_early runs before create_regions, so this works off the same
+        tables the rules do rather than off Location objects. EVERY source of
+        an exclusion is counted, not only the new option: the question being
+        asked is "how many places are left", and Ground Scaravich and the
+        Nightmare wall take places too.
+        """
+        reploid_checks = bool(self.options.reploid_checks)
+        excluded: set[str] = set()
+        for cls in self.options.no_progression_behind.classes:
+            excluded |= gated_locations(GATE_CLASSES[cls], reploid_checks)
+        # Fire off means the wall may never open, so set_rules excludes what
+        # is behind it whether the player asked for that or not.
+        if "Fire" in self.options.disabled_nightmare_effects.effects:
+            excluded |= gated_locations("wall", reploid_checks)
+        if self.options.scaravich_no_progression:
+            # The whole stage, which set_rules takes off the REGION - the same
+            # set, spelled out here because there is no region yet.
+            excluded |= {names.boss_location(names.SCARAVICH),
+                         names.heart_location(names.SCARAVICH),
+                         names.capsule_location(names.SCARAVICH)}
+            if reploid_checks:
+                excluded |= {names.reploid_location(names.SCARAVICH, n)
+                             for n in range(1, 17)}
+        return excluded
+
     def _roll_options(self) -> None:
         """Pick the gameplay options for the player, then make room if the
         roll asked for more items than the seed can hold."""
@@ -198,6 +292,41 @@ class MMX6World(World):
                 f"turn off `parts_in_pool` (+{len(names.PARTS)} items), "
                 f"`stage_unlocks` (+{len(names.STAGES) - 1}), "
                 f"`zero_unlock` (+1) or `secret_armors_in_pool` (+2).")
+
+        # The other half, and it is a FILLER question rather than a
+        # progression one. That is not obvious and was got wrong first time,
+        # so here is the mechanism: Archipelago fills excluded locations from
+        # `filleritempool` ALONE (`Fill.py`, "Not enough filler items for
+        # excluded locations") - `useful` items are not eligible, they go to
+        # ordinary locations afterwards. This world creates no filler of its
+        # own; every filler item in the pool is padding added by create_items
+        # to make the counts meet. So the filler available is exactly
+        # `locations - items`, and an option set may not exclude more
+        # locations than that.
+        #
+        # It also subsumes the progression question: with
+        # `excluded <= locations - items`, the locations still open are at
+        # least `items`, which is at least the progression subset.
+        #
+        # Real, not theoretical. `reploid_checks: false` with
+        # `no_progression_behind: all` excludes 12 of 29 locations in a seed
+        # whose pool exactly fills it, and fill dies with a stack trace at the
+        # end of generation. Refuse it here, naming a fix.
+        excluded = len(self._excluded_locations())
+        filler = locations - items
+        if excluded > filler:
+            raise OptionError(
+                f"Mega Man X6 ({self.player_name}): these options exclude "
+                f"{excluded} locations from holding anything important, but "
+                f"the seed only has {filler} junk items to put in them. "
+                f"Excluded locations can hold nothing else, so generation "
+                f"would fail. Turn on `reploid_checks` "
+                f"(+{len(reploids.REPLOIDS)} locations against 16 items, so "
+                f"it is the biggest single fix), name fewer classes in "
+                f"`no_progression_behind`, or free up junk by turning off "
+                f"`parts_in_pool` (-{len(names.PARTS)} items), "
+                f"`stage_unlocks` (-{len(names.STAGES) - 1}) or "
+                f"`zero_unlock` (-1).")
 
     def create_item(self, name: str) -> MMX6Item:
         if name in item_table:
@@ -402,45 +531,17 @@ class MMX6World(World):
                                              player).access_rule = \
                     lambda state, codes=codes: state.has(codes, player)
 
-        # --- Armor capsules -------------------------------------------------
-        # Every requirement below comes from the third-party items guide [G]
-        # and is UNVERIFIED against our own play. Where the guide is vague the
-        # stricter reading is taken, because strict only narrows placement
-        # while loose strands seeds.
-        #
-        # Acyclic by construction, and worth saying out loud because it is the
-        # thing that would break first: nothing needed for a BLADE part
-        # requires Blade or Shadow, so the order is
-        #   (no items) -> Blade parts -> Blade Armor -> Shadow parts -> Shadow.
-        for stage in (names.WOLFANG, names.SHARK, names.TURTLOID):
-            needs(names.capsule_location(stage), has_mobility)
-        # The Heatnix Shadow X-Buster sits at the top of the shaft ABOVE that
-        # stage Heart Tank, which itself needs mobility - so it needs at least
-        # as much. Inferred, not stated by the guide; strict on purpose.
-        needs(names.capsule_location(names.HEATNIX), has_mobility)
-        # Yammark (Blade Legs), Sheldon (Blade Body) and Mijinion (Blade Arms)
-        # need nothing.
-        #
-        # The Scaravich Blade Helmet sits inside one of that stage randomly
-        # chosen totem-pole sub-areas, so reaching it means re-entering until
-        # the right area comes up. That is persistence, not inventory, and
-        # Archipelago logic cannot model "reroll until" - so no rule. Ship
-        # plan A3 intends to pin the room sequence in the patch, which removes
-        # the randomness rather than modelling it.
-
-        # --- Heart Tanks ----------------------------------------------------
-        for stage in (names.TURTLOID, names.SHELDON):
-            needs(names.heart_location(stage), has_shadow)
-        for stage in (names.HEATNIX, names.WOLFANG):
-            needs(names.heart_location(stage), has_mobility)
-        # Yammark, Shark and Mijinion hearts need nothing; the Scaravich one
-        # is behind the same randomisation as its Blade Helmet, so no rule.
-        #
-        # --- Tanks ----------------------------------------------------------
-        needs(names.tank_location(names.SHELDON), has_shadow)    # W Tank
-        needs(names.tank_location(names.WOLFANG), has_shadow)    # EX Tank
-        needs(names.tank_location(names.YAMMARK), has_mobility)  # Sub Tank
-        needs(names.tank_location(names.HEATNIX), has_mobility)  # Sub Tank
+        # --- Capsules, Heart Tanks and Tanks --------------------------------
+        # All of it from PICKUP_GATES; read that table's header for the
+        # sourcing, the acyclic argument and what is deliberately absent.
+        # "wall" is applied below rather than here, because what it requires
+        # depends on other options.
+        pickup_rules = {"mob": has_mobility, "shadow": has_shadow}
+        for _location, _gates in PICKUP_GATES.items():
+            _rules = [pickup_rules[g] for g in _gates if g in pickup_rules]
+            if _rules:
+                needs(_location, lambda state, rules=_rules:
+                      all(rule(state) for rule in rules))
 
         # --- The Wolfang wall -----------------------------------------------
         # Wolfang's Heart Tank and EX Tank sit behind a wall that only opens
@@ -518,13 +619,8 @@ class MMX6World(World):
             # Same shape as scaravich_no_progression, and taken off the RULE
             # rather than a hand-written list: anything the wall gates is
             # covered, including Reploids added to REPLOID_GATES later.
-            behind_wall = [names.heart_location(names.WOLFANG),
-                           names.tank_location(names.WOLFANG)]
-            if self.options.reploid_checks:
-                behind_wall += [
-                    names.reploid_location(stage, number)
-                    for (stage, number), gates in reploids.REPLOID_GATES.items()
-                    if "wall" in gates]
+            behind_wall = gated_locations(
+                "wall", bool(self.options.reploid_checks))
             for _name in behind_wall:
                 self.multiworld.get_location(_name, player).progress_type = \
                     LocationProgressType.EXCLUDED
@@ -566,6 +662,22 @@ class MMX6World(World):
 
             for (stage, number), gates in reploids.REPLOID_GATES.items():
                 needs(names.reploid_location(stage, number), gated(gates))
+
+        # --- no_progression_behind ------------------------------------------
+        # Excluded means fill puts only junk there. The access rules above are
+        # untouched: this decides what may be HIDDEN behind a requirement,
+        # never what can be reached, so it cannot make a seed unwinnable the
+        # way a wrong rule can. Taken off the same two tables the rules come
+        # from, so a gate added later is covered without anyone remembering to
+        # come back here.
+        #
+        # generate_early has already refused any combination that would leave
+        # too few open locations for this seed's progression items.
+        for _class in self.options.no_progression_behind.classes:
+            for _name in gated_locations(GATE_CLASSES[_class],
+                                         bool(self.options.reploid_checks)):
+                self.multiworld.get_location(_name, player).progress_type = \
+                    LocationProgressType.EXCLUDED
 
         # Both goals complete on the VICTORY event in The Gate, which already
         # carries the all-weapons entrance rule. all_mavericks needs no extra

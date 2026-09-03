@@ -219,6 +219,15 @@ class ExitStageAnytime(DefaultOnToggle):
     into a stage you cannot finish yet. Without this, leaving means dying on
     purpose or clearing a stage you did not come for.
 
+    The button is available EVERYWHERE, not only in the eight Maverick
+    stages: Another Routes, Gate's Lab and the Intro Stage included. Vanilla
+    treats an Another Route as not part of its stage and offers no way out of
+    one at all, which is the case this option most needed to cover.
+
+    Leaving the Intro Stage early is the one thing here nobody has tested. It
+    is allowed rather than blocked because the alternative is a special case
+    on a screen you visit once; if it misbehaves, clear the intro normally.
+
     The kill record is untouched, so the Nightmare Souls count, the endgame
     gate and story progression all behave exactly as they normally would -
     leaving early simply leaves.
@@ -287,11 +296,17 @@ class DisabledNightmareEffects(OptionSet):
 
     Two knock-on effects worth knowing, neither of which costs you a check:
 
-    * **Nightmare Souls get much harder to farm.** The Nightmare Virus only
-      drops a fresh Orb after a stage has been afflicted, so a stage with no
-      effects left stops replenishing them. Nothing in this randomizer needs
-      Souls - the endgame opens on your eighth Maverick - but the vanilla
-      3000-Soul route to Gate's Lab effectively closes.
+    * **Nightmare Souls get much harder to farm, and Souls buy Part slots.**
+      The Nightmare Virus only drops a fresh Orb after a stage has been
+      afflicted, so a stage with no effects left stops replenishing them.
+      Nothing in this randomizer NEEDS Souls - the endgame opens on your
+      eighth Maverick, and the vanilla 3000-Soul route to Gate's Lab simply
+      closes - but they are still how you get to equip anything. Hunter Rank
+      comes from Souls, per character, and the thresholds on the disc are
+      200 (C), 300 (B), **500 (A)**, 800 (SA), 1200 (GA), 5000 (PA), 9999
+      (UH). You can equip NO Parts at all below Rank A. Turn effects off and
+      Parts are much harder to make use of - and X and Zero each need their
+      own 500.
     * **The endgame gate does not care either way.** Under `all_mavericks`
       the 3000-Soul opening is already switched off on the disc, so the gate
       never depends on how many Souls you can farm.
@@ -326,6 +341,119 @@ class DisabledNightmareEffects(OptionSet):
         if self.ALL in chosen:
             return set(self.EFFECTS)
         return {e for e in self.EFFECTS if e.casefold() in chosen}
+
+
+class StartingRank(Choice):
+    """Give both characters a Hunter Rank from the start, for Part slots.
+
+    Rank is what decides how many Power-up Parts you may EQUIP, and it is
+    bought with Nightmare Souls - separately for X and for Zero. The base
+    game's thresholds, read off the disc, are 200 (C), 300 (B), 500 (A),
+    800 (SA), 1200 (GA), 5000 (PA), 9999 (UH), and the slots that come with
+    them are:
+
+        D, C, B   nothing at all
+        A         1 Part
+        SA        2 Parts
+        GA        2 Parts + 1 Limited
+        PA        3 Parts + 1 Limited
+        UH        4 Parts + 1 Limited
+
+    So in the base game the first slot costs 500 of that character's own
+    Souls. That is a long way into a run to receive 24 Parts as items and be
+    unable to put any of them on - and if you play mostly as one character,
+    the other stays at D with no slots at all.
+
+    This makes the rank you pick cost zero Souls. The ranks ABOVE it still
+    cost exactly what they normally do, so the progression is shortened at
+    the bottom rather than removed.
+
+    **Rank also makes bosses harder** - Lv.2 at SA, Lv.3 at GA, Lv.4 at PA
+    and UH - so anything above `rank_a` is a difficulty setting as much as a
+    convenience. `rank_a` is the one that costs nothing: one slot each, and
+    boss levels exactly where the base game puts them.
+
+    off: the base game's thresholds
+    rank_a: 1 Part each from the start, no other change
+    rank_sa: 2 Parts, bosses from Lv.2
+    rank_ga: 2 + 1 Limited, bosses from Lv.3
+    rank_pa: 3 + 1 Limited, bosses from Lv.4
+    rank_uh: 4 + 1 Limited, bosses from Lv.4
+
+    Changes the disc.
+    """
+    display_name = "Starting Rank"
+    option_off = 0
+    option_rank_a = 1
+    option_rank_sa = 2
+    option_rank_ga = 3
+    option_rank_pa = 4
+    option_rank_uh = 5
+    default = 0
+
+
+class NoProgressionBehind(OptionSet):
+    """Put nothing you NEED behind the requirements you do not want to meet.
+
+    Name the kinds of place fill may not hide progression in. Nothing is
+    removed: those checks still exist, still send their item to whoever owns
+    it, and you are welcome to go and get them - they simply hold junk, so no
+    seed can ever require you to do that kind of thing. An empty list is the
+    base game's deal, where anything can be anywhere.
+
+    Valid names, and what each covers:
+
+        spikes          the Shadow Armor rooms - Rainy Turtloid's Heart Tank,
+                        Shield Sheldon's Heart Tank and W Tank, Blizzard
+                        Wolfang's EX Tank, and the Reploids in those rooms
+        movement        the places that need Zero or the full Blade Armor -
+                        four Armor Capsules, two Heart Tanks, two Sub Tanks,
+                        and the Reploids on those ledges
+        nightmare_wall  North Pole's ice wall, which only opens while
+                        Nightmare Fire is on that stage
+        all             every one of the above
+
+    Case does not matter. This changes nothing about what you can REACH - the
+    rules are identical either way - only about what fill may put there.
+
+        no_progression_behind:
+          - spikes
+
+    Ground Scaravich has its own option, `scaravich_no_progression`, because
+    its randomly chosen rooms are not a requirement you can meet with items.
+
+    One practical limit: an excluded location can hold nothing but junk, and a
+    seed with `reploid_checks` off barely has any junk - its item pool very
+    nearly fills its location list on its own. Generation refuses a
+    combination it could not fill and names what to change; turning
+    `reploid_checks` on is almost always the answer, since it adds 128
+    locations against 16 items.
+
+    Left out of `randomize_options` on purpose: this is an accessibility
+    setting, and rolling it off would hand someone exactly the run they were
+    trying to avoid.
+    """
+    display_name = "No Progression Behind"
+
+    # Casefolded keys, for the same reason DisabledNightmareEffects gives:
+    # AP compares casefolded input against valid_keys verbatim.
+    ALL = "all"
+    CLASSES = ("spikes", "movement", "nightmare_wall")
+    valid_keys = (ALL,) + CLASSES
+    valid_keys_casefold = True
+
+    @property
+    def classes(self) -> set:
+        """The classes this selects, with `all` expanded.
+
+        Read THIS downstream, never `.value` - a plain `in` test would miss
+        `all` entirely, which is the trap DisabledNightmareEffects already
+        documents.
+        """
+        chosen = {v.casefold() for v in self.value}
+        if self.ALL in chosen:
+            return set(self.CLASSES)
+        return {c for c in self.CLASSES if c in chosen}
 
 
 class ScaravichNoProgression(Toggle):
@@ -575,10 +703,13 @@ class RandomizeOptions(Toggle):
 # not a flavour gamble: someone takes it because they do not want to re-roll a
 # stage, and rolling it off would hand them exactly the run they were avoiding.
 # Rolling it on is no better - it silently moves 19 locations out of the
-# progression pool for a player who never asked.
+# progression pool for a player who never asked. no_progression_behind is
+# absent for exactly the same reason, and more sharply: it is the option
+# somebody picks BECAUSE they do not want to do spike rooms.
 #
-# starting_hp and heart_tank_value are absent because they are the player's own
-# difficulty dial. Rolling starting life to 127 does not make a seed
+# starting_hp, heart_tank_value and starting_rank are absent because they are
+# the player's own difficulty dial - and starting_rank doubly so, since the
+# ranks above A raise every boss's fight level. Rolling starting life to 127 does not make a seed
 # interesting, and rolling it to 1 is a run nobody asked for.
 #
 # The palettes are absent because they are cosmetic, and `random` is already
@@ -612,6 +743,8 @@ class MMX6Options(PerGameCommonOptions):
     weapon_damage: WeaponDamage
     disabled_nightmare_effects: DisabledNightmareEffects
     scaravich_no_progression: ScaravichNoProgression
+    no_progression_behind: NoProgressionBehind
+    starting_rank: StartingRank
     starting_hp: StartingHp
     heart_tank_value: HeartTankValue
     x_palette: XPalette

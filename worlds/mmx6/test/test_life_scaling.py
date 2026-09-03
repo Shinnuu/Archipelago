@@ -1,15 +1,21 @@
 """`starting_hp` and `heart_tank_value` tests.
 
-Both are one number each, and both work because AP grants are ABSOLUTE: the
-client recomputes the life gauge from the items received rather than adding to
-whatever is there, so the vanilla "+2 per pickup" never enters into it. No
-disc patch is involved.
+Both are one number each. The client writes the life gauge ABSOLUTELY:
+starting life plus step per upgrade received, in either direction, so the
+vanilla "+2 per pickup" never enters into it. A new save starts at the seed's
+value through one disc edit - the immediate in the new-game initialiser at
+EXE 0x8001E098 - because the client only ever sees a save after the game has
+written its own 32 into it.
 
-Three things can go wrong, and each has tests below:
+Things that can go wrong, and each has tests below:
 
-  * the 64 ceiling. The life bar is DRAWN from this byte, and what it does
-    above vanilla's maximum has never been tested live. So a larger step must
-    reach 64 sooner, never overshoot it.
+  * the 127 ceiling. The game reads the gauge as a signed byte and keeps
+    current HP in seven bits, so 128 and up would go negative. Nothing may
+    ever write past 127.
+  * the disc edit landing on the wrong word, or on the right word for the
+    wrong value.
+  * junk slot data falling to the FLOOR rather than the default - with a
+    floor of 1 that would be a one-hit-death run nobody asked for.
   * the shared step. `GAUGE_STEP` was used by the life gauge AND the weapon
     gauge, so parameterising it naively would have silently rescaled Energy
     Ups too.
@@ -17,14 +23,20 @@ Three things can go wrong, and each has tests below:
     value; a newer one could send anything. Both must land on something sane
     rather than writing a nonsense byte into the save.
 """
+import os
 import unittest
 
 from .. import names
-from ..client import (GAUGE_STEP, LIFE_GAUGE_BASE, LIFE_GAUGE_MAX,
-                      OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO, OFF_WEAPON_GAUGE,
-                      OFF_WEAPON_GAUGE_ZERO, SAVE_BASE, SAVE_LEN,
-                      WEAPON_GAUGE_BASE, MMX6Client, _clamp)
+from .. import disc
+from ..client import (GAUGE_STEP, LIFE_GAUGE_BASE, LIFE_GAUGE_HARD_MAX,
+                      LIFE_GAUGE_MAX, OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO,
+                      OFF_WEAPON_GAUGE, OFF_WEAPON_GAUGE_ZERO, SAVE_BASE,
+                      SAVE_LEN, WEAPON_GAUGE_BASE, MMX6Client, _clamp)
+from ..options import HeartTankValue, StartingHp
 from . import MMX6TestBase
+
+ROM = r"C:\Users\Ivor\Documents\Game Modding\Games\Megaman X6\Megaman X6.bin"
+have_rom = os.path.exists(ROM)
 
 
 class FakeItem:
@@ -52,10 +64,15 @@ def blank_save() -> bytearray:
     return save
 
 
-def life(items=(), slot_data=None) -> int:
-    """The life gauge value _grants would write, for X and Zero alike."""
+def life(items=(), slot_data=None, current: int = LIFE_GAUGE_BASE) -> int:
+    """The life gauge value _grants would write, for X and Zero alike.
+
+    `current` is what the save already holds - the vanilla 32 unless a test
+    is asking what happens to a save that is above or below the target.
+    """
     client = MMX6Client()
     save = blank_save()
+    save[OFF_LIFE_GAUGE] = save[OFF_LIFE_GAUGE_ZERO] = current
     out = {addr - SAVE_BASE: data[0]
            for addr, data in client._grants(FakeCtx(items, slot_data),
                                             bytes(save))}
@@ -87,15 +104,36 @@ class TestStartingHp(unittest.TestCase):
         self.assertEqual(life([names.HEART_TANK], {"starting_hp": 48}),
                          48 + GAUGE_STEP)
 
-    def test_it_never_exceeds_the_drawable_maximum(self) -> None:
+    def test_upgrades_carry_past_the_vanilla_maximum(self) -> None:
+        # 64 was vanilla's ceiling, not the game's. Starting at 64 with eight
+        # tanks is 80, and the game holds it.
         got = life([names.HEART_TANK] * 8, {"starting_hp": 64})
-        self.assertEqual(got, LIFE_GAUGE_MAX)
+        self.assertEqual(got, 80)
 
-    def test_below_vanilla_is_refused_rather_than_written(self) -> None:
-        # The client never lowers a gauge, so a value under the game's own
-        # starting life could not be enforced anyway - clamping it here means
-        # the save never receives a byte the game would immediately beat.
-        self.assertEqual(life(slot_data={"starting_hp": 8}), LIFE_GAUGE_BASE)
+    def test_nothing_is_ever_written_past_the_hard_maximum(self) -> None:
+        # Signed byte on every read, seven-bit current HP: 128 goes negative.
+        got = life([names.HEART_TANK] * 16, {"starting_hp": 120,
+                                               "heart_tank_value": 16})
+        self.assertEqual(got, LIFE_GAUGE_HARD_MAX)
+        self.assertEqual(life(slot_data={"starting_hp": 127}),
+                         LIFE_GAUGE_HARD_MAX)
+
+    def test_below_vanilla_is_written(self) -> None:
+        # The whole point. The disc starts a new save here; the client keeps
+        # an existing one here.
+        self.assertEqual(life(slot_data={"starting_hp": 8}), 8)
+        self.assertEqual(life(slot_data={"starting_hp": 1}), 1)
+
+    def test_an_existing_save_is_moved_down_as_well_as_up(self) -> None:
+        # A save made at vanilla 32 (or that collected tanks whose items went
+        # elsewhere) is brought to what the seed says, not left where it is.
+        self.assertEqual(life(slot_data={"starting_hp": 8}, current=40), 8)
+        self.assertEqual(life(slot_data={"starting_hp": 100}, current=40), 100)
+
+    def test_a_vanilla_pickups_plus_two_is_taken_back(self) -> None:
+        # Walking over a Heart Tank raised the save to 34 locally. No item has
+        # arrived, so the gauge is what the seed says: 32.
+        self.assertEqual(life(current=LIFE_GAUGE_BASE + 2), LIFE_GAUGE_BASE)
 
 
 class TestHeartTankValue(unittest.TestCase):
@@ -109,15 +147,15 @@ class TestHeartTankValue(unittest.TestCase):
         self.assertEqual(life([names.LIFE_UP], {"heart_tank_value": 8}),
                          life([names.HEART_TANK], {"heart_tank_value": 8}))
 
-    def test_a_bigger_step_reaches_the_cap_sooner_and_stops(self) -> None:
+    def test_a_bigger_step_reaches_the_hard_cap_and_stops(self) -> None:
         self.assertEqual(life([names.HEART_TANK] * 4,
-                              {"heart_tank_value": 8}), LIFE_GAUGE_MAX)
+                              {"heart_tank_value": 8}), 64)
         self.assertEqual(life([names.HEART_TANK] * 16,
-                              {"heart_tank_value": 8}), LIFE_GAUGE_MAX)
+                              {"heart_tank_value": 8}), LIFE_GAUGE_HARD_MAX)
 
-    def test_below_vanilla_is_refused(self) -> None:
-        self.assertEqual(life([names.HEART_TANK], {"heart_tank_value": 0}),
-                         LIFE_GAUGE_BASE + GAUGE_STEP)
+    def test_zero_makes_upgrades_worthless(self) -> None:
+        self.assertEqual(life([names.HEART_TANK] * 16,
+                              {"heart_tank_value": 0}), LIFE_GAUGE_BASE)
 
     def test_the_weapon_gauge_is_left_alone(self) -> None:
         # GAUGE_STEP was shared between the two gauges. If this option ever
@@ -144,10 +182,22 @@ class TestSlotDataIsNotTrusted(unittest.TestCase):
         self.assertEqual(_clamp(None, 32, 64), 32)
         self.assertEqual(_clamp("wibble", 32, 64), 32)
 
+    def test_junk_falls_to_the_default_not_the_floor(self) -> None:
+        # The floor is 1. A corrupt value must read as vanilla, not as a
+        # one-hit-death run.
+        self.assertEqual(_clamp("wibble", 1, 127, default=32), 32)
+        self.assertEqual(_clamp(None, 0, 127, default=2), 2)
+
     def test_a_junk_value_never_reaches_the_save(self) -> None:
-        got = life(slot_data={"starting_hp": "wibble",
+        got = life([names.HEART_TANK],
+                   slot_data={"starting_hp": "wibble",
                               "heart_tank_value": None})
-        self.assertEqual(got, LIFE_GAUGE_BASE)
+        self.assertEqual(got, LIFE_GAUGE_BASE + GAUGE_STEP)
+
+    def test_out_of_range_is_clamped_to_the_games_limits(self) -> None:
+        self.assertEqual(life(slot_data={"starting_hp": 0}), 1)
+        self.assertEqual(life(slot_data={"starting_hp": 999}),
+                         LIFE_GAUGE_HARD_MAX)
 
 
 class TestSlotData(MMX6TestBase):
@@ -183,10 +233,10 @@ class TestRollIsRangeSafe(MMX6TestBase):
                 self.world._roll_options()
                 hp = self.world.options.starting_hp.value
                 step = self.world.options.heart_tank_value.value
-                self.assertGreaterEqual(hp, 32)
-                self.assertLessEqual(hp, LIFE_GAUGE_MAX)
-                self.assertGreaterEqual(step, GAUGE_STEP)
-                self.assertLessEqual(step, 16)
+                self.assertGreaterEqual(hp, StartingHp.range_start)
+                self.assertLessEqual(hp, StartingHp.range_end)
+                self.assertGreaterEqual(step, HeartTankValue.range_start)
+                self.assertLessEqual(step, HeartTankValue.range_end)
                 seen_hp.add(hp)
         finally:
             world_mod.RANDOMIZED_OPTIONS = original
@@ -203,3 +253,106 @@ class TestSlotDataDefaults(MMX6TestBase):
         data = self.world.fill_slot_data()
         self.assertEqual(data["starting_hp"], LIFE_GAUGE_BASE)
         self.assertEqual(data["heart_tank_value"], GAUGE_STEP)
+
+    def test_the_ranges_are_the_games(self) -> None:
+        self.assertEqual((StartingHp.range_start, StartingHp.range_end),
+                         (1, LIFE_GAUGE_HARD_MAX))
+        self.assertEqual(HeartTankValue.range_start, 0)
+
+
+# ---- the disc edit --------------------------------------------------------
+
+def _seed_edits(world) -> dict:
+    """{(addr, region): patched hex} the seed's own .apmmx6 would carry."""
+    import json
+
+    from ..Rom import MMX6ProcedurePatch, patch_rom
+
+    written = {}
+
+    class _Capture(MMX6ProcedurePatch):
+        def write_file(self, name, data):     # noqa: D102
+            written[name] = data
+
+    patch_rom(world, _Capture(player=world.player, player_name="P"))
+    return {(e["addr"], e["region"]): e["hex"]
+            for e in json.loads(written["seed_edits.json"].decode("utf-8"))}
+
+
+class TestTheDiscEdit(unittest.TestCase):
+    def test_vanilla_is_no_edit_at_all(self) -> None:
+        self.assertEqual(disc.starting_life_edits(32), [])
+
+    def test_one_word_and_only_the_immediate_changes(self) -> None:
+        for value in (1, 8, 64, 100, 127):
+            (label, where, region, van, pat), = disc.starting_life_edits(value)
+            self.assertEqual(where, disc.STARTING_LIFE_SITE)
+            self.assertEqual(region, disc.REGION_EXE)
+            self.assertEqual(len(van), 4)
+            a = int.from_bytes(van, "little")
+            b = int.from_bytes(pat, "little")
+            self.assertEqual(a, 0x24030020, "vanilla is addiu v1, zero, 0x20")
+            self.assertEqual(a >> 16, b >> 16, "opcode/registers changed")
+            self.assertEqual(b & 0xFFFF, value)
+
+    def test_the_games_limits_are_refused(self) -> None:
+        for value in (0, 128, 255, -1):
+            with self.assertRaises(ValueError):
+                disc.starting_life_edits(value)
+
+    def test_it_overlaps_no_other_edit(self) -> None:
+        (_l, w, r, van, _p), = disc.starting_life_edits(1)
+        span = {disc.addr_to_disc(w + i, r) for i in range(4)}
+        for group in disc.QOL_EDITS.values():
+            for _l2, w2, r2, v2, _p2 in group:
+                for i in range(len(v2)):
+                    self.assertNotIn(disc.addr_to_disc(w2 + i, r2), span)
+        for _l2, w2, r2, v2, _p2 in disc.ENDGAME_GATE_EDITS:
+            for i in range(len(v2)):
+                self.assertNotIn(disc.addr_to_disc(w2 + i, r2), span)
+        for w2, payload, r2 in disc.BASE_EDITS:
+            for i in range(len(payload)):
+                self.assertNotIn(disc.addr_to_disc(w2 + i, r2), span)
+
+
+@unittest.skipUnless(have_rom, "vanilla disc image not present")
+class TestTheDiscEditAgainstTheDisc(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        with open(ROM, "rb") as fh:
+            cls.rom = fh.read()
+
+    def test_the_site_holds_the_initialiser(self) -> None:
+        # addiu v1,zero,0x20 / sb v0,0x39(a1) / addiu v0,zero,0x30 /
+        # sb v1,0x5B(a1) / sb v1,0x5C(a1): the word we patch feeds BOTH
+        # characters' life bytes, and nothing between reassigns v1.
+        off = disc.addr_to_disc(disc.STARTING_LIFE_SITE, disc.REGION_EXE)
+        words = [int.from_bytes(self.rom[off + 4 * i:off + 4 * i + 4], "little")
+                 for i in range(5)]
+        self.assertEqual(words, [0x24030020, 0xA0A20039, 0x24020030,
+                                 0xA0A3005B, 0xA0A3005C])
+
+    def test_the_patched_image_changes_exactly_that_word(self) -> None:
+        extra = [(w, p, r, v) for _l, w, r, v, p in disc.starting_life_edits(8)]
+        img = disc.apply_basepatch(self.rom, extra)
+        off = disc.addr_to_disc(disc.STARTING_LIFE_SITE, disc.REGION_EXE)
+        self.assertEqual(int.from_bytes(img[off:off + 4], "little"), 0x24030008)
+        self.assertEqual(img[off + 4:off + 20], self.rom[off + 4:off + 20])
+
+
+class TestTheSeedCarriesIt(MMX6TestBase):
+    options = {"starting_hp": 8}
+
+    def test_the_apmmx6_has_the_edit(self) -> None:
+        carried = _seed_edits(self.world)
+        self.assertEqual(
+            carried.get((disc.STARTING_LIFE_SITE, disc.REGION_EXE)),
+            (0x24030008).to_bytes(4, "little").hex())
+
+
+class TestTheSeedDoesNotCarryItAtVanilla(MMX6TestBase):
+    options = {"starting_hp": 32}
+
+    def test_the_apmmx6_is_untouched(self) -> None:
+        carried = _seed_edits(self.world)
+        self.assertNotIn((disc.STARTING_LIFE_SITE, disc.REGION_EXE), carried)

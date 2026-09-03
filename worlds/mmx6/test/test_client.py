@@ -174,17 +174,24 @@ class TestGrants(unittest.TestCase):
                              "re-granting changed the save")
         self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_BASE + 2 * 5)
 
-    def test_the_gauge_never_shrinks_and_never_passes_the_cap(self) -> None:
-        # A vanilla pickup raises the gauge too, so a computed target below the
-        # live value must not claw it back.
+    def test_the_gauge_is_absolute_in_both_directions(self) -> None:
+        # Until 0.2.1 this asserted the opposite - "never shrinks" - because a
+        # vanilla pickup raises the gauge too and the write took the max. That
+        # made the game's own 32 unbeatable by a lower starting_hp, so the
+        # write is absolute now: a Heart Tank walked over is a check, and its
+        # +2 belongs to whoever received the item.
         save = blank_save()
         save[OFF_LIFE_GAUGE] = 50
         self.apply(FakeCtx(items=[names.HEART_TANK]), save)
-        self.assertEqual(save[OFF_LIFE_GAUGE], 50)
+        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_BASE + 2)
 
+        # The cap is the game's 127, not vanilla's 64.
         save = blank_save()
         self.apply(FakeCtx(items=[names.HEART_TANK] * 20), save)
-        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_MAX)
+        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_BASE + 40)
+        save = blank_save()
+        self.apply(FakeCtx(items=[names.HEART_TANK] * 60), save)
+        self.assertEqual(save[OFF_LIFE_GAUGE], 127)
 
     def test_gauge_record_bits_are_never_written(self) -> None:
         # Policy 4. If a grant set these, detection would read its own write

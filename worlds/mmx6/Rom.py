@@ -260,6 +260,14 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     if world.options.goal == world.options.goal.option_all_mavericks:
         seed_edits += disc.ENDGAME_GATE_EDITS
 
+    # The new-game initialiser writes 32 into both characters' life bytes.
+    # The client cannot lower that - it only ever sees the save after the game
+    # has written it - so a starting life other than vanilla is a disc edit.
+    # Raising it could have stayed client-side, but one mechanism is simpler
+    # to reason about than two, and it means a fresh save is right from the
+    # first frame rather than after the first client poll.
+    seed_edits += disc.starting_life_edits(world.options.starting_hp.value)
+
     if world.options.boss_hp_randomization:
         # Rolled here rather than in generate_early because nothing outside
         # the disc image needs to know: no logic depends on boss health, and

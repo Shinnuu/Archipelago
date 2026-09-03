@@ -361,52 +361,47 @@ class ScaravichNoProgression(Toggle):
 
 
 class StartingHp(Range):
-    """How much life X and Zero start a new save with.
+    """How much life X and Zero start with. Vanilla is 32.
 
-    Vanilla is 32, and 64 is the most the game can draw - the life bar is
-    sized from this same byte, so this stops there rather than at 255.
+    1 is one hit from anything. 127 is the most the game can hold - it keeps
+    life in seven bits - so this stops there. All of it plays; only the bar's
+    drawing has limits, checked live: below 32 the bar shrinks to a stub with
+    the character emblem sitting on top of it, and above 64 it stays the
+    vanilla 64 size, so 100 and 127 look exactly like 64. The number is real,
+    the picture is not.
 
-    Raising it does not give you extra upgrades, it moves the floor: Heart
-    Tanks and Life Ups still add on top, and the total is still capped at 64,
-    so a high starting value simply means the later upgrades find you already
-    at maximum.
-
-    It cannot go below 32. The client never lowers a gauge - a vanilla pickup
-    raises it locally and the grant takes whichever is higher, so anything
-    under the game's own starting value would be overwritten the moment you
-    collected anything. Starting weaker than vanilla needs a disc change and
-    is not built.
+    Heart Tanks and Life Ups still add on top (see `heart_tank_value`), and
+    the total is capped at 127. This is a disc edit: a new save starts at the
+    value from its first frame. A save you already have is moved to it by the
+    client the next time it connects, in either direction.
     """
     display_name = "Starting Life"
-    range_start = 32
-    range_end = 64
+    range_start = 1
+    range_end = 127
     default = 32
 
 
 class HeartTankValue(Range):
-    """How much life each Heart Tank or Life Up is worth.
+    """How much life each Heart Tank or Life Up is worth. Vanilla is 2.
 
-    Vanilla is 2. X6 has 8 Heart Tanks and 8 Life Up Reploids, sixteen
-    upgrades in all, which is exactly what takes a vanilla run from 32 life to
-    the maximum of 64.
+    X6 has 8 Heart Tanks and 8 Life Up Reploids, sixteen upgrades in all,
+    which at 2 each is what takes a vanilla run from 32 to 64. One setting
+    covers both kinds because the game does not tell them apart.
 
-    One setting covers both kinds because the game does: a Life Up Reploid and
-    a Heart Tank raise the same gauge by the same amount, and neither the save
-    nor the client tells them apart afterwards.
+    0 makes them worth nothing - the check still sends, the gauge does not
+    move. The total is capped at 127, the most the game can hold, so a large
+    value reaches the top sooner rather than going past it.
 
-    The 64 cap still applies, so a larger value does not raise your ceiling -
-    it gets you there sooner, and the upgrades after that point stop mattering.
-    At 4 it takes eight of them, at 8 it takes four.
-
-    It cannot go below 2, for the same reason Starting Life cannot go below
-    32: the game's own pickup adds 2 on the spot and the client never writes a
-    gauge downwards.
+    The life gauge is what the seed says it is: starting life plus this much
+    per upgrade RECEIVED. Walking over a Heart Tank in your own game is a
+    check, and its vanilla +2 is taken back if the item behind it went to
+    someone else.
 
     Weapon energy is untouched - Energy Ups keep their vanilla step.
     """
     display_name = "Life Per Upgrade"
-    range_start = 2
-    range_end = 16
+    range_start = 0
+    range_end = 64
     default = 2
 
 
@@ -515,8 +510,8 @@ class RandomizeOptions(Toggle):
 # progression pool for a player who never asked.
 #
 # starting_hp and heart_tank_value are absent because they are the player's own
-# difficulty dial. Rolling starting life to 64 does not make a seed
-# interesting, it removes a whole axis of one.
+# difficulty dial. Rolling starting life to 127 does not make a seed
+# interesting, and rolling it to 1 is a run nobody asked for.
 #
 # Kept next to the options so the two cannot drift apart.
 RANDOMIZED_OPTIONS = (

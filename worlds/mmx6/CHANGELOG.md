@@ -81,17 +81,21 @@ Costs 19 of the seed's locations as places progression can go (3 if you have
 Reploid checks off). It is a stopgap rather than a cure — pinning the room
 order, or being shown all eight rooms, would be the real fixes.
 
-**New: `starting_hp` and `heart_tank_value`.** Set the life gauge a new save
-starts with (32–64, vanilla 32) and how much each Heart Tank or Life Up is
-worth (2–16, vanilla 2). One setting covers Heart Tanks and Life Up Reploids
-because the game does not tell them apart. 64 is still the ceiling — the life
-bar is drawn from that byte — so a bigger step reaches maximum sooner rather
-than going past it. Neither can be set below its vanilla value: the game's own
-pickup raises the gauge locally and the client never writes one downwards.
-Weapon energy is untouched.
+**New: `starting_hp` and `heart_tank_value`.** Set the life X and Zero start
+with (1–127, vanilla 32) and how much each Heart Tank or Life Up is worth
+(0–64, vanilla 2). One setting covers Heart Tanks and Life Up Reploids because
+the game does not tell them apart. 127 is the game's own ceiling — it keeps
+life in seven bits — and every value plays, checked live from 1 to 127; only
+the bar's drawing has limits: below 32 it shrinks to a stub with the emblem
+on top of it, and above 64 it stays the 64 size, so 100 and 127 look exactly
+like 64. The number is real, the picture is not.
 
-Both are client-side and need no disc change, so they work on a disc you have
-already patched.
+The starting value is a disc edit baked into the seed (the game's new-save
+initialiser writes 32, so anything else has to be written there); the
+per-upgrade value is client-side. The client writes the life gauge
+**absolutely**, in both directions, for X and Zero alike — so walking over a
+Heart Tank whose item went to someone else does not leave you the vanilla +2.
+Weapon energy is untouched.
 
 **New: player colours.** X, Zero, Shadow Armor, Blade Armor and Ultimate Armor
 can each be recoloured independently, from 18 presets or `random`. Purely

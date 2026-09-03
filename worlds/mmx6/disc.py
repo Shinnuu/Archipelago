@@ -422,6 +422,42 @@ ENDGAME_GATE_EDITS: list = [
      bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
 ]
 
+# ---- Starting life gauge ----------------------------------------------------
+# The new-game initialiser, EXE 0x8001E088..: one immediate feeds BOTH
+# characters' life bytes -
+#
+#   addiu v1, zero, 0x20     <- this word
+#   sb    v1, 0x5B(a1)       X,    0x800CCF2B
+#   sb    v1, 0x5C(a1)       Zero, 0x800CCF2C
+#   addiu v0, zero, 0x30 / sb v0, 0x61 / sb v0, 0x62   the weapon gauge, 48
+#
+# so the starting life is one edit. The Tweaks patcher's LifeUp01 offset
+# (1D99661C) is NOT this: that is the free-space block at 0x800769xx it
+# injects into, all zeros on a clean disc.
+#
+# 127 is the hard ceiling and it is the game's, not ours: every reader loads
+# the gauge as a SIGNED byte (`lb`, or `lbu` then sll/sra 24), and current HP
+# is the low seven bits of player+0x5C with 0x80 as a hit/heal flag. 128 and
+# up read as negative. What the life bar DRAWS above 64 or below 32 is a
+# separate question - the frame height is (gauge-32)/2 + 0x88 capped at the
+# 64 size - and is answered live, not here.
+STARTING_LIFE_SITE = 0x8001E098
+STARTING_LIFE_VANILLA = 32
+LIFE_GAUGE_HARD_MAX = 127
+_STARTING_LIFE_WORD = 0x24030000          # addiu v1, zero, imm
+
+
+def starting_life_edits(value: int) -> list:
+    """The one edit that changes what a new save starts with, or nothing."""
+    if not 1 <= value <= LIFE_GAUGE_HARD_MAX:
+        raise ValueError(f"starting life {value} is outside 1..{LIFE_GAUGE_HARD_MAX}")
+    if value == STARTING_LIFE_VANILLA:
+        return []
+    return [("starting life gauge (new game)", STARTING_LIFE_SITE, REGION_EXE,
+             (_STARTING_LIFE_WORD | STARTING_LIFE_VANILLA).to_bytes(4, "little"),
+             (_STARTING_LIFE_WORD | value).to_bytes(4, "little"))]
+
+
 # ---- Boss HP ----------------------------------------------------------------
 # X6 stores a boss's life bar and its HP in the SAME byte, 0x800CCF5C, written
 # at boss init from an immediate in that boss's overlay code. That is why this

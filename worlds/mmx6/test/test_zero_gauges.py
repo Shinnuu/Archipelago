@@ -103,16 +103,26 @@ class TestGrantsUpgradeBoth(unittest.TestCase):
         self.assertEqual(w.get(OFF_LIFE_GAUGE), LIFE_GAUGE_MAX)
         self.assertEqual(w.get(OFF_LIFE_GAUGE_ZERO), LIFE_GAUGE_MAX)
 
-    def test_neither_gauge_ever_goes_backwards(self) -> None:
-        # Vanilla pickups raise these too, so the write takes the max. A save
-        # where the player earned more locally than AP has sent must not be
-        # pulled back down - for either character.
+    def test_both_life_gauges_are_pulled_to_the_seeds_value(self) -> None:
+        # The life write is absolute since 0.2.1 (see test_client). What this
+        # pins is that it stays absolute for BOTH characters: a save where
+        # only Zero's byte drifted must be corrected on Zero's byte, not left
+        # because X's already matched.
         save = blank_save()
-        save[OFF_LIFE_GAUGE] = LIFE_GAUGE_MAX
+        save[OFF_LIFE_GAUGE] = LIFE_GAUGE_BASE + GAUGE_STEP
         save[OFF_LIFE_GAUGE_ZERO] = LIFE_GAUGE_MAX
         w = written(MMX6Client(), FakeCtx([names.HEART_TANK]), save)
         self.assertNotIn(OFF_LIFE_GAUGE, w)
-        self.assertNotIn(OFF_LIFE_GAUGE_ZERO, w)
+        self.assertEqual(w.get(OFF_LIFE_GAUGE_ZERO), LIFE_GAUGE_BASE + GAUGE_STEP)
+
+    def test_the_weapon_gauge_still_never_goes_backwards(self) -> None:
+        # Nothing scales the weapon gauge, so it keeps the max() rule.
+        save = blank_save()
+        save[OFF_WEAPON_GAUGE] = WEAPON_GAUGE_BASE + 10
+        save[OFF_WEAPON_GAUGE_ZERO] = WEAPON_GAUGE_BASE + 10
+        w = written(MMX6Client(), FakeCtx([names.ENERGY_UP]), save)
+        self.assertNotIn(OFF_WEAPON_GAUGE, w)
+        self.assertNotIn(OFF_WEAPON_GAUGE_ZERO, w)
 
     def test_a_gauge_that_is_already_right_is_not_rewritten(self) -> None:
         # _grants is re-run every poll; writing an unchanged byte would be

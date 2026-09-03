@@ -124,15 +124,21 @@ SCREEN_MISSION_REPORT = 0x0C
 # as well as gameplay - it is where half the checks actually land.
 TRUSTED_SCREENS = frozenset({SCREEN_INGAME, SCREEN_MISSION_REPORT})
 
-def _clamp(value, low: int, high: int) -> int:
-    """Slot data is not trusted to be in range - see the life gauge."""
+def _clamp(value, low: int, high: int, default: int | None = None) -> int:
+    """Slot data is not trusted to be in range - see the life gauge.
+
+    Out of range is clamped; junk (None, a string) falls back to `default`,
+    or to `low` when no default is given. The distinction matters once a
+    floor is 1: a corrupt starting_hp must not read as "one hit from death".
+    """
     try:
         return max(low, min(high, int(value)))
     except (TypeError, ValueError):
-        return low
+        return low if default is None else default
 
 
-LIFE_GAUGE_BASE, LIFE_GAUGE_MAX = 32, 64
+LIFE_GAUGE_BASE, LIFE_GAUGE_MAX = 32, 64        # vanilla start and vanilla max
+LIFE_GAUGE_HARD_MAX = 127                       # the game's: signed byte, 7-bit HP
 WEAPON_GAUGE_BASE, WEAPON_GAUGE_MAX = 48, 64
 GAUGE_STEP = 2
 
@@ -561,9 +567,16 @@ class MMX6Client(BizHawkClient):
                 writes.append((SAVE_BASE + offset, bytes([value])))
 
         # --- gauges (policy 4: gauge only, never the record bits) -----------
-        # Vanilla pickups also raise these, so take the max rather than the
-        # computed target: the player keeps anything they earned locally on
-        # top of what AP sent, and the gauge never goes backwards.
+        # The LIFE gauge is written ABSOLUTELY - whatever the seed's start plus
+        # step-per-upgrade says, in both directions. It used to take the max
+        # of that and what was in the save, which kept a vanilla pickup's +2
+        # on top of AP's grant; but that also meant the game's own 32 always
+        # won against a lower starting_hp, and a heart_tank_value below 2 was
+        # unenforceable. The disc now starts a new save at the seed's value,
+        # and this write keeps every save there afterwards. A Heart Tank you
+        # walk over is a CHECK; its +2 belongs to whoever gets the item.
+        #
+        # The weapon gauge keeps the max() rule: nothing scales it yet.
         #
         # BOTH characters, not just X. A vanilla pickup raises the pair
         # together; writing the save byte directly bypasses whatever does
@@ -574,19 +587,20 @@ class MMX6Client(BizHawkClient):
         # The floor and the step are per seed. Both are clamped here as well
         # as in the options, because slot data can arrive from a world older
         # or newer than this client and a nonsense value would otherwise be
-        # written straight into the save. The 64 ceiling is never raised: the
-        # life bar is drawn from this byte, and what it does above its vanilla
-        # maximum has never been tested.
+        # written straight into the save. 127 is the game's own ceiling - the
+        # gauge is read as a signed byte everywhere and current HP is seven
+        # bits - so nothing above it is ever written.
         life_base = _clamp((ctx.slot_data or {}).get("starting_hp",
                                                      LIFE_GAUGE_BASE),
-                           LIFE_GAUGE_BASE, LIFE_GAUGE_MAX)
+                           1, LIFE_GAUGE_HARD_MAX, default=LIFE_GAUGE_BASE)
         life_step = _clamp((ctx.slot_data or {}).get("heart_tank_value",
                                                      GAUGE_STEP),
-                           GAUGE_STEP, LIFE_GAUGE_MAX)
+                           0, LIFE_GAUGE_HARD_MAX, default=GAUGE_STEP)
         life_steps = got.get(names.HEART_TANK, 0) + got.get(names.LIFE_UP, 0)
-        life_target = min(LIFE_GAUGE_MAX, life_base + life_step * life_steps)
+        life_target = min(LIFE_GAUGE_HARD_MAX,
+                          life_base + life_step * life_steps)
         for offset in (OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO):
-            write(offset, max(save[offset], life_target), save[offset])
+            write(offset, life_target, save[offset])
 
         weapon_target = min(WEAPON_GAUGE_MAX,
                             WEAPON_GAUGE_BASE

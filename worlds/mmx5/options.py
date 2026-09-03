@@ -3,6 +3,71 @@ from dataclasses import dataclass
 from Options import (Choice, DefaultOnToggle, PerGameCommonOptions,
                      StartInventoryPool, Toggle)
 
+from . import palettes
+
+
+# ---- Player colours ---------------------------------------------------------
+# Cosmetic recolouring of the player sprites. Chosen here like every other
+# option and baked into the .apmmx5 when the seed is generated, so they appear
+# on the website generator, are validated at generation rather than failing
+# quietly at patch time, and land in the spoiler.
+#
+# They began as host.yaml-only settings, and player feedback was consistently
+# "why do I have to edit a file I have never opened". host.yaml still works,
+# but only as an OVERRIDE - see MMX5Settings and palettes.overrides() for why
+# `vanilla` there cannot mean "force vanilla".
+_PALETTE_DOC = """Recolour {subject}.
+
+    Cosmetic only - no logic, items or locations change, and two players in the
+    same multiworld can pick differently.
+
+    `vanilla` leaves it alone. `random` works as it does on any Archipelago
+    option: it is rolled when the seed is generated, so your colour is fixed
+    and appears in the spoiler rather than shifting under you. It picks from
+    the whole list, so it can land on vanilla.
+
+    Every repainted entry keeps its original brightness and takes only the
+    preset's hue and saturation, so shading and outlines survive. Faces and
+    skin are never repainted.{extra}
+
+    You do not need a new seed to change your mind: name a colour under
+    `mmx5_options` in your own host.yaml and re-patch. Anything named there
+    wins over this setting.
+    """
+
+
+def _palette_option(class_name: str, display_name: str, subject: str,
+                    extra: str = ""):
+    """Build one 19-value Choice: vanilla plus the eighteen presets.
+
+    Generated rather than hand-written so the option can never offer a preset
+    palettes.py does not have, or miss one it does.
+    """
+    namespace = {
+        "__doc__": _PALETTE_DOC.format(subject=subject, extra=extra),
+        "__module__": __name__,
+        "display_name": display_name,
+        "default": 0,
+    }
+    for value, key in enumerate(palettes.OPTION_KEYS):
+        namespace["option_" + key] = value
+    return type(class_name, (Choice,), namespace)
+
+
+XPalette = _palette_option(
+    "XPalette", "X Colour", "X's own armour",
+    "\n\n    The Fourth Armor has no setting of its own: it is drawn from X's"
+    "\n    palette, so this recolours it too.")
+ZeroPalette = _palette_option(
+    "ZeroPalette", "Zero Colour", "Zero",
+    "\n\n    Zero keeps his blond hair and his helmet crystal.")
+FalconPalette = _palette_option(
+    "FalconPalette", "Falcon Armor Colour", "the Falcon Armor")
+GaeaPalette = _palette_option(
+    "GaeaPalette", "Gaea Armor Colour", "the Gaea Armor")
+UltimatePalette = _palette_option(
+    "UltimatePalette", "Ultimate Armor Colour", "the Ultimate Armor")
+
 
 class Goal(Choice):
     """Victory condition.
@@ -511,4 +576,9 @@ class MMX5Options(PerGameCommonOptions):
     rematch_checks: RematchChecks
     reploid_checks: ReploidChecks
     dna_parts_in_pool: DNAPartsInPool
+    x_palette: XPalette
+    zero_palette: ZeroPalette
+    falcon_palette: FalconPalette
+    gaea_palette: GaeaPalette
+    ultimate_palette: UltimatePalette
 

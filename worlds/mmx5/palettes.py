@@ -51,6 +51,9 @@ logger = logging.getLogger()
 
 VANILLA = "vanilla"
 RANDOM = "random"
+# host.yaml only. The colour itself is a YAML option; this is the value that
+# means "I have not set an override here". See overrides().
+UNSET = "unset"
 
 # name -> (hue 0-1, saturation, value scale).  Fifteen hues plus three
 # achromatic schemes; closer hue steps stop reading as different colours once
@@ -77,6 +80,16 @@ PRESETS: dict[str, tuple[float, float, float]] = {
 }
 
 CHOICES: tuple[str, ...] = (VANILLA, RANDOM) + tuple(sorted(PRESETS))
+
+# What the YAML Choice option offers. RANDOM is deliberately NOT here:
+# Archipelago reserves "random" on every Choice and refuses to let a world
+# declare it (Options.py asserts on it), rolling it itself at generation
+# instead - which is exactly the behaviour wanted, and for free. It picks
+# among these values, so it can legitimately roll vanilla.
+#
+# CHOICES keeps RANDOM because host.yaml is plain text with no such handling,
+# so an override naming "random" is resolved by resolve() here.
+OPTION_KEYS: tuple[str, ...] = (VANILLA,) + tuple(sorted(PRESETS))
 
 # Each repainted region is its own light-to-dark ramp.
 X_RAMPS = (range(6, 11), range(11, 12), range(12, 16))   # trim, highlight, body
@@ -132,10 +145,44 @@ def recolour(stock: Iterable[int], preset: str, ramps) -> tuple:
     return tuple(out)
 
 
+def overrides(value) -> bool:
+    """Does this host.yaml value beat the colour baked into the seed?
+
+    ONLY a value naming a real colour does. `vanilla` deliberately does NOT,
+    and this is the load-bearing detail of the whole override design:
+    Archipelago materialises settings defaults into host.yaml, so every
+    install that has ever run this world already carries
+    `x_palette: "vanilla"` on disk. Honouring that as "force vanilla" would
+    silently revert the YAML choice of every existing player.
+
+    The cost, stated plainly because it is a real one: you cannot use
+    host.yaml to force vanilla back over a colour chosen in the YAML. Pick
+    vanilla in the YAML for that, or name a different colour here.
+    """
+    value = (value or UNSET).strip().lower()
+    return value == RANDOM or value in PRESETS
+
+
+def choose(seed_choice: dict, host_values: dict) -> dict:
+    """The colour to actually use for each target.
+
+    `seed_choice` is what the player's YAML baked into the patch; it is empty
+    for a patch generated before the colours were YAML options. `host_values`
+    is what their host.yaml holds. host.yaml wins wherever it names a real
+    colour - see overrides() for why `vanilla` there does not count.
+    """
+    out = {}
+    for target in TARGETS:
+        local = host_values.get(target)
+        out[target] = (local if overrides(local)
+                       else seed_choice.get(target, VANILLA))
+    return out
+
+
 def resolve(choice: str, rng) -> str:
     """Settings value -> a concrete preset name, or VANILLA for 'leave it'."""
     choice = (choice or VANILLA).strip().lower()
-    if choice in (VANILLA, "", "none", "off"):
+    if choice in (VANILLA, UNSET, "", "none", "off"):
         return VANILLA
     if choice == RANDOM:
         return rng.choice(sorted(PRESETS))

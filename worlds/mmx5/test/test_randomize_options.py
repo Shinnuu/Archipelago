@@ -133,7 +133,11 @@ class TestRandomizedOptionList(unittest.TestCase):
         # forced-scroll section. Gambling them would randomly TAKE AWAY
         # quality of life rather than vary the challenge, which is not what
         # this option is for.
-        excluded = {"start_inventory_from_pool", "randomize_options",
+        # The palettes are cosmetic, and each already offers `random` on its
+        # own for anyone who wants the dice.
+        excluded = {f"{t}_palette" for t in
+                    ("x", "zero", "falcon", "gaea", "ultimate")}
+        excluded |= {"start_inventory_from_pool", "randomize_options",
                     "endgame_checks", "rematch_checks", "reploid_checks",
                     "exit_stage_anytime", "water_stage_speed",
                     "progression_balancing", "accessibility",

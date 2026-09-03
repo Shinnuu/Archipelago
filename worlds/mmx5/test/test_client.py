@@ -103,6 +103,17 @@ def seed_edits_for(**overrides) -> list:
                "boss_damage": BossDamage}[key]
         opts[key] = cls(value)
 
+    # patch_rom resolves the cosmetic colours into the patch too, so the stub
+    # needs them to exist. Always vanilla here: no palette produces a seed
+    # edit - they are applied by content search when the patch is opened - so
+    # they cannot affect anything this helper is used to assert.
+    from ..options import (FalconPalette, GaeaPalette, UltimatePalette,
+                           XPalette, ZeroPalette)
+    for name, cls in (("x", XPalette), ("zero", ZeroPalette),
+                      ("falcon", FalconPalette), ("gaea", GaeaPalette),
+                      ("ultimate", UltimatePalette)):
+        opts.setdefault(f"{name}_palette", cls(0))
+
     captured = {}
 
     class FakePatch:

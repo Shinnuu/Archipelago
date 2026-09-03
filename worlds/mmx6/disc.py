@@ -344,6 +344,84 @@ DATA_EDIT_SITES: frozenset = frozenset(
 QOL_EDITS.update({nightmare_group_name(e): _nightmare_group(e)
                   for e in NIGHTMARE_EFFECTS})
 
+# ---- The endgame gate ---------------------------------------------------------
+# Issue -1 of the post-release register, and the durable fix the client-side
+# guard was always a stand-in for.
+#
+# Vanilla opens Gate's Lab on ANY of three conditions, and the decision is one
+# flag - a3 - computed at ROCK+0x0D6710:
+#
+#   lbu   v0, 0x60(a1)     the beaten-stage bitfield, 0x800CCF30
+#   xori  v0, v0, 0xFF
+#   sltiu a3, v0, 1        a3 = 1 IFF all eight bits set  <- condition 1
+#   lh    v0, 0xD2(a1)     Nightmare Souls, X
+#   slti  v0, v0, 3000
+#   beq   v0, zero, ...    >= 3000 -> force a3 = 1        <- condition 2
+#   lh    v0, 0xD4(a1)     Nightmare Souls, Zero
+#   slti  v0, v0, 3000
+#   ...
+#   lb    v0, 0x26(v1)
+#   slti  v0, v0, 19       -> force a3 = 1                <- condition 3
+#   ...
+#   lbu   v0, 0x66(a1)     the progress byte
+#   sltiu v0, v0, 3
+#   beq   a3, zero, ...    a3 == 0 -> no unlock
+#
+# Under `all_mavericks` only condition 1 should count. Conditions 2 and 3 are
+# switched off by raising the constant they compare against out of reach: a
+# Souls counter is a signed halfword the game caps far below 0x7FFF, so
+# `slti v0, v0, 0x7FFF` is always true and the "force a3" path is never taken.
+# a3 then falls back to the all-eight test alone.
+#
+# THIS IS DELIBERATELY NOT AN INJECTED HOOK. Every edit is one immediate, in
+# place, leaving the surrounding code shape identical - so there is no
+# free-space allocation, no trampoline, and above all no overlay-relative jump
+# target (the trap that makes the Tweaks patcher's own Fire payloads
+# uncopyable between overlay copies).
+#
+# What is deliberately NOT touched: the write of `2` at ROCK+0x0C24C0, and the
+# two save-LOAD routines at ROCK+0x0CBE2C and EXE+0x00C250. Those carry the
+# ordinary 0 -> 1 -> 2 progression and a save being read back; suppressing one
+# of them is the X5 blind-NOP mistake that softlocked an endgame. Of the nine
+# stores to the progress byte, exactly one writes 3 (ROCK+0x0C2594) and it is
+# downstream of the a3 flag, which is why the flag is the right place to act.
+#
+# CONFIDENCE, stated honestly and differently per site:
+#   * the seven Souls sites are CERTAIN - the comparison, the branch and the
+#     `addiu a3, zero, 1` it guards were all read off our own dump;
+#   * ROCK+0x0D6768 (condition 3, believed to be the High Max route) is
+#     INFERRED from control flow. What `save+0x26 >= 19` means is not
+#     established; what IS established is that the branch it drives is the
+#     third and last writer of a3. Note `slti ?, ?, 19` appears SIXTEEN times
+#     in ROCK - 19 is a common scene constant - so only this one may be
+#     touched, and a blanket edit would break unrelated code.
+ENDGAME_GATE_SOULS = 0x0BB8            # 3000
+ENDGAME_GATE_UNREACHABLE = 0x7FFF
+
+ENDGAME_GATE_EDITS: list = [
+    # (label, where, region, vanilla, patched)
+    ("souls unlock, X (copy A)", 0x0D6728, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("ff7f4228")),
+    ("souls unlock, Zero (copy A)", 0x0D673C, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("ff7f4228")),
+    ("souls unlock, X (copy B)", 0x18E598, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("ff7f4228")),
+    ("souls unlock, Zero (copy B)", 0x18E5AC, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("ff7f4228")),
+    ("High Max unlock path", 0x0D6768, REGION_ROCK,
+     bytes.fromhex("13004228"), bytes.fromhex("ff7f4228")),
+    # The "Gate revealed" cutscene, which is a SEPARATE trigger from the
+    # progress byte - it writes scene 19 straight out of a souls comparison.
+    # Left alone, the cutscene would still fire at 3000 souls on a disc whose
+    # gate stays shut, which is precisely the replay the bug report described.
+    ("gate cutscene on souls (a)", 0x8001E448, REGION_EXE,
+     bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
+    ("gate cutscene on souls (b)", 0x8001F194, REGION_EXE,
+     bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
+    ("gate cutscene on souls (c)", 0x800347D8, REGION_EXE,
+     bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
+]
+
 # ---- Boss HP ----------------------------------------------------------------
 # X6 stores a boss's life bar and its HP in the SAME byte, 0x800CCF5C, written
 # at boss init from an immediate in that boss's overlay code. That is why this

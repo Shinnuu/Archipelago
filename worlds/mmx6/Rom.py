@@ -248,6 +248,18 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     """
     seed_edits = list(disc.qol_edits(qol_features(world.options)))
 
+    # Issue -1: under `all_mavericks` the endgame must open on the eighth
+    # Maverick and on nothing else. Vanilla also opens it on 3000 Nightmare
+    # Souls or the High Max route, and the client cannot win that argument -
+    # it writes the byte shut and the game writes it open again on the next
+    # hub transition, which is the cutscene loop testers reported. Switched
+    # off on the disc instead, where the decision is actually made.
+    #
+    # NOT applied under the `sigma` goal: there, opening on souls is the
+    # game's own design and the seed is finishable either way.
+    if world.options.goal == world.options.goal.option_all_mavericks:
+        seed_edits += disc.ENDGAME_GATE_EDITS
+
     if world.options.boss_hp_randomization:
         # Rolled here rather than in generate_early because nothing outside
         # the disc image needs to know: no logic depends on boss health, and

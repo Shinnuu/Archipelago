@@ -227,7 +227,7 @@ def nightmare_groups(options) -> list[str]:
     into the table's own order so two seeds with the same set produce the same
     edit list, whatever order the YAML listed them in.
     """
-    wanted = set(options.disabled_nightmare_effects.value)
+    wanted = options.disabled_nightmare_effects.effects
     return [disc.nightmare_group_name(e) for e in disc.NIGHTMARE_EFFECTS
             if e in wanted]
 

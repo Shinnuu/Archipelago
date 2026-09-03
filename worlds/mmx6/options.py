@@ -253,11 +253,16 @@ class StageUnlocks(Toggle):
 class DisabledNightmareEffects(OptionSet):
     """Switch off individual Nightmare Effects.
 
-    List the ones you do not want. An empty list is vanilla and leaves the
-    disc byte-for-byte unchanged; listing all eight turns the Nightmare
-    Effects off entirely.
+    List the ones you do not want, in any combination. An empty list is
+    vanilla and leaves the disc byte-for-byte unchanged.
 
-    Valid names: Bug, Ice, Fire, Iron, Cube, Rain, Mirror, Dark.
+    Valid names: Bug, Ice, Fire, Iron, Cube, Rain, Mirror, Dark - or **all**
+    on its own, which is the same as naming every one of the eight. Case does
+    not matter, so `fire` and `Fire` both work.
+
+        disabled_nightmare_effects:      disabled_nightmare_effects:
+          - Fire                           - all
+          - Dark
 
     Each stage can be afflicted by exactly two of the eight, so disabling one
     does not clear a stage on its own - it leaves the other:
@@ -291,8 +296,30 @@ class DisabledNightmareEffects(OptionSet):
     turning them off changes nothing a seed depends on.
     """
     display_name = "Disabled Nightmare Effects"
-    valid_keys = ("Bug", "Ice", "Fire", "Iron", "Cube", "Rain", "Mirror",
-                  "Dark")
+
+    # Declared casefolded because AP compares casefolded input against
+    # valid_keys VERBATIM - so the keys themselves have to be lowercase for
+    # valid_keys_casefold to match anything. The upshot for a player is that
+    # Fire, fire and FIRE are all accepted, which matters for an option people
+    # type by hand.
+    ALL = "all"
+    EFFECTS = ("Bug", "Ice", "Fire", "Iron", "Cube", "Rain", "Mirror", "Dark")
+    valid_keys = (ALL,) + tuple(e.casefold() for e in EFFECTS)
+    valid_keys_casefold = True
+
+    @property
+    def effects(self) -> set:
+        """The effect names this selects, with `all` expanded.
+
+        Everything downstream reads THIS rather than `.value`, so `all` and
+        the eight-name list cannot diverge - and a plain `in` test on the
+        option would miss `all` entirely, which is the trap this exists to
+        close.
+        """
+        chosen = {v.casefold() for v in self.value}
+        if self.ALL in chosen:
+            return set(self.EFFECTS)
+        return {e for e in self.EFFECTS if e.casefold() in chosen}
 
 
 class ScaravichNoProgression(Toggle):

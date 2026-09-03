@@ -3,9 +3,14 @@
 
 ## Unreleased
 
-**New: `disabled_nightmare_effects`.** Switch Nightmare Effects off — name
-the ones you do not want, or list all eight. Empty is vanilla and leaves the
-disc byte-for-byte unchanged.
+**New: `disabled_nightmare_effects`.** Switch Nightmare Effects off. Name the
+ones you do not want in any combination, or just write `all`. Empty is vanilla
+and leaves the disc byte-for-byte unchanged. Case does not matter, so `fire`
+and `Fire` both work.
+
+    disabled_nightmare_effects:        disabled_nightmare_effects:
+      - Fire                             - all
+      - Dark
 
 Each stage can be afflicted by exactly two of the eight, so turning one off
 does not clear a stage on its own:

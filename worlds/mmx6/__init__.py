@@ -469,7 +469,10 @@ class MMX6World(World):
         # wall permanently open. Then there is nothing to trigger and nothing
         # to require: keeping the rule would only make fill more conservative
         # than the disc it is generating for.
-        fire_off = "Fire" in self.options.disabled_nightmare_effects
+        # .effects, not the option itself: a plain `in` test would say
+        # False for a seed that asked for `all`, quietly leaving the Fire
+        # requirement on a disc whose wall is patched open.
+        fire_off = "Fire" in self.options.disabled_nightmare_effects.effects
 
         def wolfang_wall(state) -> bool:
             if fire_off:

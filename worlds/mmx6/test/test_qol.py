@@ -55,7 +55,9 @@ class TestQoLData(unittest.TestCase):
         # The other half of the same guarantee: a group could be in QOL_EDITS
         # and named by nightmare_group_name while the option refuses the key.
         for effect in disc.NIGHTMARE_EFFECTS:
-            self.assertIn(effect, DisabledNightmareEffects.valid_keys)
+            self.assertIn(effect, DisabledNightmareEffects.EFFECTS)
+            self.assertIn(effect.casefold(),
+                          DisabledNightmareEffects.valid_keys)
 
     def test_every_option_exists_on_the_options_dataclass(self) -> None:
         fields = MMX6Options.type_hints
@@ -141,7 +143,7 @@ class TestQoLData(unittest.TestCase):
         # Everything on, including all eight effects.
         self.assertEqual(
             sorted(qol_features(_Options(
-                nightmare=DisabledNightmareEffects.valid_keys,
+                nightmare=[DisabledNightmareEffects.ALL],
                 **{o: 1 for o in QOL_OPTIONS}))),
             sorted(ALL_GROUPS))
 

@@ -83,8 +83,48 @@ class TestTheTableDecode(unittest.TestCase):
                          ["Fire", "Mirror"])
 
     def test_the_option_offers_exactly_these_eight(self) -> None:
-        self.assertEqual(sorted(DisabledNightmareEffects.valid_keys),
+        self.assertEqual(sorted(DisabledNightmareEffects.EFFECTS),
                          sorted(disc.NIGHTMARE_EFFECTS))
+
+
+class TestKeys(unittest.TestCase):
+    """How a player is allowed to name them."""
+
+    def _effects(self, *keys) -> set:
+        return DisabledNightmareEffects(set(keys)).effects
+
+    def test_nothing_named_is_nothing_disabled(self) -> None:
+        self.assertEqual(self._effects(), set())
+
+    def test_effects_can_be_named_individually(self) -> None:
+        self.assertEqual(self._effects("Fire"), {"Fire"})
+        self.assertEqual(self._effects("Fire", "Dark"), {"Fire", "Dark"})
+
+    def test_all_means_every_one_of_the_eight(self) -> None:
+        self.assertEqual(self._effects("all"),
+                         set(DisabledNightmareEffects.EFFECTS))
+        self.assertEqual(self._effects("all"), self._effects(
+            *DisabledNightmareEffects.EFFECTS))
+
+    def test_case_does_not_matter(self) -> None:
+        # This option is typed by hand into a YAML, so `fire` has to work.
+        self.assertEqual(self._effects("fire"), {"Fire"})
+        self.assertEqual(self._effects("FIRE"), {"Fire"})
+        self.assertEqual(self._effects("All"),
+                         set(DisabledNightmareEffects.EFFECTS))
+
+    def test_every_accepted_key_is_a_real_effect_or_all(self) -> None:
+        allowed = set(DisabledNightmareEffects.valid_keys)
+        self.assertEqual(
+            allowed,
+            {DisabledNightmareEffects.ALL}
+            | {e.casefold() for e in DisabledNightmareEffects.EFFECTS})
+
+    def test_a_typo_is_refused_rather_than_ignored(self) -> None:
+        from Options import OptionError
+        opt = DisabledNightmareEffects({"Flame"})
+        with self.assertRaises(OptionError):
+            opt.verify(None, "Player", None)
 
 
 class TestGroups(unittest.TestCase):
@@ -195,36 +235,75 @@ class TestAgainstTheDisc(unittest.TestCase):
             self.assertEqual(li, 0x24020003, hex(site))       # addiu v0,zero,3
 
 
-class TestFireRelaxesTheWallRule(MMX6TestBase):
-    options = {"stage_unlocks": True,
+# The nine locations Nightmare Fire gates: the Heart Tank, the EX Tank, and
+# seven of Wolfang's sixteen Reploids. Taken from the roster's own
+# consequences section, which is also where REPLOID_GATES came from.
+FIRE_GATED = ([names.heart_location(names.WOLFANG),
+               names.tank_location(names.WOLFANG)]
+              + [names.reploid_location(names.WOLFANG, n)
+                 for n in (4, 5, 6, 13, 14, 15, 16)])
+
+
+class _WallBase(MMX6TestBase):
+    """Reachability of the nine with Heatnix's Access Codes taken away.
+
+    Under `stage_unlocks` the Fire opener IS Heatnix's codes, so removing them
+    is what separates "the wall rule is doing something" from "everything was
+    reachable anyway".
+    """
+
+    def _reachable(self) -> dict:
+        state = self.multiworld.get_all_state()
+        for item in list(state.prog_items[1]):
+            if item == names.access_item(names.HEATNIX):
+                del state.prog_items[1][item]
+        state.sweep_for_advancements()
+        return {loc: self.multiworld.get_location(loc, 1).can_reach(state)
+                for loc in FIRE_GATED}
+
+
+class TestFireRelaxesTheWallRule(_WallBase):
+    options = {"stage_unlocks": True, "reploid_checks": True,
                "disabled_nightmare_effects": ["Fire"]}
 
-    def test_the_wolfang_wall_no_longer_needs_heatnix(self) -> None:
+    def test_all_nine_stop_needing_heatnix(self) -> None:
         # The wall is patched open on this disc, so requiring the opener would
         # only make fill more conservative than the game it generates for.
-        state = self.multiworld.get_all_state()
-        for item in list(state.prog_items[1]):
-            if item == names.access_item(names.HEATNIX):
-                del state.prog_items[1][item]
-        state.sweep_for_advancements()
-        self.assertTrue(
-            self.multiworld.get_location(
-                names.heart_location(names.WOLFANG), 1).can_reach(state))
+        # All NINE, not just the Heart Tank: the seven Reploids ride on the
+        # same rule through REPLOID_GATES' "wall" key, and a relaxation that
+        # reached the tanks but not them would be invisible here otherwise.
+        for loc, ok in self._reachable().items():
+            self.assertTrue(ok, f"{loc} still needs Heatnix")
 
 
-class TestFireOnKeepsTheWallRule(MMX6TestBase):
-    """The control. Without this, the test above proves nothing."""
-    options = {"stage_unlocks": True, "disabled_nightmare_effects": []}
+class TestAllAlsoRelaxesTheWallRule(_WallBase):
+    """`all` has to mean Fire too - a plain `in` test would miss it."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["all"]}
 
-    def test_the_wolfang_wall_still_needs_heatnix(self) -> None:
-        state = self.multiworld.get_all_state()
-        for item in list(state.prog_items[1]):
-            if item == names.access_item(names.HEATNIX):
-                del state.prog_items[1][item]
-        state.sweep_for_advancements()
-        self.assertFalse(
-            self.multiworld.get_location(
-                names.heart_location(names.WOLFANG), 1).can_reach(state))
+    def test_all_nine_stop_needing_heatnix(self) -> None:
+        for loc, ok in self._reachable().items():
+            self.assertTrue(ok, f"{loc} still needs Heatnix under `all`")
+
+
+class TestFireOnKeepsTheWallRule(_WallBase):
+    """The control. Without this, the two above prove nothing."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": []}
+
+    def test_all_nine_still_need_heatnix(self) -> None:
+        for loc, ok in self._reachable().items():
+            self.assertFalse(ok, f"{loc} was reachable without Heatnix")
+
+
+class TestAnotherEffectDoesNotRelaxIt(_WallBase):
+    """Turning off something that is not Fire must not open the wall."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["Mirror", "Dark"]}
+
+    def test_the_nine_still_need_heatnix(self) -> None:
+        for loc, ok in self._reachable().items():
+            self.assertFalse(ok, f"{loc} was opened by a non-Fire effect")
 
 
 class TestTheOptionIsReal(unittest.TestCase):

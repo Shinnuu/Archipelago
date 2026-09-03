@@ -96,8 +96,9 @@ has the details.
   that beats you to one costs you the rescue, never the item. This is belt and
   braces on purpose: the option is what lets you go back for it, and this is
   what makes sure a multiworld can never lose an item to it.
-- **`disabled_nightmare_effects` switches Nightmare Effects off, one at a
-  time or all eight.** Each stage can be afflicted by exactly two of the eight
+- **`disabled_nightmare_effects` switches Nightmare Effects off**, named one
+  at a time in any combination, or `all` for every one of them. Each stage can
+  be afflicted by exactly two of the eight
   (North Pole gets Fire or Mirror, Magma Area gets Bug or Iron, and so on), so
   turning one off does not clear a stage by itself. Turning **Fire** off also
   patches North Pole's ice wall permanently open, because that wall is what

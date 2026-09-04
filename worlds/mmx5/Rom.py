@@ -230,12 +230,41 @@ LAUNCH_ROLL_REGION = "launch overlay"
 # which is exactly backwards for a randomizer: the run is full of revisits for
 # a check you can now reach, and of entries into a stage you cannot yet finish.
 #
-# NOPping the SECOND branch is the whole feature - one word. The first branch
-# is deliberately left alone, and that is a safety decision, not laziness:
-# `(stage-1) < 8` already excludes the intro (stage 0) and the endgame stages
-# (0x0C/0x10/0x11). Leaving the intro early would strand ACT progression, and
-# leaving Zero Space is the business of the all_mavericks goal gate. Keeping
-# them out means this edit cannot interact with either.
+# NOPping the SECOND branch drops the "already beaten it" requirement. Until
+# 0.6.2 that was the whole edit, which left the FIRST branch deciding scope -
+# and `(stage-1) < 8` is a Maverick-stages-only test, so Exit Stage stayed
+# absent from the intro, the Enigma/Shuttle sorties, Sigma's stage and all of
+# Zero Space. A playtester hit that in Zero Space 2 and asked for it
+# everywhere.
+#
+# Widening it is one immediate rather than a second NOP, and the choice of
+# immediate is the safety argument. `$v0` here is `(stage - 1)` computed on a
+# ZERO-EXTENDED byte, so the intro (stage 0) underflows to 0xFFFFFFFF and
+# fails ANY unsigned compare. Raising the bound to 0x100 therefore admits
+# every real stage id (1..0x12) and keeps the intro out for free - no extra
+# test, no extra word. The intro has to stay out: leaving it early strands ACT
+# progression, and there is no stage select to come back to yet.
+#
+# ⚠️ KNOWN, ACCEPTED RISK IN ZERO SPACE - live-check before trusting a seed.
+# The EXE's stage-transition function `0x800205AC` carries an ACT ladder keyed
+# purely on the stage id you are LEAVING:
+#
+#   80020690  bne  $v1, 16, +2     ; leaving 0x10 (Zero Space 1)
+#   80020698  sb   $v0, 0x79($a2)  ;   -> ACT = 6
+#   800206A4  bne  $v0, 17, +4     ; leaving 0x11 (Zero Space 2)
+#   800206B0  sb   $v0, 0x79($a2)  ;   -> ACT = 7
+#   800206BC  bne  $v0, $a3, +2    ; leaving 0x12 (X vs Zero)
+#   800206C4  sb   $v0, 0x79($a2)  ;   -> ACT = 8
+#
+# and the hub picks the endgame destination from ACT (5 -> 0x10, 6 -> 0x11,
+# 7 -> 0x12, else 0x0C). The ladder is reached only when the stage-result byte
+# `0x800D1C0F` is positive (`0x800205D4`), and the pause handler never writes
+# that byte itself - so whether an ESCAPE reaches the ladder depends on which
+# result the escape path stores, which the vanilla game never exercises here
+# because vanilla cannot escape Zero Space at all. If it does reach it,
+# escaping a Zero Space stage advances past it and its endgame_checks location
+# becomes unreachable. Confirm live before this is trusted in a race seed; the
+# fix, if needed, is a second edit that suppresses the ladder on an escape.
 #
 # Derived from our own disassembly of the vanilla EXE. The MMX5 Improvement
 # Project Addendum documents a 12-word rewrite of the same routine; we take
@@ -244,6 +273,11 @@ EXIT_STAGE_ADDR = 0x80033480
 EXIT_STAGE_VANILLA = bytes.fromhex("03006010")    # beqz $v1, +3
 EXIT_STAGE_ALWAYS = bytes(4)                      # nop -> always available
 EXIT_STAGE_REGION = "SLUS exe"
+# The scope test above it. 8 -> 0x100: every stage id, intro still excluded by
+# the 0xFFFFFFFF underflow.
+EXIT_STAGE_RANGE_ADDR = 0x80033460
+EXIT_STAGE_RANGE_VANILLA = bytes.fromhex("0800422c")   # sltiu $v0, $v0, 8
+EXIT_STAGE_RANGE_ALL = bytes.fromhex("0001422c")       # sltiu $v0, $v0, 0x100
 
 # ---- Tidal Whale (Duff McWhalen) autoscroll ---------------------------------
 # The horizontal scroll speed of the water chase is a single 16-bit immediate:
@@ -496,11 +530,15 @@ def patch_rom(world: "MMX5World", patch: MMX5ProcedurePatch) -> None:
                                "region": TEXT_REGION})
 
     if world.options.exit_stage_anytime:
-        # One NOP over the "have you already beaten this stage's boss?"
-        # branch. The Maverick-stage range test above it is left intact, so
-        # the intro and the endgame stages stay excluded exactly as vanilla.
+        # Two words: a NOP over the "have you already beaten this stage's
+        # boss?" branch, and the scope test widened from Maverick-stages-only
+        # to every stage but the intro. See the ⚠️ note above the constants
+        # for the Zero Space caveat.
         seed_edits.append({"addr": EXIT_STAGE_ADDR,
                            "hex": EXIT_STAGE_ALWAYS.hex(),
+                           "region": EXIT_STAGE_REGION})
+        seed_edits.append({"addr": EXIT_STAGE_RANGE_ADDR,
+                           "hex": EXIT_STAGE_RANGE_ALL.hex(),
                            "region": EXIT_STAGE_REGION})
 
     if world.options.water_stage_speed:

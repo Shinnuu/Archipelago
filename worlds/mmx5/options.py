@@ -295,7 +295,7 @@ class StageUnlocks(Toggle):
 
 
 class ExitStageAnytime(DefaultOnToggle):
-    """Let you quit out of a Maverick stage you have not cleared yet.
+    """Let you quit out of a stage you have not cleared yet.
 
     Normally the pause menu only offers "Exit Stage" once you have already
     beaten that stage's boss, which is exactly backwards here: a randomized
@@ -303,8 +303,15 @@ class ExitStageAnytime(DefaultOnToggle):
     entries into a stage you cannot finish yet. Without this, leaving means
     dying repeatedly or clearing a stage you did not come for.
 
-    The intro stage and Zero Space are deliberately still excluded, the same
-    as vanilla - leaving those early has consequences for story progress.
+    Since 0.6.2 this covers every stage - the Maverick eight, the Enigma and
+    Shuttle sorties, Sigma's stage and Zero Space. Only the intro stays
+    excluded, because leaving it early strands your story progress and there
+    is no stage select to return to yet.
+
+    Note for Zero Space: leaving a Zero Space stage early may count as having
+    passed it, which would skip that stage and the check in it. If you are
+    playing a seed where that matters, clear Zero Space rather than escaping
+    out of it.
 
     Changes the disc.
     """

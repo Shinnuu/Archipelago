@@ -1,10 +1,30 @@
 # Mega Man X5 apworld changelog
 
-## 0.6.2 — 2026-09-03
+## 0.6.2 — 2026-09-04
 
-**No re-patch and no new seed.** This is a client fix only — the disc is
-unchanged, so an existing patched disc, an in-flight seed and your save all
-carry on. Replace the apworld and reconnect.
+**You need to re-patch.** This changes the disc. Generate a fresh `.apmmx5`,
+re-patch, and carry on — your save and any in-flight seed are unaffected. If
+you have lost your clean dump, `MMX5-Unpatcher.exe` on the release page will
+restore any patched disc.
+
+**Exit Stage now works in every stage.** It was only ever offered in the eight
+Maverick stages, because that is the range vanilla's own check uses and the
+randomizer had only removed vanilla's *other* condition — the one that made
+you beat the stage first. A playtester found the gap the obvious way, in Zero
+Space 2. It now covers the Enigma and Shuttle sorties, Sigma's stage and all
+of Zero Space as well.
+
+**The intro stage is still excluded**, and that one is deliberate: leaving it
+early strands your story progress, and there is no stage select to go back to
+yet.
+
+**One caution in Zero Space.** The game decides which Zero Space stage comes
+next from a counter it advances as you leave one, so escaping out of a Zero
+Space stage may count as having passed it — skipping that stage and the check
+inside it. Vanilla could never escape there, so this has no established
+behaviour to rely on. If you are in a seed where a Zero Space check matters,
+clear those stages rather than escaping out of them. The Maverick stages, the
+sorties and Sigma's stage are unaffected.
 
 **Fixed: with Stage Unlocks on, entering a stage could drop you into a
 different one.** Reported live — pick Squid Adler, back out at the character

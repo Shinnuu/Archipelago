@@ -1,4 +1,4 @@
-> Research notes mirrored from the mmx5-ap-research workspace (2026-09-03).
+> Research notes mirrored from the mmx5-ap-research workspace (2026-09-04).
 > Working copies live there and are updated as addresses are confirmed;
 > re-sync this mirror when they change. No game data included.
 
@@ -1415,3 +1415,60 @@ time, so the client can write a per-stage bitmap into EXE free space at stage
 entry, and the stub can index it with
 `(recptr - *(0x80072EAC + stage*8 + area*4)) / 8` — roughly six instructions,
 using a table the client already reads.
+
+## 9.17 The stage-transition function `0x800205AC` — the ACT ladder, and the stage-result byte `0x800D1C0F`
+
+Found 2026-09-04 while widening `exit_stage_anytime` past the eight Maverick
+stages. **This is the only place in the game that advances the Zero Space
+progress counter**, and its gate is the fact any future work here needs.
+
+Called from one site (`0x80020EC8`), `a2 = 0x800D1C00`:
+
+```
+800205D4  lb   $v1, 0xF($a2)     ; STAGE RESULT = 0x800D1C0F
+800205DC  beqz $v1, 0x80020838   ;   0        -> elsewhere
+800205E4  blez $v1, 0x80020794   ;   negative -> elsewhere
+800205EC  lb   $v1, 0xC($a2)     ; positive: stage id, and the ladder below
+...
+800205F4  bnez $v1, 0x8002061C   ; stage 0 (intro) ->
+80020604  sb   $v1, 0x79($a2)    ;   ACT = 1, and 0x1C00 = 0x13 (the hub)
+...
+8002062C  sltiu $v0, $v0, 8      ; (stage-1) < 8 -> the Maverick/chapter path
+80020630  beqz  $v0, 0x8002068C  ; otherwise the ENDGAME LADDER:
+80020698  sb   $v0, 0x79($a2)    ;   leaving 0x10 (Zero Space 1) -> ACT = 6
+800206B0  sb   $v0, 0x79($a2)    ;   leaving 0x11 (Zero Space 2) -> ACT = 7
+800206C4  sb   $v0, 0x79($a2)    ;   leaving 0x12 (X vs Zero)    -> ACT = 8
+```
+
+The ladder is keyed **purely on the stage id you are leaving** — there is no
+"did you actually clear it" test on this path; that decision has already been
+made, upstream, by whatever wrote `0x800D1C0F`. And the hub's confirm handler
+picks the endgame destination straight back out of ACT (5 → `0x10`, 6 → `0x11`,
+7 → `0x12`, else `0x0C`, §9.14), so ACT *is* Zero Space progress.
+
+**ACT (`0x800D1C79`) writers, enumerated:** two in the EXE (`0x8001C94C`,
+`0x8001CC78`) which are memory-card load marshalling — field-by-field copies
+out of the save buffer, `lbu 0x1(buf)` → `sb 0x79(0x800D1C00)` — plus this
+ladder. **The results overlay does not write ACT at all** (extracted from disc
+sector 24073 and scanned: five `lbu` at offset `0x79`, zero stores; extraction
+method verified by byte-matching the hub overlay's `0x800EEF14` against
+`ramdump_hub_f22905.bin`).
+
+### The open question, stated precisely
+
+`0x800D1C0F` is written from nine sites, none of them in the pause handler
+(`0x80033xxx` has no store at offset `0xF`), so an Exit Stage escape reaches
+the transition function through one of the existing setters — most plausibly
+`0x80023BE8` (`0x1C0F = 1` alongside `0x1C08 = 29`), which would put an escape
+on the *positive* path and therefore into the ladder. Note `0x1C0F` has a
+second, unrelated use as the boss-spawn "already beaten" flag
+(`0x8005702C`, overlay-findings:213) — do not read a single value of it as
+proof of one meaning.
+
+**Consequence, unresolved:** if an escape lands on the positive path, escaping
+a Zero Space stage advances ACT past it, permanently skipping that stage and
+its `endgame_checks` location. Vanilla cannot escape Zero Space (§ the pause
+handler's `(stage-1) < 8` scope test), so the game has no established
+behaviour here to appeal to. **Settle it live** — escape a stage and read
+`0x800D1C0F` on the way out — before treating widened Exit Stage as safe in a
+race seed. Shipped in 0.6.2 as a documented caution rather than a silent risk.

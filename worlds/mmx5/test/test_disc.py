@@ -274,17 +274,43 @@ class TestQoLDiscEdits(unittest.TestCase):
     exit-stage routine, ours is a single NOP over one branch.
     """
 
-    def test_exit_stage_edit_is_one_branch(self) -> None:
+    def test_exit_stage_edit_is_two_words(self) -> None:
         from worlds.mmx5 import Rom
         # Vanilla gates the button on TWO conditions:
-        #   80033464  beqz $v0 -> "not a Maverick stage"
-        #   80033480  beqz $v1 -> "this stage's boss not beaten yet"
-        # Only the second is NOPped. Leaving the first intact is what keeps
-        # the intro and the endgame stages excluded, so this edit cannot
-        # strand ACT progression or interfere with the all_mavericks gate.
+        #   80033460  sltiu $v0, $v0, 8  -> scope: Maverick stages only
+        #   80033480  beqz  $v1          -> "this stage's boss not beaten yet"
+        # The second is NOPped; the first has its bound widened rather than
+        # being removed, which is what still excludes the intro.
         self.assertEqual(Rom.EXIT_STAGE_ADDR, 0x80033480)
         self.assertEqual(Rom.EXIT_STAGE_ALWAYS, bytes(4))
         self.assertEqual(Rom.EXIT_STAGE_REGION, "SLUS exe")
+        self.assertEqual(Rom.EXIT_STAGE_RANGE_ADDR, 0x80033460)
+
+    def test_widened_scope_stays_an_sltiu_on_the_same_registers(self) -> None:
+        """A wrong opcode or register here would corrupt the pause handler."""
+        from worlds.mmx5 import Rom
+        for word_bytes in (Rom.EXIT_STAGE_RANGE_VANILLA, Rom.EXIT_STAGE_RANGE_ALL):
+            word = int.from_bytes(word_bytes, "little")
+            self.assertEqual(word >> 26, 0x0B, "must stay an sltiu")
+            self.assertEqual((word >> 21) & 0x1F, 2, "rs must be $v0")
+            self.assertEqual((word >> 16) & 0x1F, 2, "rt must be $v0")
+        self.assertGreater(
+            int.from_bytes(Rom.EXIT_STAGE_RANGE_ALL, "little") & 0xFFFF,
+            int.from_bytes(Rom.EXIT_STAGE_RANGE_VANILLA, "little") & 0xFFFF,
+            "the patched bound must be wider, not narrower")
+
+    def test_every_stage_but_the_intro_passes_the_widened_scope(self) -> None:
+        """$v0 is (stage - 1) on a zero-extended byte, so the intro underflows
+        to 0xFFFFFFFF and fails the unsigned compare with no extra test. That
+        underflow IS the intro exclusion - if the bound ever grows past
+        0xFFFFFFFF's reach, leaving the intro early becomes possible and
+        strands ACT progression."""
+        from worlds.mmx5 import Rom
+        bound = int.from_bytes(Rom.EXIT_STAGE_RANGE_ALL, "little") & 0xFFFF
+        self.assertFalse((0 - 1) & 0xFFFFFFFF < bound, "the intro must stay out")
+        for stage in (*range(1, 9), 0x09, 0x0A, 0x0C, 0x10, 0x11, 0x12):
+            self.assertTrue((stage - 1) < bound,
+                            f"stage {stage:#04x} should now offer Exit Stage")
 
     def test_whale_scroll_word_is_a_valid_ori(self) -> None:
         from worlds.mmx5 import Rom
@@ -333,6 +359,8 @@ class TestQoLEditsAgainstDisc(unittest.TestCase):
         for addr, region, want, label in (
             (Rom.EXIT_STAGE_ADDR, Rom.EXIT_STAGE_REGION,
              Rom.EXIT_STAGE_VANILLA, "exit-stage branch"),
+            (Rom.EXIT_STAGE_RANGE_ADDR, Rom.EXIT_STAGE_REGION,
+             Rom.EXIT_STAGE_RANGE_VANILLA, "exit-stage scope test"),
             (Rom.WHALE_SCROLL_ADDR, Rom.WHALE_SCROLL_REGION,
              Rom.WHALE_SCROLL_VANILLA, "whale autoscroll"),
         ):

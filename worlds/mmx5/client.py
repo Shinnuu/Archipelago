@@ -177,9 +177,27 @@ SLOT_TABLE_ANCHOR = bytes.fromhex("50504224")   # 0x24425050 LE
 # 0x800EFC98 stores the id BEFORE the zero test, so a blocked confirm leaves
 # 0x800D1C0C reading 0 while the player sits in the hub - a value vanilla never
 # writes there, and one that would be committed to the memory card by an
-# in-hub save. The client puts the hub's own id back; HUB_STAGE_ID is only the
-# fallback for "we have not seen a real one yet" (0x0D in every hub capture).
+# in-hub save. The client puts the hub's own id back: ALWAYS this constant,
+# never a value read back out of the game (0x0D in every hub capture).
 HUB_STAGE_ID = 0x0D
+# The hub's screen/phase pair, and the window in which putting 0x0D back is
+# safe. Disassembled from ramdump_hub_f22905.bin (ghidra-findings 9.14):
+# 0x800D1C01 picks the screen through the table at 0x800F5354 (dispatcher
+# 0x800F0C80), 0x800D1C02 the phase within it (dispatcher 0x800F10E0, table
+# 0x800F51B0). Screen 4 phase 0 is the stage-select CURSOR, the only code that
+# can park a 0 in 0x800D1C0C - and the confirm that starts a real entry moves
+# the phase off 0 on the same frame it writes the destination.
+#
+# That matters because the hub overlay stays resident for the whole zoom ->
+# character select -> load sequence, so the anchor alone does NOT mean "the
+# player is choosing a stage". Restoring outside this window overwrites a
+# destination the game has already latched but not yet read (it reads it at
+# phase 7, 0x800F101C), which sends the player to the wrong stage.
+HUB_STATE_ADDR = 0x0D1C01       # screen, phase, ... stage id at +0x0B
+HUB_STATE_LEN = 0x0C
+HUB_STATE_STAGE_ID = 0x0B       # index of 0x800D1C0C within that read
+STAGE_SELECT_SCREEN = 0x04
+STAGE_SELECT_PHASE = 0x00
 
 # Story ACT value Training mode stamps into the save struct (live-captured
 # 2026-08-03). The campaign uses a small range - 1 at intro victory, 5 at
@@ -845,11 +863,10 @@ class MMX5Client(BizHawkClient):
         self.armor_workaround_warned = False
         self.armor_setflags_pin = None
         self.tanks_withheld = 0         # bits held back this stage visit
-        # Stage unlocks: last slot table we wrote, the set of stages we have
-        # announced as unlocked, and the last real hub stage id seen.
+        # Stage unlocks: last slot table we wrote, and the set of stages we
+        # have announced as unlocked.
         self.slot_table_written = None
         self.stages_unlocked_logged = set()
-        self.hub_stage_id = None
         # Highest story ACT seen while the save read SANE. A high-water mark
         # rather than a live read, for two reasons: the all_mavericks goal
         # WRITES this byte (it holds the endgame shut by pushing ACT back below
@@ -1054,7 +1071,7 @@ class MMX5Client(BizHawkClient):
             # same stage id (re-entering a stage recomputes 0x1CA2).
             self.boss_hp_stage = None
 
-    async def _stage_unlocks_apply(self, ctx, cur_stage_id: int) -> None:
+    async def _stage_unlocks_apply(self, ctx) -> None:
         """Zero the hub's slot -> stage-id entries for stages not yet unlocked.
 
         Re-asserted every cycle rather than once: the table is overlay data,
@@ -1065,9 +1082,15 @@ class MMX5Client(BizHawkClient):
         if not (ctx.slot_data or {}).get("stage_unlocks", 0):
             return
         try:
-            anchor, table = await bizhawk.read(ctx.bizhawk_ctx, [
+            anchor, table, hub_state = await bizhawk.read(ctx.bizhawk_ctx, [
                 (SLOT_TABLE_ANCHOR_ADDR, len(SLOT_TABLE_ANCHOR), "MainRAM"),
                 (SLOT_TABLE_ADDR, len(SLOT_TO_STAGE), "MainRAM"),
+                # Screen, phase and stage id, read HERE rather than taken from
+                # the poll's opening read: everything in between is a round
+                # trip to the emulator, and deciding to write this byte from a
+                # sample that old is what let a restore land on top of a
+                # destination the player had chosen since.
+                (HUB_STATE_ADDR, HUB_STATE_LEN, "MainRAM"),
             ])
         except bizhawk.RequestFailedError:
             return
@@ -1084,9 +1107,31 @@ class MMX5Client(BizHawkClient):
         want = bytes(sid if names.access_item(STAGE_ID_TO_NAME[sid]) in unlocked
                      else 0
                      for sid in SLOT_TO_STAGE)
+        writes = []
         if bytes(table) != want:
-            await bizhawk.write(ctx.bizhawk_ctx,
-                                [(SLOT_TABLE_ADDR, list(want), "MainRAM")])
+            writes.append((SLOT_TABLE_ADDR, list(want), "MainRAM"))
+
+        # A blocked confirm leaves 0x800D1C0C = 0 (the store at 0x800EFC98
+        # happens before the game's own zero test). Vanilla never leaves 0
+        # there, and an in-hub save would commit it to the memory card, so put
+        # the hub's own id back.
+        #
+        # Only ever 0 -> 0x0D, and only while the stage-select cursor is the
+        # live screen, so this can never overwrite a real destination the game
+        # just chose. Both halves are load-bearing, and the older code had
+        # neither: it restored the last stage id it had SEEN, which after a
+        # confirm is the stage the player picked rather than the hub, and it
+        # decided from the poll's opening read. Pick a stage, back out at the
+        # character select, confirm a locked icon, then enter a different
+        # stage - and the restore wrote the first stage back over the second.
+        if (hub_state[0] == STAGE_SELECT_SCREEN
+                and hub_state[1] == STAGE_SELECT_PHASE
+                and hub_state[HUB_STATE_STAGE_ID] == 0):
+            writes.append((0x0D1C0C, [HUB_STAGE_ID], "MainRAM"))
+
+        if writes:
+            await bizhawk.write(ctx.bizhawk_ctx, writes)
+
         if self.slot_table_written != want:
             self.slot_table_written = want
             newly = unlocked - self.stages_unlocked_logged
@@ -1095,16 +1140,6 @@ class MMX5Client(BizHawkClient):
                 logger.info(f"MMX5: stages unlocked ({len(unlocked)}/8): "
                             + ", ".join(sorted(
                                 n.removesuffix(" Access Codes") for n in unlocked)))
-
-        # A blocked confirm leaves 0x800D1C0C = 0 (the store at 0x800EFC98
-        # happens before the game's own zero test). Vanilla never leaves 0
-        # there, and an in-hub save would commit it to the memory card, so put
-        # the hub's own id back.
-        if cur_stage_id:
-            self.hub_stage_id = cur_stage_id
-        else:
-            await bizhawk.write(ctx.bizhawk_ctx, [(
-                0x0D1C0C, [self.hub_stage_id or HUB_STAGE_ID], "MainRAM")])
 
     async def _live_weapons_apply(self, ctx, save: bytes, in_gameplay: bool) -> None:
         """Mirror granted weapons into the LIVE bitfield so they work now.
@@ -1589,7 +1624,7 @@ class MMX5Client(BizHawkClient):
             # skip: the table is overlay data and reloads vanilla on the next
             # hub entry, so bailing out never leaves a stage stuck shut. ----
             if save_sane:
-                await self._stage_unlocks_apply(ctx, cur_stage_id)
+                await self._stage_unlocks_apply(ctx)
 
             # ---- Live weapon mirror, and handing cleared stages their
             # capsules back. Both are conveniences layered on state that is

@@ -288,16 +288,53 @@ class TestStageUnlockWrites(unittest.IsolatedAsyncioTestCase):
         # 0x800EFC98 stores the id BEFORE the game's zero test, so confirming a
         # locked icon parks 0 in 0x800D1C0C - a value vanilla never writes, and
         # one an in-hub save would commit to the memory card.
-        client = MMX5Client()
-        client.hub_stage_id = 0x0D
         ctx = await run_watcher(make_save(max_hp=0x20, intro=2, weapons=1),
                                 mode=0x13, stage_id=0x00, hub_resident=True,
-                                client=client, ctx=self._ctx())
+                                client=MMX5Client(), ctx=self._ctx())
         restored = [w[1][0] for w in ctx.writes if w[0] == 0x0D1C0C]
-        self.assertEqual(restored, [0x0D])
+        self.assertEqual(restored, [c.HUB_STAGE_ID])
 
     async def test_real_stage_id_is_left_alone(self) -> None:
         ctx = await run_watcher(make_save(max_hp=0x20, intro=2, weapons=1),
                                 mode=0x13, stage_id=0x0D, hub_resident=True,
                                 client=MMX5Client(), ctx=self._ctx())
         self.assertEqual([w for w in ctx.writes if w[0] == 0x0D1C0C], [])
+
+    async def test_restore_is_confined_to_the_stage_select_cursor(self) -> None:
+        # Reported live: pick Squid Adler, back out at the character select,
+        # then enter Mattrex - and the game loaded Squid Adler.
+        #
+        # The hub overlay stays resident through the zoom, the character
+        # select and the load, so the anchor is still present for all of it,
+        # and 0x800D1C0C is not READ until the last of those phases
+        # (0x800F101C). A restore that fires anywhere in that window
+        # overwrites the destination the confirm just wrote. Only the cursor
+        # phase can park a 0 there, so only the cursor phase may write.
+        for screen, phase, what in (
+                (c.STAGE_SELECT_SCREEN, 1, "zoom into the stage"),
+                (c.STAGE_SELECT_SCREEN, 5, "character select"),
+                (c.STAGE_SELECT_SCREEN, 7, "hub exit, id about to be read"),
+                (c.STAGE_SELECT_SCREEN, 9, "backing out"),
+                (0x03, 2, "the icon reveal, before the cursor screen")):
+            with self.subTest(what):
+                ctx = await run_watcher(
+                    make_save(max_hp=0x20, intro=2, weapons=1),
+                    mode=0x13, stage_id=0x00, hub_resident=True,
+                    hub_screen=screen, hub_phase=phase,
+                    client=MMX5Client(), ctx=self._ctx())
+                self.assertEqual(
+                    [w for w in ctx.writes if w[0] == 0x0D1C0C], [])
+
+    async def test_restore_never_writes_a_stage_it_has_seen(self) -> None:
+        # The old code restored the last non-zero id it had read, which after
+        # a confirm is the stage the PLAYER picked - so a blocked confirm
+        # parked a Maverick stage id in the byte instead of the hub's. It is a
+        # constant now, and nothing the client reads can change it.
+        client = MMX5Client()
+        for stage_id in (c.STAGE_ID_BY_NAME[names.KRAKEN], 0x00):
+            ctx = await run_watcher(make_save(max_hp=0x20, intro=2, weapons=1),
+                                    mode=0x13, stage_id=stage_id,
+                                    hub_resident=True, client=client,
+                                    ctx=self._ctx(names.KRAKEN))
+        restored = [w[1][0] for w in ctx.writes if w[0] == 0x0D1C0C]
+        self.assertEqual(restored, [c.HUB_STAGE_ID])

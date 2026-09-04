@@ -1,5 +1,30 @@
 # Mega Man X5 apworld changelog
 
+## 0.6.2 — 2026-09-03
+
+**No re-patch and no new seed.** This is a client fix only — the disc is
+unchanged, so an existing patched disc, an in-flight seed and your save all
+carry on. Replace the apworld and reconnect.
+
+**Fixed: with Stage Unlocks on, entering a stage could drop you into a
+different one.** Reported live — pick Squid Adler, back out at the character
+select, then enter Mattrex, and the game loaded Squid Adler.
+
+The stage select writes your destination into memory the moment you confirm,
+and the game does not read it back until the loading screen. In between sits
+the zoom, the character select and the back-out, and the randomizer was
+writing into that byte during all of it. It had one legitimate reason to:
+confirming a locked stage leaves a value there the game never writes itself,
+and the randomizer puts a sane one back. But it was putting back *the last
+stage it had seen you choose* rather than the hub, and it was deciding to do
+so from a reading taken a fraction of a second earlier — so a stage you picked
+before could land on top of the one you had just picked.
+
+It now writes only while you are actually on the stage-select cursor, only the
+hub's own value, and only after checking that the byte still needs it. Nothing
+about how Stage Unlocks plays has changed; locked stages still do nothing on
+confirm, exactly as before.
+
 ## 0.6.1 — 2026-09-03
 
 **Player colours are YAML options now.** They were settings in `host.yaml`,

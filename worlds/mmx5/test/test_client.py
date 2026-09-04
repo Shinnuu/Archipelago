@@ -169,10 +169,18 @@ async def run_watcher(save: bytes, mode: int = 0x0A, stage_id: int = 0,
                       player_hp: int = 0x20,
                       player_x: int = 0,
                       player_y: int = 0,
+                      hub_screen: int = mmx5_client.STAGE_SELECT_SCREEN,
+                      hub_phase: int = mmx5_client.STAGE_SELECT_PHASE,
                       settled: bool = True) -> FakeContext:
     """`hub_resident` makes the stage-select slot table's instruction anchor
     read as present, so the stage-unlock writer engages; `slot_table` seeds what
     that table currently holds (defaults to the vanilla ids).
+
+    `hub_screen`/`hub_phase` are 0x800D1C01/0x800D1C02, and default to the
+    stage-select cursor - what `hub_resident=True` has always meant here. The
+    hub overlay stays resident well past that screen, though, so pass them
+    explicitly to model a player who has confirmed a stage and is on the way
+    into it.
 
     `patch_probe` overrides the AP-patch probe reply. It defaults to PATCHED,
     which is what normal play looks like - but that default also meant no test
@@ -196,6 +204,8 @@ async def run_watcher(save: bytes, mode: int = 0x0A, stage_id: int = 0,
     # The mode read covers 0x0D1C00..0x0D1C0F: mode at +0, stage id at +0x0C.
     mode_block = bytearray(0x10)
     mode_block[0] = mode
+    mode_block[0x01] = hub_screen
+    mode_block[0x02] = hub_phase
     mode_block[0x0C] = stage_id
 
     # Dispatch on the requested ADDRESS, not the request count - the main
@@ -234,6 +244,11 @@ async def run_watcher(save: bytes, mode: int = 0x0A, stage_id: int = 0,
         mmx5_client.SLOT_TABLE_ADDR: (
             slot_table if slot_table is not None
             else bytes(mmx5_client.SLOT_TO_STAGE)),
+        # Screen/phase/stage id, re-read inside _stage_unlocks_apply. Sliced
+        # out of the same block the main cycle reads, so a test cannot set the
+        # two to disagree.
+        mmx5_client.HUB_STATE_ADDR: bytes(
+            mode_block[0x01:0x01 + mmx5_client.HUB_STATE_LEN]),
     }
 
     async def fake_read(_ctx, requests):

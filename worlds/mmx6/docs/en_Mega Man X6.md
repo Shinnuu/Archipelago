@@ -233,14 +233,12 @@ when the patch is opened — the setup guide explains how.
   and weapon gauge and the game normally keeps them in step through its own
   pickup routine, which an Archipelago grant does not go through. The client
   writes both, so playing as Zero gets you everything the seed has sent.
-- **Your life stops at 64, vanilla's full bar.** `starting_hp` and
-  `heart_tank_value` decide how you get there, but not how far past it you go:
-  the bar only has artwork up to 64, and beyond that it drew wrong rather than
-  longer. So a `heart_tank_value` above 2 fills the bar *sooner* — at 3 you are
-  full on the 11th of the 16 upgrades — and the upgrades after that still send
-  their check, they just stop moving the bar. Starting *below* 32 is still
-  allowed; the bar looks odd there too, but that is a difficulty choice you can
-  see from the first frame.
+- **The life bar's artwork covers 32 to 64.** Your life can go from 1 to 127
+  and all of it plays. Below 32 the bar used to draw the wrong sprites
+  entirely; it now stops shrinking at its smallest real size instead, so a
+  low-life run looks right. Above 64 the bar runs on past the end of its own
+  frame, the way most games in this genre do. Heart Tanks and Life Ups raise
+  your maximum and grow the bar as normal in every case.
 - **Checks appear a few seconds after a boss dies**, not instantly — the game
   commits the kill at the Mission Report, a little after gameplay ends.
 - **Use a fresh save file, and patch your disc.** The client works out what you

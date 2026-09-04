@@ -287,6 +287,11 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     # first frame rather than after the first client poll.
     seed_edits += disc.starting_life_edits(world.options.starting_hp.value)
 
+    # A starting life below 32 puts the bar's frame index beneath its own
+    # artwork, where other HUD sprites live. Floor it, but only for the seeds
+    # that can reach there - see disc.life_bar_edits.
+    seed_edits += disc.life_bar_edits(world.options.starting_hp.value)
+
     # Hunter Rank buys Part slots, and Souls buy Rank - per character, so a
     # run played as X leaves Zero unable to equip anything. One table edit
     # makes the chosen rank free for both.

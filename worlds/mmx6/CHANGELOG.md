@@ -17,25 +17,19 @@ randomized**, which is already true of the other twelve bosses.
 regenerating; the roll it made was always fine, only the way it was written
 was not.
 
-**Fixed: the life bar drew wrong once your maximum life passed 64.** The bar
-is two pieces — a frame with seventeen sizes covering 32 to 64, and a fill
-drawn one notch per point of life. Past 64 the frame stopped growing and the
-fill did not, so it ran off the end of its own container. Life is now capped
-at **64**, vanilla's full bar. `starting_hp` stops at 64 instead of 127, and
-`heart_tank_value` above 2 now fills the bar *sooner* rather than past the
-end — at 3 you are full on the 11th of the 16 upgrades, at 4 on the 9th, at 8
-on the 5th. Every check still exists and still sends; the later ones just
-stop moving the bar. Once you are at 64 nothing can push past it, including
-walking over a Heart Tank in your own game.
+**Fixed: a starting life below 32 drew the wrong sprites.** The life bar picks
+its picture from a list, and below a gauge of 32 it was indexing past the
+start of that list into other pieces of the HUD — a stray panel, a misplaced
+life count, and at very low values the whole top-left display vanishing. It
+played fine and it healed itself once you collected enough upgrades to get
+back over 32, which is why one report described it as fixing itself. Now the
+bar simply stops shrinking at its smallest real size. **Re-patch for this** —
+it changes the disc, and only for seeds that start below 32; every other seed
+is byte-identical.
 
-**If you already have a seed with `starting_hp` above 64**, the client brings
-that save down to 64 the next time it connects. You lose the life above 64 —
-which was never visible on the bar anyway — and the bar draws correctly from
-then on. No re-generation, no re-patch.
-
-Starting life *below* 32 is unchanged and still allowed: the bar looks odd
-there too, but you see it on the first frame of the run and it is exactly
-what you asked for.
+Above 64 is unchanged and deliberately so: the bar runs on past the end of its
+own frame, the way most games in this genre draw a bar past its vanilla
+maximum.
 
 
 ## 0.3.0 — 2026-09-03

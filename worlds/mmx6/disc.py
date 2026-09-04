@@ -531,31 +531,127 @@ def rank_threshold_edits(rank: str) -> list:
 # is the low seven bits of player+0x5C with 0x80 as a hit/heal flag. 128 and
 # up read as negative.
 #
-# 64 is OUR ceiling and it is smaller, because 127 draws wrong. The bar's
-# frame is a SPRITE INDEX, (gauge - 32) / 2 + 0x88 capped at 0x98
-# (0x8002497C) - seventeen frames covering 32..64 and nothing else - while
-# the FILL is drawn separately, one unit per point of CURRENT hp from a fixed
-# anchor (0x80024F80). Above 64 the frame stops growing and the fill does
-# not, so it spills past the end of its own container. Reported from live
-# play on 0.3.0. Making the two agree at a higher maximum needs new frame
-# entries, not a bigger number - see the feature backlog.
+# What the bar DRAWS is a separate question and the full 1..127 is allowed.
+# The frame is a SPRITE INDEX, (gauge - 32) / 2 + 0x88 capped at 0x98
+# (0x8002497C) - seventeen sizes covering 32..64 - while the FILL is drawn
+# separately, one notch per point of CURRENT hp from a fixed anchor
+# (0x80024F80). So above 64 the frame stops growing and the fill runs on past
+# its end, which is how most games in this genre draw a bar past its vanilla
+# maximum and is accepted here. BELOW 32 is the half that genuinely misdraws:
+# the index drops beneath the artwork and picks up other HUD sprites. That is
+# open - see the issue register, entry 13.
 STARTING_LIFE_SITE = 0x8001E098
 STARTING_LIFE_VANILLA = 32
 LIFE_GAUGE_HARD_MAX = 127                 # the game's ceiling
-LIFE_GAUGE_DRAWN_MAX = 64                 # the last one the bar has art for
+LIFE_GAUGE_DRAWN_MAX = 64                 # the last size the frame has art for
 _STARTING_LIFE_WORD = 0x24030000          # addiu v1, zero, imm
 
 
 def starting_life_edits(value: int) -> list:
     """The one edit that changes what a new save starts with, or nothing."""
-    if not 1 <= value <= LIFE_GAUGE_DRAWN_MAX:
+    if not 1 <= value <= LIFE_GAUGE_HARD_MAX:
         raise ValueError(
-            f"starting life {value} is outside 1..{LIFE_GAUGE_DRAWN_MAX}")
+            f"starting life {value} is outside 1..{LIFE_GAUGE_HARD_MAX}")
     if value == STARTING_LIFE_VANILLA:
         return []
     return [("starting life gauge (new game)", STARTING_LIFE_SITE, REGION_EXE,
              (_STARTING_LIFE_WORD | STARTING_LIFE_VANILLA).to_bytes(4, "little"),
              (_STARTING_LIFE_WORD | value).to_bytes(4, "little"))]
+
+
+# ---- The life bar's low end -------------------------------------------------
+# Below a gauge of 32 the bar draws OTHER HUD SPRITES. The frame is a sprite
+# index, `(gauge - 32) / 2 + 0x88` clamped only at the TOP (0x8002497C, second
+# copy 0x80024C68), so a gauge under 32 indexes beneath the artwork - and what
+# sits there is not shorter bars, it is other HUD elements. Confirmed by
+# looking, 2026-09-04: at gauge 30 (index 0x87) a horizontal cyan bar appears
+# across the screen, at 16 (0x80) a blue panel with text, at 1 the whole
+# top-left group vanishes. There is no frame shorter than the 32 one.
+#
+# Reported from live play on 0.3.0 as "wrong sprites in every stage". It
+# corrects itself as received upgrades raise the gauge over 32, which is why
+# the same run later reported the bar as fine.
+#
+# THE FIX is to floor the index at 0x88 so the shortest real frame is the
+# worst case. That cannot be done in place: the block is
+#
+#   addiu v0, v0, -32      sub, then a signed /2 done as srl/addu/sra, then
+#   srl   v1, v0, 31       + 0x88, then the top clamp - nine instructions in
+#   addu  v0, v0, v1       nine slots
+#   sra   v0, v0, 1
+#   addiu s3, v0, 136
+#
+# and clamping needs FOUR operations (sra/nor/and to floor at zero, then the
+# shift) where the rounding trio needs three. One instruction over, at both
+# sites. So each site jumps to a six-word hook in the free block at
+# 0x800769xx - the same `CodeIndex` space acediez's Tweaks patcher injects
+# into, which is why we know it is free code space rather than merely zero.
+#
+# The delay slot of the outgoing jump is the vanilla `srl v1, v0, 31`, which
+# only writes v1 and is harmless; the hook recomputes from v0, still the
+# gauge. The return jump's delay slot does the shift, so nothing is wasted.
+#
+# Above 64 NOTHING CHANGES: the top clamp is untouched and the fill still runs
+# past the end of the frame, which is how the genre draws a bar past its
+# vanilla maximum and is what players expect.
+#
+# What this does NOT do: make a low maximum read as FULL. The shortest frame
+# holds 32, so a max of 8 draws a 32-capacity bar with 8 in it. Fixing that
+# means scaling the FILL as well (0x80024F80 draws `anchor - current`, one
+# notch per point, with no divisor to change), which is a second hook.
+LIFE_BAR_HOOK = 0x800769E0          # free CodeIndex space; 418 zero bytes here
+LIFE_BAR_VANILLA_SUB = 0x2442FFE0   # addiu v0, v0, -32 - the word each site has
+
+# (label, site patched with the jump, address the hook returns to)
+LIFE_BAR_SITES: list[tuple[str, int, int]] = [
+    ("life bar frame (X/Zero HUD)", 0x80024984, 0x80024994),
+    ("life bar frame (second copy)", 0x80024C70, 0x80024C80),
+]
+
+_LIFE_BAR_BODY = (
+    0x2442FFE0,     # addiu v0, v0, -32     x = gauge - 32
+    0x00021FC3,     # sra   v1, v0, 31      -1 if x < 0 else 0
+    0x00601827,     # nor   v1, v1, zero    0 if x < 0 else -1
+    0x00431024,     # and   v0, v0, v1      max(x, 0)  <- the floor
+    None,           # j     <return>        filled in per site
+    0x00021043,     # sra   v0, v0, 1       DELAY SLOT: the /2
+)
+
+
+def _life_bar_jump(target: int) -> int:
+    """`j target` - the region-relative jump both sites use.
+
+    Named at length because a bare `_j` is CLOBBERED by the ECC table
+    builder further down this file, which uses `_j` as a module-level loop
+    variable. That shadowing is silent and the failure is a TypeError at
+    patch time.
+    """
+    return (0x02 << 26) | ((target >> 2) & 0x03FFFFFF)
+
+
+def life_bar_edits(starting_life: int) -> list[tuple[str, int, str, bytes, bytes]]:
+    """Floor the life bar's frame index at 0x88, or nothing.
+
+    Only emitted when the seed can actually go below 32. The gauge is
+    `starting_hp + step * upgrades received` and upgrades only add, so a seed
+    starting at 32 or above never reaches the broken range and gets a
+    byte-identical disc.
+    """
+    if starting_life >= 32:
+        return []
+    out: list[tuple[str, int, str, bytes, bytes]] = []
+    hook = LIFE_BAR_HOOK
+    for label, site, ret in LIFE_BAR_SITES:
+        out.append((label, site, REGION_EXE,
+                    LIFE_BAR_VANILLA_SUB.to_bytes(4, "little"),
+                    _life_bar_jump(hook).to_bytes(4, "little")))
+        body = b"".join(
+            (_life_bar_jump(ret) if w is None else w).to_bytes(4, "little")
+            for w in _LIFE_BAR_BODY)
+        out.append((f"{label} hook", hook, REGION_EXE,
+                    bytes(len(body)), body))          # free space: expect zeros
+        hook += len(body)
+    return out
 
 
 # ---- Boss HP ----------------------------------------------------------------

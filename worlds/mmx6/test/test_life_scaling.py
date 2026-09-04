@@ -28,7 +28,7 @@ import unittest
 
 from .. import names
 from .. import disc
-from ..client import (GAUGE_STEP, LIFE_GAUGE_BASE,
+from ..client import (GAUGE_STEP, LIFE_GAUGE_BASE, LIFE_GAUGE_HARD_MAX,
                       LIFE_GAUGE_MAX, OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO,
                       OFF_WEAPON_GAUGE, OFF_WEAPON_GAUGE_ZERO, SAVE_BASE,
                       SAVE_LEN, WEAPON_GAUGE_BASE, MMX6Client, _clamp)
@@ -104,26 +104,20 @@ class TestStartingHp(unittest.TestCase):
         self.assertEqual(life([names.HEART_TANK], {"starting_hp": 48}),
                          48 + GAUGE_STEP)
 
-    def test_upgrades_saturate_at_the_vanilla_maximum(self) -> None:
-        # 64 is the last gauge the bar has a frame for, so it is the ceiling
-        # even though the gauge itself would hold 127. Starting AT 64, eight
-        # more tanks change nothing - they do not relapse into the misdraw.
+    def test_upgrades_carry_past_the_vanilla_maximum(self) -> None:
+        # 64 is vanilla's ceiling, not the game's. Past it the bar overflows
+        # its own frame, which is accepted rather than capped - a 64 cap was
+        # tried on 2026-09-03 and reverted the next day.
         got = life([names.HEART_TANK] * 8, {"starting_hp": 64})
-        self.assertEqual(got, LIFE_GAUGE_MAX)
+        self.assertEqual(got, 80)
 
-    def test_nothing_is_ever_written_past_the_drawable_maximum(self) -> None:
-        # The write is absolute, so a huge step or a huge floor lands on 64
-        # and stays there rather than climbing past the artwork.
+    def test_nothing_is_ever_written_past_the_hard_maximum(self) -> None:
+        # Signed byte on every read, seven-bit current HP: 128 goes negative.
         got = life([names.HEART_TANK] * 16, {"starting_hp": 120,
                                                "heart_tank_value": 16})
-        self.assertEqual(got, LIFE_GAUGE_MAX)
+        self.assertEqual(got, LIFE_GAUGE_HARD_MAX)
         self.assertEqual(life(slot_data={"starting_hp": 127}),
-                         LIFE_GAUGE_MAX)
-
-    def test_a_seed_generated_before_the_cap_is_brought_down(self) -> None:
-        # An 0.3.0 seed still carries starting_hp: 100 in its slot data. That
-        # player's save is moved to 64 on connect, not left drawing wrong.
-        self.assertEqual(life(slot_data={"starting_hp": 100}), LIFE_GAUGE_MAX)
+                         LIFE_GAUGE_HARD_MAX)
 
     def test_below_vanilla_is_written(self) -> None:
         # The whole point. The disc starts a new save here; the client keeps
@@ -135,27 +129,24 @@ class TestStartingHp(unittest.TestCase):
         # A save made at vanilla 32 (or that collected tanks whose items went
         # elsewhere) is brought to what the seed says, not left where it is.
         self.assertEqual(life(slot_data={"starting_hp": 8}, current=40), 8)
-        self.assertEqual(life(slot_data={"starting_hp": 64}, current=40), 64)
+        self.assertEqual(life(slot_data={"starting_hp": 100}, current=40), 100)
 
     def test_a_vanilla_pickups_plus_two_is_taken_back(self) -> None:
         # Walking over a Heart Tank raised the save to 34 locally. No item has
         # arrived, so the gauge is what the seed says: 32.
         self.assertEqual(life(current=LIFE_GAUGE_BASE + 2), LIFE_GAUGE_BASE)
 
-    def test_the_cap_cannot_be_walked_past_at_the_top(self) -> None:
-        # The relapse case. A save already at 64 whose player walks over a
-        # Heart Tank: vanilla's own +2 puts 66 in the byte, which is one past
-        # the last frame the bar has. The write is absolute, so the next
-        # cycle puts it back to 64 - the misdraw cannot be re-entered from
-        # in-game, only from slot data, which is clamped above.
-        self.assertEqual(life(current=LIFE_GAUGE_MAX + 2,
-                              slot_data={"starting_hp": LIFE_GAUGE_MAX}),
-                         LIFE_GAUGE_MAX)
-        # And with every upgrade in the seed already received on top of it.
-        self.assertEqual(life([names.HEART_TANK] * 8 + [names.LIFE_UP] * 8,
-                              slot_data={"starting_hp": LIFE_GAUGE_MAX},
-                              current=LIFE_GAUGE_MAX + 2),
-                         LIFE_GAUGE_MAX)
+    def test_a_low_floor_is_climbed_out_of_by_receiving_upgrades(self) -> None:
+        # How the reported 0.3.0 bug appeared to "fix itself". Below 32 the
+        # bar draws wrong; the gauge is starting_hp + step * upgrades
+        # RECEIVED, and items from other worlds count, so the run collected
+        # its way back into the drawable range and then out the far side.
+        self.assertEqual(life(slot_data={"starting_hp": 8,
+                                         "heart_tank_value": 8}), 8)
+        self.assertEqual(life([names.HEART_TANK] * 3,
+                              {"starting_hp": 8, "heart_tank_value": 8}), 32)
+        self.assertEqual(life([names.HEART_TANK] * 8,
+                              {"starting_hp": 8, "heart_tank_value": 8}), 72)
 
 
 class TestHeartTankValue(unittest.TestCase):
@@ -169,13 +160,11 @@ class TestHeartTankValue(unittest.TestCase):
         self.assertEqual(life([names.LIFE_UP], {"heart_tank_value": 8}),
                          life([names.HEART_TANK], {"heart_tank_value": 8}))
 
-    def test_a_bigger_step_reaches_the_cap_and_stops(self) -> None:
-        # Full on the 5th of 16 upgrades at +8, and the remaining eleven are
-        # worth nothing rather than pushing past the artwork.
+    def test_a_bigger_step_reaches_the_hard_cap_and_stops(self) -> None:
         self.assertEqual(life([names.HEART_TANK] * 4,
-                              {"heart_tank_value": 8}), LIFE_GAUGE_MAX)
+                              {"heart_tank_value": 8}), 64)
         self.assertEqual(life([names.HEART_TANK] * 16,
-                              {"heart_tank_value": 8}), LIFE_GAUGE_MAX)
+                              {"heart_tank_value": 8}), LIFE_GAUGE_HARD_MAX)
 
     def test_zero_makes_upgrades_worthless(self) -> None:
         self.assertEqual(life([names.HEART_TANK] * 16,
@@ -221,7 +210,7 @@ class TestSlotDataIsNotTrusted(unittest.TestCase):
     def test_out_of_range_is_clamped_to_the_games_limits(self) -> None:
         self.assertEqual(life(slot_data={"starting_hp": 0}), 1)
         self.assertEqual(life(slot_data={"starting_hp": 999}),
-                         LIFE_GAUGE_MAX)
+                         LIFE_GAUGE_HARD_MAX)
 
 
 class TestSlotData(MMX6TestBase):
@@ -278,11 +267,9 @@ class TestSlotDataDefaults(MMX6TestBase):
         self.assertEqual(data["starting_hp"], LIFE_GAUGE_BASE)
         self.assertEqual(data["heart_tank_value"], GAUGE_STEP)
 
-    def test_the_ranges_stop_at_what_the_bar_can_draw(self) -> None:
-        # Not the game's 127: above 64 the bar has no frame and the fill runs
-        # off the end of it.
+    def test_the_ranges_are_the_games(self) -> None:
         self.assertEqual((StartingHp.range_start, StartingHp.range_end),
-                         (1, LIFE_GAUGE_MAX))
+                         (1, LIFE_GAUGE_HARD_MAX))
         self.assertEqual(HeartTankValue.range_start, 0)
 
 
@@ -310,7 +297,7 @@ class TestTheDiscEdit(unittest.TestCase):
         self.assertEqual(disc.starting_life_edits(32), [])
 
     def test_one_word_and_only_the_immediate_changes(self) -> None:
-        for value in (1, 8, 31, 48, 64):
+        for value in (1, 8, 64, 100, 127):
             (label, where, region, van, pat), = disc.starting_life_edits(value)
             self.assertEqual(where, disc.STARTING_LIFE_SITE)
             self.assertEqual(region, disc.REGION_EXE)
@@ -321,11 +308,8 @@ class TestTheDiscEdit(unittest.TestCase):
             self.assertEqual(a >> 16, b >> 16, "opcode/registers changed")
             self.assertEqual(b & 0xFFFF, value)
 
-    def test_values_the_bar_cannot_draw_are_refused(self) -> None:
-        # 65..127 the GAME would hold; the bar has no frame for them, so the
-        # builder refuses rather than shipping a disc that misdraws. 0 and
-        # below are the game's own floor.
-        for value in (0, -1, 65, 100, 127, 128, 255):
+    def test_the_games_limits_are_refused(self) -> None:
+        for value in (0, 128, 255, -1):
             with self.assertRaises(ValueError):
                 disc.starting_life_edits(value)
 

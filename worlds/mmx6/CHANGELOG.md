@@ -1,7 +1,13 @@
 # Mega Man X6 apworld — changelog
 
 
-## Unreleased
+## 0.3.1 — 2026-09-04
+
+Two fixes, both found in live play on 0.3.0, both older than 0.3.0.
+**Re-patch your disc; you do NOT need to regenerate.** Neither is a logic
+change — the seeds themselves were always fine, only the way two things were
+written to the disc was not.
+
 
 **Fixed: `boss_hp_randomization` could leave four bosses on almost no health.**
 Blizzard Wolfang, Metal Shark Player, Shield Sheldon and Infinity Mijinion set

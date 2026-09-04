@@ -493,21 +493,27 @@ class ScaravichNoProgression(Toggle):
 class StartingHp(Range):
     """How much life X and Zero start with. Vanilla is 32.
 
-    1 is one hit from anything. 127 is the most the game can hold - it keeps
-    life in seven bits - so this stops there. All of it plays; only the bar's
-    drawing has limits, checked live: below 32 the bar shrinks to a stub with
-    the character emblem sitting on top of it, and above 64 it stays the
-    vanilla 64 size, so 100 and 127 look exactly like 64. The number is real,
-    the picture is not.
+    1 is one hit from anything. 64 is vanilla's full life bar, and this stops
+    there because it is the most the bar can DRAW. The gauge itself holds up
+    to 127 and used to be allowed to, but the bar's frame has seventeen
+    pictures covering 32 to 64 while the fill is drawn one unit per point of
+    life, so past 64 the frame stopped growing, the fill did not, and it ran
+    off the end of its own container. That was a real bug in 0.3.0.
+
+    Below 32 is still allowed and still looks odd - the frame index drops
+    beneath the first picture, so the bar becomes a stub with the character
+    emblem sitting on top of it. That one is left in on purpose: it is a
+    difficulty choice, you see it on the very first frame of the run, and it
+    is exactly what you asked for. Nothing about it is unsafe.
 
     Heart Tanks and Life Ups still add on top (see `heart_tank_value`), and
-    the total is capped at 127. This is a disc edit: a new save starts at the
+    the total is capped at 64. This is a disc edit: a new save starts at the
     value from its first frame. A save you already have is moved to it by the
     client the next time it connects, in either direction.
     """
     display_name = "Starting Life"
     range_start = 1
-    range_end = 127
+    range_end = 64
     default = 32
 
 
@@ -519,8 +525,14 @@ class HeartTankValue(Range):
     covers both kinds because the game does not tell them apart.
 
     0 makes them worth nothing - the check still sends, the gauge does not
-    move. The total is capped at 127, the most the game can hold, so a large
-    value reaches the top sooner rather than going past it.
+    move.
+
+    The total is capped at 64, vanilla's full life bar and the most the bar
+    can draw (see `starting_hp`). So a value above 2 does not give you more
+    life than a vanilla run ends with - it gives you that life SOONER, and
+    then every upgrade after it is worth nothing. At 3 you are full on the
+    11th of the 16 upgrades, at 4 on the 9th, at 8 on the 5th. Nothing breaks
+    and no check is lost; the later ones simply stop moving the bar.
 
     The life gauge is what the seed says it is: starting life plus this much
     per upgrade RECEIVED. Walking over a Heart Tank in your own game is a

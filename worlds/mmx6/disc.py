@@ -529,19 +529,28 @@ def rank_threshold_edits(rank: str) -> list:
 # 127 is the hard ceiling and it is the game's, not ours: every reader loads
 # the gauge as a SIGNED byte (`lb`, or `lbu` then sll/sra 24), and current HP
 # is the low seven bits of player+0x5C with 0x80 as a hit/heal flag. 128 and
-# up read as negative. What the life bar DRAWS above 64 or below 32 is a
-# separate question - the frame height is (gauge-32)/2 + 0x88 capped at the
-# 64 size - and is answered live, not here.
+# up read as negative.
+#
+# 64 is OUR ceiling and it is smaller, because 127 draws wrong. The bar's
+# frame is a SPRITE INDEX, (gauge - 32) / 2 + 0x88 capped at 0x98
+# (0x8002497C) - seventeen frames covering 32..64 and nothing else - while
+# the FILL is drawn separately, one unit per point of CURRENT hp from a fixed
+# anchor (0x80024F80). Above 64 the frame stops growing and the fill does
+# not, so it spills past the end of its own container. Reported from live
+# play on 0.3.0. Making the two agree at a higher maximum needs new frame
+# entries, not a bigger number - see the feature backlog.
 STARTING_LIFE_SITE = 0x8001E098
 STARTING_LIFE_VANILLA = 32
-LIFE_GAUGE_HARD_MAX = 127
+LIFE_GAUGE_HARD_MAX = 127                 # the game's ceiling
+LIFE_GAUGE_DRAWN_MAX = 64                 # the last one the bar has art for
 _STARTING_LIFE_WORD = 0x24030000          # addiu v1, zero, imm
 
 
 def starting_life_edits(value: int) -> list:
     """The one edit that changes what a new save starts with, or nothing."""
-    if not 1 <= value <= LIFE_GAUGE_HARD_MAX:
-        raise ValueError(f"starting life {value} is outside 1..{LIFE_GAUGE_HARD_MAX}")
+    if not 1 <= value <= LIFE_GAUGE_DRAWN_MAX:
+        raise ValueError(
+            f"starting life {value} is outside 1..{LIFE_GAUGE_DRAWN_MAX}")
     if value == STARTING_LIFE_VANILLA:
         return []
     return [("starting life gauge (new game)", STARTING_LIFE_SITE, REGION_EXE,
@@ -559,6 +568,9 @@ def starting_life_edits(value: int) -> list:
 # The bar is drawn from fixed pieces that stop at 32 and the container caps at
 # 127 - both confirmed in code (base 32 at ROCK+0x018768; the 0x7F caps at
 # ROCK+0x045628 and five siblings). Outside that range the bar misdraws.
+# The drawing routine says the same thing directly: 0x80024624 computes the
+# frame as (hp - 32) / 2 + 0xA3, capped at 0xD3. That is 49 frames covering
+# exactly 32..127, so the range below is the artwork's range, not a guess.
 BOSS_HP_MIN = 0x20      # 32
 BOSS_HP_MAX = 0x7F      # 127
 
@@ -572,6 +584,10 @@ BOSS_HP_MAX = 0x7F      # 127
 # Dynamo store a base plus a per-level delta rather than a plain immediate,
 # and the Tweaks offsets for High Max levels 2-4 point at the wrong levels.
 # Randomising those needs the encoding handled, so they keep vanilla HP.
+#
+# Byte-equality is NOT enough on its own to say a site is what we think it is,
+# and BOSS_HP_WORDS below is what makes the difference - read that comment
+# before adding a row here.
 BOSS_HP: dict[str, list[tuple[int, int, tuple[int, ...]]]] = {
     "Commander Yammark":    [(1,  32, (0x02A9BC, 0x14B2DC))],
     "Blizzard Wolfang":     [(1,  48, (0x03C36C, 0x153724))],
@@ -623,6 +639,100 @@ BOSS_HP: dict[str, list[tuple[int, int, tuple[int, ...]]]] = {
 BOSS_HP_NEVER_ROLLED = ("D-1000",)
 
 
+# The whole vanilla INSTRUCTION at each site, not just its immediate byte.
+# Every edit carries this entire word as the bytes it expects, so
+# apply_basepatch verifies the opcode and the registers on the player's disc
+# and not merely the number sitting in the immediate field.
+#
+# That distinction is the entire reason this table exists. EIGHT of these
+# sites are `addiu v0, v0, N` - an ADD onto a per-level bonus that the boss
+# object's level byte indexes out of a table built on the stack - where the
+# other twenty are `addiu rt, zero, N`, a plain load of a constant:
+#
+#   lbu   v1, 0x8F(s0)      the boss object's LEVEL byte
+#   addu  v1, s2, v1        index a per-level table, s2 = sp+16
+#   lbu   v0, 0x0(v1)       v0 = that level's bonus
+#   addiu v0, v0, 48        <- the site
+#   sb    v0, 0x8C(s0)      the HP / life-bar byte
+#
+# A byte-equality check cannot tell the two encodings apart: `addiu v0, v0, 48`
+# and `addiu v0, zero, 48` both carry 48 in their immediate. So a high roll,
+# met on a boss above level 1, stored bonus + roll, passed 127, and wrapped
+# negative through the signed load every reader uses - the boss arrived with
+# almost no health. Reported from live play on Infinity Mijinion, 2026-09-03.
+# This is the SECOND escape of that shape; the first retired 0x0591E8 below.
+#
+# Boss level follows Hunter Rank, which climbs with Nightmare Souls, which is
+# why it took a real run to see: at level 1 the bonus is 0, so all eight sites
+# read exactly their vanilla HP and verified.
+#
+# `boss_hp_edits` therefore writes `addiu rt, zero, value` at EVERY site,
+# clearing the source-register field. The four bosses marked below lose their
+# vanilla per-level scaling when they are randomized - which is what the other
+# twenty sites already do, and what the clamp to BOSS_HP_MIN..BOSS_HP_MAX
+# already claimed to guarantee and could not while a runtime bonus was added
+# on afterwards.
+BOSS_HP_WORDS: dict[int, int] = {
+    # Commander Yammark
+    0x02A9BC: 0x24020020,   # addiu v0, zero, 32
+    0x14B2DC: 0x24020020,   # addiu v0, zero, 32
+    # Blizzard Wolfang
+    0x03C36C: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    0x153724: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    # Blaze Heatnix
+    0x0476E8: 0x24030030,   # addiu v1, zero, 48
+    0x158694: 0x24030030,   # addiu v1, zero, 48
+    0x047700: 0x24020034,   # addiu v0, zero, 52
+    0x1586AC: 0x24020034,   # addiu v0, zero, 52
+    0x047710: 0x24020038,   # addiu v0, zero, 56
+    0x1586BC: 0x24020038,   # addiu v0, zero, 56
+    # Metal Shark Player
+    0x061DDC: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    0x15F0EC: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    # Ground Scaravich
+    0x070B74: 0x24020028,   # addiu v0, zero, 40
+    0x165C3C: 0x24020028,   # addiu v0, zero, 40
+    # Rainy Turtloid
+    0x07BFAC: 0x24020038,   # addiu v0, zero, 56
+    0x167448: 0x24020038,   # addiu v0, zero, 56
+    # Shield Sheldon
+    0x08E8C8: 0x24420020,   # addiu v0, v0, 32    <- ADD, not a load
+    0x16D4D0: 0x24420020,   # addiu v0, v0, 32    <- ADD, not a load
+    # Infinity Mijinion
+    0x0A2F28: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    0x173CB4: 0x24420030,   # addiu v0, v0, 48    <- ADD, not a load
+    # D-1000
+    0x018768: 0x24030020,   # addiu v1, zero, 32
+    # Nightmare Pressure
+    0x058FE0: 0x24030030,   # addiu v1, zero, 48
+    # Illumina
+    0x09EB4C: 0x24040040,   # addiu a0, zero, 64
+    # Nightmare Zero
+    0x17A1D4: 0x24020030,   # addiu v0, zero, 48
+    # High Max (Hidden Area)
+    0x17F39C: 0x24020030,   # addiu v0, zero, 48
+    # High Max (Secret Lab)
+    0x10171C: 0x24020030,   # addiu v0, zero, 48
+    # Sigma
+    0x0B4148: 0x24020030,   # addiu v0, zero, 48
+    # Sigma (Second Form)
+    0x0B7830: 0x2402007F,   # addiu v0, zero, 127
+}
+
+BOSS_HP_ADDIU = 0x09            # the only opcode any of these sites may be
+_BOSS_HP_RS = 0x03E00000        # bits 21-25, the source-register field
+
+
+def boss_hp_load(word: int, value: int) -> int:
+    """`word` with its source register cleared and `value` as its immediate.
+
+    Turns `addiu rt, rs, N` into `addiu rt, zero, value`, so the site becomes
+    a plain load of a constant whatever it started as, and the byte that
+    reaches the life gauge is exactly the clamped roll.
+    """
+    return (word & ~(_BOSS_HP_RS | 0xFFFF)) | value
+
+
 def rollable_bosses() -> list[str]:
     """Bosses `boss_hp_randomization` may roll, in a stable order."""
     return [b for b in BOSS_HP if b not in BOSS_HP_NEVER_ROLLED]
@@ -631,13 +741,17 @@ def rollable_bosses() -> list[str]:
 def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, bytes]]:
     """Disc edits setting each named boss's level-1 HP to `rolls[boss]`.
 
-    Higher difficulty levels keep their VANILLA INCREMENT over level 1, so a
-    boss that gained 4 and 8 HP at ranks 3 and 4 still does. Rolling each
-    level independently would let level 3 come out below level 1 and quietly
-    invert the rank scaling.
+    Higher difficulty levels in the table keep their VANILLA INCREMENT over
+    level 1, so a boss that gained 4 and 8 HP at ranks 3 and 4 still does.
+    Rolling each level independently would let level 3 come out below level 1
+    and quietly invert the rank scaling.
 
-    Every edit carries the vanilla byte it expects, so a roll built for one
-    dump cannot silently corrupt another.
+    Each edit is the WHOLE four-byte instruction, patched to
+    `addiu rt, zero, value` - see BOSS_HP_WORDS for why writing the immediate
+    byte alone was not safe. Both the vanilla and the patched word are
+    declared, so apply_basepatch refuses a site whose opcode or registers are
+    not what this table says, and a roll built for one dump cannot silently
+    corrupt another.
     """
     out: list[tuple[str, int, str, bytes, bytes]] = []
     for boss, levels in BOSS_HP.items():        # dict order, deterministic
@@ -648,8 +762,10 @@ def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, byt
             value = rolls[boss] + (vanilla - base_hp)
             value = max(BOSS_HP_MIN, min(BOSS_HP_MAX, value))
             for offset in offsets:
+                word = BOSS_HP_WORDS[offset]
                 out.append((f"{boss} L{level} HP", offset, REGION_ROCK,
-                            bytes([vanilla]), bytes([value])))
+                            word.to_bytes(4, "little"),
+                            boss_hp_load(word, value).to_bytes(4, "little")))
     return out
 
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------

@@ -185,13 +185,16 @@ class TestGrants(unittest.TestCase):
         self.apply(FakeCtx(items=[names.HEART_TANK]), save)
         self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_BASE + 2)
 
-        # The cap is the game's 127, not vanilla's 64.
+        # The cap is vanilla's 64 - the last gauge the life bar has a frame
+        # for. The gauge itself holds 127 and used to be allowed to, until
+        # 0.3.0 play showed the fill running off the end of the frame above
+        # 64. More upgrades than the seed needs simply saturate.
         save = blank_save()
         self.apply(FakeCtx(items=[names.HEART_TANK] * 20), save)
-        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_BASE + 40)
+        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_MAX)
         save = blank_save()
         self.apply(FakeCtx(items=[names.HEART_TANK] * 60), save)
-        self.assertEqual(save[OFF_LIFE_GAUGE], 127)
+        self.assertEqual(save[OFF_LIFE_GAUGE], LIFE_GAUGE_MAX)
 
     def test_gauge_record_bits_are_never_written(self) -> None:
         # Policy 4. If a grant set these, detection would read its own write

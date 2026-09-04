@@ -192,12 +192,16 @@ when the patch is opened — the setup guide explains how.
   the game hits — it can never change what is reachable, so it never affects
   logic or your checks.
 - **`boss_hp_randomization` rerolls how tough bosses are.** Every boss gets a
-  new health bar between 32 and 127, the range the bar can actually draw.
-  Bosses that scale with your Hunter Rank keep their vanilla step between
-  ranks, so a higher rank never becomes the easier fight. A few bosses —
+  new health bar between 32 and 127, the range the bar can actually draw. A
+  randomized boss has exactly the health it rolled, at every Hunter Rank —
+  four of them (Blizzard Wolfang, Metal Shark Player, Shield Sheldon and
+  Infinity Mijinion) normally gain health as your Rank climbs, and they no
+  longer do once they are randomized. Blaze Heatnix, whose ranks differ in the
+  game's own data, keeps his vanilla step between them. A few bosses —
   Nightmare Mother, Dynamo, and High Max's higher ranks — store health in a
-  form this does not yet handle and keep their vanilla values. Rolls are fixed
-  for a seed, so dying and retrying gives you the identical fight.
+  form this does not yet handle and keep their vanilla values. The intro boss
+  is never rolled. Rolls are fixed for a seed, so dying and retrying gives you
+  the identical fight.
 - **`weapon_damage` rerolls how hard your weapons hit.** `weak` is 50–90% of
   normal, `regular` 80–130%, `strong` 120–200%, `chaotic` 25–250%. Each weapon
   rolls **once** and keeps its shape, so a charged shot can never come out
@@ -229,6 +233,14 @@ when the patch is opened — the setup guide explains how.
   and weapon gauge and the game normally keeps them in step through its own
   pickup routine, which an Archipelago grant does not go through. The client
   writes both, so playing as Zero gets you everything the seed has sent.
+- **Your life stops at 64, vanilla's full bar.** `starting_hp` and
+  `heart_tank_value` decide how you get there, but not how far past it you go:
+  the bar only has artwork up to 64, and beyond that it drew wrong rather than
+  longer. So a `heart_tank_value` above 2 fills the bar *sooner* — at 3 you are
+  full on the 11th of the 16 upgrades — and the upgrades after that still send
+  their check, they just stop moving the bar. Starting *below* 32 is still
+  allowed; the bar looks odd there too, but that is a difficulty choice you can
+  see from the first frame.
 - **Checks appear a few seconds after a boss dies**, not instantly — the game
   commits the kill at the Mission Report, a little after gameplay ends.
 - **Use a fresh save file, and patch your disc.** The client works out what you

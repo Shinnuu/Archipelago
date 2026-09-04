@@ -587,17 +587,31 @@ class MMX6Client(BizHawkClient):
         # The floor and the step are per seed. Both are clamped here as well
         # as in the options, because slot data can arrive from a world older
         # or newer than this client and a nonsense value would otherwise be
-        # written straight into the save. 127 is the game's own ceiling - the
-        # gauge is read as a signed byte everywhere and current HP is seven
-        # bits - so nothing above it is ever written.
+        # written straight into the save.
+        #
+        # THE CEILING IS 64, NOT THE GAME'S 127. The gauge really does hold up
+        # to 127 and all of it plays, but the life bar cannot draw it: the
+        # frame is a sprite index with seventeen frames covering 32..64
+        # (0x8002497C) while the fill is drawn one unit per point of current
+        # HP from a fixed anchor (0x80024F80), so above 64 the frame stops
+        # growing, the fill does not, and it runs off the end of its own
+        # container. Seen in live play on 0.3.0.
+        #
+        # Capping here rather than only in the options is deliberate: a seed
+        # GENERATED before this cap still carries `starting_hp: 100` in its
+        # slot data, and that player's save is brought to 64 on connect
+        # instead of drawing wrong forever. Saturating is also why a further
+        # upgrade at 64 is a no-op rather than a relapse - the write is
+        # absolute, so the sum simply lands on 64 again, and a Heart Tank
+        # walked over in-game (vanilla's own +2) is pulled back the same way.
         life_base = _clamp((ctx.slot_data or {}).get("starting_hp",
                                                      LIFE_GAUGE_BASE),
-                           1, LIFE_GAUGE_HARD_MAX, default=LIFE_GAUGE_BASE)
+                           1, LIFE_GAUGE_MAX, default=LIFE_GAUGE_BASE)
         life_step = _clamp((ctx.slot_data or {}).get("heart_tank_value",
                                                      GAUGE_STEP),
                            0, LIFE_GAUGE_HARD_MAX, default=GAUGE_STEP)
         life_steps = got.get(names.HEART_TANK, 0) + got.get(names.LIFE_UP, 0)
-        life_target = min(LIFE_GAUGE_HARD_MAX,
+        life_target = min(LIFE_GAUGE_MAX,
                           life_base + life_step * life_steps)
         for offset in (OFF_LIFE_GAUGE, OFF_LIFE_GAUGE_ZERO):
             write(offset, life_target, save[offset])

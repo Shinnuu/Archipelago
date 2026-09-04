@@ -1,6 +1,43 @@
 # Mega Man X6 apworld — changelog
 
 
+## Unreleased
+
+**Fixed: `boss_hp_randomization` could leave four bosses on almost no health.**
+Blizzard Wolfang, Metal Shark Player, Shield Sheldon and Infinity Mijinion set
+their HP by ADDING to a bonus that grows with your Hunter Rank, where every
+other boss simply loads a number. We were patching the number, so on those
+four the game was still adding the rank bonus on top — and a high roll met at
+a decent rank passed the game's 127 ceiling, wrapped negative, and the boss
+died almost immediately. Seen in play on Infinity Mijinion. All four now get
+the rolled value and nothing else, so the option's 32..127 range is what you
+actually fight. Their vanilla per-rank scaling is gone **when they are
+randomized**, which is already true of the other twelve bosses.
+**Re-patch for this** — it changes the disc. The seed does not need
+regenerating; the roll it made was always fine, only the way it was written
+was not.
+
+**Fixed: the life bar drew wrong once your maximum life passed 64.** The bar
+is two pieces — a frame with seventeen sizes covering 32 to 64, and a fill
+drawn one notch per point of life. Past 64 the frame stopped growing and the
+fill did not, so it ran off the end of its own container. Life is now capped
+at **64**, vanilla's full bar. `starting_hp` stops at 64 instead of 127, and
+`heart_tank_value` above 2 now fills the bar *sooner* rather than past the
+end — at 3 you are full on the 11th of the 16 upgrades, at 4 on the 9th, at 8
+on the 5th. Every check still exists and still sends; the later ones just
+stop moving the bar. Once you are at 64 nothing can push past it, including
+walking over a Heart Tank in your own game.
+
+**If you already have a seed with `starting_hp` above 64**, the client brings
+that save down to 64 the next time it connects. You lose the life above 64 —
+which was never visible on the bar anyway — and the bar draws correctly from
+then on. No re-generation, no re-patch.
+
+Starting life *below* 32 is unchanged and still allowed: the bar looks odd
+there too, but you see it on the first frame of the run and it is exactly
+what you asked for.
+
+
 ## 0.3.0 — 2026-09-03
 
 **Shield Sheldon's Reploid 5 needs Zero or the Blade Armor.** It stands on a

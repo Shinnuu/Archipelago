@@ -1454,21 +1454,38 @@ sector 24073 and scanned: five `lbu` at offset `0x79`, zero stores; extraction
 method verified by byte-matching the hub overlay's `0x800EEF14` against
 `ramdump_hub_f22905.bin`).
 
-### The open question, stated precisely
+### The question, and its answer (live, 2026-09-04)
 
 `0x800D1C0F` is written from nine sites, none of them in the pause handler
 (`0x80033xxx` has no store at offset `0xF`), so an Exit Stage escape reaches
-the transition function through one of the existing setters — most plausibly
-`0x80023BE8` (`0x1C0F = 1` alongside `0x1C08 = 29`), which would put an escape
-on the *positive* path and therefore into the ladder. Note `0x1C0F` has a
-second, unrelated use as the boss-spawn "already beaten" flag
-(`0x8005702C`, overlay-findings:213) — do not read a single value of it as
-proof of one meaning.
+the transition function through one of the existing setters. The guess here
+was `0x80023BE8` (`0x1C0F = 1` alongside `0x1C08 = 29`), which would have put
+an escape on the *positive* path and therefore into the ladder. **That guess
+was wrong.** Note `0x1C0F` also has a second, unrelated use as the boss-spawn
+"already beaten" flag (`0x8005702C`, overlay-findings:213) — do not read a
+single value of it as proof of one meaning.
 
-**Consequence, unresolved:** if an escape lands on the positive path, escaping
-a Zero Space stage advances ACT past it, permanently skipping that stage and
-its `endgame_checks` location. Vanilla cannot escape Zero Space (§ the pause
-handler's `(stage-1) < 8` scope test), so the game has no established
-behaviour here to appeal to. **Settle it live** — escape a stage and read
-`0x800D1C0F` on the way out — before treating widened Exit Stage as safe in a
-race seed. Shipped in 0.6.2 as a documented caution rather than a silent risk.
+**Answer: an escape stores 0, so the ladder never runs.** Measured on the
+0.6.2 exit-test disc with `Scripts/mmx5_exit_watch.lua`:
+
+| escape | `0x800D1C0F` | ACT before → after | ladder |
+|---|---|---|---|
+| Zero Space 1 (`0x10`) at ACT 5 | `0` | 5 → 5 | did not run |
+| Zero Space 1 (`0x10`) again | `0` | 5 → 5 | did not run |
+| Squid Adler (`0x05`), uncleared | `0` | 5 → 5 | n/a (not a ladder stage) |
+| Squid Adler (`0x05`) again | `0` | 5 → 5 | n/a |
+
+The transition therefore takes the zero path at `0x80020838`, not the positive
+one at `0x800205D4` that carries the ladder. **Escaping a Zero Space stage
+does not advance ACT and does not skip the stage or its `endgame_checks`
+location.** The uncleared-Maverick escapes read 0 as well, so a zero result is
+what the escape path stores generally, not something particular to Zero Space.
+No suppression edit is needed, and 0.6.2's caution text was replaced with the
+result.
+
+Worth keeping for whoever revisits this: the same run also settled that
+`exit_stage_anytime` works in an uncleared Maverick stage (the 0.5.3 base
+feature) and in Zero Space (the 0.6.2 widening). An earlier session concluded
+the option "has probably never worked"; that conclusion came from a run whose
+every stage entry executed *vanilla* code, restored by savestates cloned from
+the vanilla disc. See the 2026-09-04 handoff.

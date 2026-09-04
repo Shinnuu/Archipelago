@@ -308,10 +308,9 @@ class ExitStageAnytime(DefaultOnToggle):
     excluded, because leaving it early strands your story progress and there
     is no stage select to return to yet.
 
-    Note for Zero Space: leaving a Zero Space stage early may count as having
-    passed it, which would skip that stage and the check in it. If you are
-    playing a seed where that matters, clear Zero Space rather than escaping
-    out of it.
+    Escaping Zero Space is safe: it does not count as having passed the
+    stage, so the stage and the check inside it are still there to come back
+    to. Confirmed live in Zero Space 1.
 
     Changes the disc.
     """

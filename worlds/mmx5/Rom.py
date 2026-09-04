@@ -245,7 +245,7 @@ LAUNCH_ROLL_REGION = "launch overlay"
 # test, no extra word. The intro has to stay out: leaving it early strands ACT
 # progression, and there is no stage select to come back to yet.
 #
-# ⚠️ KNOWN, ACCEPTED RISK IN ZERO SPACE - live-check before trusting a seed.
+# ZERO SPACE IS SAFE - settled live 2026-09-04, was an open risk before that.
 # The EXE's stage-transition function `0x800205AC` carries an ACT ladder keyed
 # purely on the stage id you are LEAVING:
 #
@@ -258,13 +258,18 @@ LAUNCH_ROLL_REGION = "launch overlay"
 #
 # and the hub picks the endgame destination from ACT (5 -> 0x10, 6 -> 0x11,
 # 7 -> 0x12, else 0x0C). The ladder is reached only when the stage-result byte
-# `0x800D1C0F` is positive (`0x800205D4`), and the pause handler never writes
-# that byte itself - so whether an ESCAPE reaches the ladder depends on which
-# result the escape path stores, which the vanilla game never exercises here
-# because vanilla cannot escape Zero Space at all. If it does reach it,
-# escaping a Zero Space stage advances past it and its endgame_checks location
-# becomes unreachable. Confirm live before this is trusted in a race seed; the
-# fix, if needed, is a second edit that suppresses the ladder on an escape.
+# `0x800D1C0F` is POSITIVE (`0x800205D4`), and the pause handler never writes
+# that byte itself - so whether an escape reaches the ladder came down to what
+# the escape path leaves in it, which vanilla never exercises here because
+# vanilla cannot escape Zero Space at all.
+#
+# Measured, twice, escaping Zero Space 1 at ACT 5: `0x800D1C0F` reads 0, so
+# the transition takes the zero path, the ladder does not run, and ACT is
+# still 5 afterwards. The stage and its endgame_checks location stay
+# reachable. No second edit is needed. (Two escapes from an uncleared Squid
+# Adler read 0 too, so the zero result is what an escape stores generally,
+# not something specific to Zero Space.) Write-up and the measurement table:
+# docs/mmx5-ghidra-findings.md section 9.17.
 #
 # Derived from our own disassembly of the vanilla EXE. The MMX5 Improvement
 # Project Addendum documents a 12-word rewrite of the same routine; we take

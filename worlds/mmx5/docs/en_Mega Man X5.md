@@ -148,9 +148,9 @@ override it when the patch is opened — the setup guide explains how.
   covers every stage — the Maverick eight, the Enigma and Shuttle sorties,
   Sigma's stage and Zero Space — with one exception: **the intro stage**,
   where leaving early would strand your story progress and there is no stage
-  select to go back to. One caution in **Zero Space**: leaving early there may
-  count as having passed that stage, which would skip it and the check inside
-  it, so clear those rather than escaping out if the check matters to you.
+  select to go back to. Escaping **Zero Space** is safe — it does not count as
+  having passed the stage, so the stage and its check are still there when you
+  come back.
 - **`stage_unlocks` turns the stage select into a progression gate.** With it
   on, exactly one Maverick stage is open at the start — the seed picks which —
   and the other seven each need their own "&lt;Boss&gt; Access Codes" item. A

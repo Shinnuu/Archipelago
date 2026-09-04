@@ -18,13 +18,12 @@ of Zero Space as well.
 early strands your story progress, and there is no stage select to go back to
 yet.
 
-**One caution in Zero Space.** The game decides which Zero Space stage comes
-next from a counter it advances as you leave one, so escaping out of a Zero
-Space stage may count as having passed it — skipping that stage and the check
-inside it. Vanilla could never escape there, so this has no established
-behaviour to rely on. If you are in a seed where a Zero Space check matters,
-clear those stages rather than escaping out of them. The Maverick stages, the
-sorties and Sigma's stage are unaffected.
+**Escaping Zero Space is safe.** The game decides which Zero Space stage comes
+next from a counter it advances as you leave one, and vanilla could never
+escape there — so it was worth checking whether escaping would count as having
+passed the stage and skip its check. It does not: an escape leaves that
+counter untouched, and the stage and its check are still there to come back
+to. Verified in Zero Space 1.
 
 **Fixed: with Stage Unlocks on, entering a stage could drop you into a
 different one.** Reported live — pick Squid Adler, back out at the character

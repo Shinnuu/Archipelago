@@ -245,10 +245,22 @@ def nightmare_groups(options) -> list[str]:
     eight groups rather than mapping one-to-one onto a single group. Sorted
     into the table's own order so two seeds with the same set produce the same
     edit list, whatever order the YAML listed them in.
+
+    The North Pole wall edits are their own group, asked for from two
+    directions. `nightmare_wall_always_open` is the one a player types. The
+    other is MANDATORY and is the reason this is an `or`: disabling Fire with
+    the wall left vanilla seals nine locations for good, the same class of bug
+    that made v0.1.1 seed-breaking. That used to be guaranteed by bundling the
+    edits inside the Fire group; it is guaranteed here now, because the wall
+    group has to be reachable on its own as well and an edit may live in only
+    one group. test_nightmare.TestDisablingFireAlwaysOpensTheWall pins it.
     """
     wanted = options.disabled_nightmare_effects.effects
-    return [disc.nightmare_group_name(e) for e in disc.NIGHTMARE_EFFECTS
-            if e in wanted]
+    groups = [disc.nightmare_group_name(e) for e in disc.NIGHTMARE_EFFECTS
+              if e in wanted]
+    if options.nightmare_wall_always_open or "Fire" in wanted:
+        groups.append(disc.NIGHTMARE_WALL_GROUP)
+    return groups
 
 
 def qol_features(options) -> list[str]:

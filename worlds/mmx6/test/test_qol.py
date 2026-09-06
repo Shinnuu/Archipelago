@@ -46,8 +46,13 @@ class TestQoLData(unittest.TestCase):
         # The eight Nightmare groups are reachable from ONE option that picks
         # a subset, so they cannot appear in QOL_OPTIONS' one-to-one map. They
         # are unioned in rather than excused: an orphan is still an orphan.
+        #
+        # The wall group is reachable from TWO options - it is what
+        # `nightmare_wall_always_open` asks for, and disabling Fire asks for it
+        # as well - so it cannot sit in a one-to-one map either.
         nightmare = {disc.nightmare_group_name(e)
                      for e in disc.NIGHTMARE_EFFECTS}
+        nightmare.add(disc.NIGHTMARE_WALL_GROUP)
         self.assertEqual(set(QOL_OPTIONS.values()) | nightmare,
                          set(disc.QOL_EDITS))
 
@@ -127,11 +132,12 @@ class TestQoLData(unittest.TestCase):
                 self.value = value
 
         class _Options:
-            def __init__(self, nightmare=(), **kw):
+            def __init__(self, nightmare=(), wall_open=0, **kw):
                 for option in QOL_OPTIONS:
                     setattr(self, option, _Opt(kw.get(option, 0)))
                 self.disabled_nightmare_effects = DisabledNightmareEffects(
                     set(nightmare))
+                self.nightmare_wall_always_open = wall_open
 
         self.assertEqual(qol_features(_Options()), [])
         self.assertEqual(qol_features(_Options(text_skip=1)), ["text_skip"])
@@ -140,10 +146,17 @@ class TestQoLData(unittest.TestCase):
         self.assertEqual(
             sorted(qol_features(_Options(**{o: 1 for o in QOL_OPTIONS}))),
             sorted(set(QOL_OPTIONS.values())))
-        # Everything on, including all eight effects.
+        # The wall group on its own, with no effect disabled - the whole point
+        # of the option, and the case that would break if it were still
+        # bundled inside Fire.
+        self.assertEqual(qol_features(_Options(wall_open=1)),
+                         [disc.NIGHTMARE_WALL_GROUP])
+        # Everything on, including all eight effects. Note this reaches the
+        # wall group from BOTH directions at once and must still name it once:
+        # ALL_GROUPS is a set, so a duplicate here fails as a length mismatch.
         self.assertEqual(
             sorted(qol_features(_Options(
-                nightmare=[DisabledNightmareEffects.ALL],
+                nightmare=[DisabledNightmareEffects.ALL], wall_open=1,
                 **{o: 1 for o in QOL_OPTIONS}))),
             sorted(ALL_GROUPS))
 

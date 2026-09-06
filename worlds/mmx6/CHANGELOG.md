@@ -1,6 +1,44 @@
 # Mega Man X6 apworld — changelog
 
 
+## Unreleased
+
+**New option: `nightmare_wall_always_open`.** Off by default; nothing changes
+unless you ask for it.
+
+Nine of Blizzard Wolfang's locations — his Heart Tank, his EX Tank and seven
+of his sixteen Reploids — sit behind North Pole's ice wall, and in the base
+game the only thing that opens it is Nightmare Fire being active on his stage.
+Fire arrives when you beat Blaze Heatnix, so those nine are the only checks in
+the game carrying a stage-order requirement. Under `stage_unlocks` that is a
+real constraint on where the fill may put things. With this on, the wall is
+never in your way and the nine are ordinary checks from your first visit.
+
+**Expect fire in that room.** The disc edit makes the one test that decides
+the wall answer "Fire" every time, and that test also selects how the room is
+set up — so the room runs its Fire-afflicted version, hazards and all. That is
+the room exactly as the base game presents it, since Fire being on is the only
+way anyone gets in there.
+
+It does not switch the effect on. Your Nightmare Effect state is untouched:
+North Pole still shows no Nightmare on the stage select, the Nightmare Virus
+and soul drops behave normally, and no other stage changes. Forcing the test
+rather than the effect is also steadier than the real thing, because North Pole
+holds one effect at a time and beating Shield Sheldon replaces Fire with
+Mirror, shutting the wall again. Vanilla access can be taken away; this cannot.
+
+**Verified in play 2026-09-06**, with the control that makes it mean
+something: Blaze Heatnix unbeaten and North Pole's effect byte clear for the
+whole run, so nothing vanilla could have opened that wall.
+
+If you also turn Fire off with `disabled_nightmare_effects`, the two agree:
+Fire-off already forces the wall open, and normally marks those nine excluded
+so nothing important can land there. Asking for this option says you want them
+to count, so the exclusion is lifted.
+
+**Changes the disc** — re-patch if you turn it on.
+
+
 ## 0.3.1 — 2026-09-04
 
 Two fixes, both found in live play on 0.3.0, both older than 0.3.0.

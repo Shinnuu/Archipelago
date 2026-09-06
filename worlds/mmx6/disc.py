@@ -312,20 +312,52 @@ NIGHTMARE_EFFECTS: dict[str, tuple[int, str]] = {
 # The North Pole ice wall. Disabling Fire without this shuts NINE locations
 # for good - Wolfang's Heart Tank, his EX Tank and seven of his sixteen
 # Reploids - which is the same class of bug that made v0.1.1 a seed-breaking
-# release. So it is bundled INTO the Fire group rather than offered beside it,
-# and cannot be forgotten.
+# release.
+#
+# These four therefore used to be bundled INSIDE the Fire group, so that
+# disabling Fire could not be done without them. That stopped working when
+# `nightmare_wall_always_open` arrived and wanted the same four edits with
+# Fire left ON: duplicating them into a second group broke the invariant that
+# QOL_EDITS groups are DISJOINT and can all be applied at once, and
+# test_qol.test_no_two_qol_edits_overlap caught it immediately.
+#
+# So they live in exactly one group of their own, and the guarantee moves to
+# Rom.nightmare_groups, which asks for that group whenever Fire is disabled -
+# pinned by test_nightmare.TestDisablingFireAlwaysOpensTheWall. A test is a
+# stronger guard than the bundling was anyway: the bundling only made the
+# mistake awkward, the test makes it fail.
 #
 # The check, identical at all four sites:
 #
-#   lb    v1, 0x43A(s3)    the effect currently on this stage
-#   addiu v0, zero, 3      Nightmare Fire
-#   beq   v1, v0, +24      equal -> skip the call that builds the wall
-#   addu  s1, a0, zero     (delay slot, runs either way)
-#   jal   0x8002C9B0       not Fire -> the wall exists
+#   +0   8263043A  lb    v1, 0x43A(s3)   the effect currently on this stage
+#   +4   24020003  addiu v0, zero, 3     3 = Nightmare Fire
+#   +8   10620005  beq   v1, v0, +24     Fire -> jump to +32
+#   +12  00808821  addu  s1, a0, zero    (delay slot, runs either way)
+#   +16  0C00B26C  jal   0x8002C9B0      \
+#   +20  00000000  nop                    |  the NOT-Fire path
+#   +24  0803BC51  j     <overlay code>  /
+#   +28  00000000  nop
+#   +32  24020008  addiu v0, zero, 8     <- the branch lands here
+#   +36  82240001  lb    a0, 0x1(s1)
+#   +40  24030004  addiu v1, zero, 4
+#   +44  A222005C  sb    v0, 0x5C(s1)
 #
-# We make the branch unconditional: beq v1,v0 -> beq zero,zero, same offset.
-# One word, IDENTICAL at every site, and it leaves v1 holding the real effect
-# for anything downstream that reads it.
+# It is an if/else on one byte: Fire falls through to +32 and runs inline,
+# anything else calls the helper and jumps away into per-overlay code. Fire is
+# the OPEN state, so we make the comparison always answer yes:
+# beq v1,v0 -> beq zero,zero, same offset. The game then runs the exact path a
+# Fire-afflicted stage runs, without Fire being on the stage - and unlike real
+# Fire it cannot be overwritten later by Sheldon's Mirror. One word, IDENTICAL
+# at every site, and it leaves v1 holding the real effect for anything
+# downstream that reads it.
+#
+# CORRECTION 2026-09-06. This comment used to gloss `jal 0x8002C9B0` as "the
+# call that builds the wall". It is not: that address is a seven-instruction
+# helper that zeroes eight bytes at a0 and returns. Nothing about the patch
+# rests on the gloss - the structural reading (Fire takes one branch,
+# everything else takes the other, and Fire is the state where the passage is
+# open) is what carries it - but the wrong words were in disc.py and in
+# mmx6-ram-notes.md and are corrected in both.
 #
 # THE TWEAKS PATCHER ONLY COVERS TWO OF THESE FOUR. Its payloads are
 # overlay-relative jumps (j 0x800EF0BC and j 0x800ED684), so they are not
@@ -339,17 +371,18 @@ NIGHTMARE_WALL_VANILLA = "05006210"      # beq v1, v0, +24
 NIGHTMARE_WALL_PATCHED = "05000010"      # beq zero, zero, +24
 
 
+# The group the four wall edits live in, and the only one. Reached two ways:
+# by disabling Fire (where it is mandatory) and by `nightmare_wall_always_open`
+# (where it is the whole point). NOT a Nightmare EFFECT group - it disables no
+# effect and zeroes no creation record - so it is deliberately not named
+# nightmare_<effect> and nightmare_group_name() can never produce it.
+NIGHTMARE_WALL_GROUP = "nightmare_wall_open"
+
+
 def _nightmare_group(effect: str) -> list:
     where, vanilla = NIGHTMARE_EFFECTS[effect]
-    edits = [(f"Nightmare {effect}: creation record", where, REGION_ROCK,
-              bytes.fromhex(vanilla), bytes(3))]
-    if effect == "Fire":
-        edits += [
-            (f"North Pole ice wall, copy {i + 1} of 4", site + 8, REGION_ROCK,
-             bytes.fromhex(NIGHTMARE_WALL_VANILLA),
-             bytes.fromhex(NIGHTMARE_WALL_PATCHED))
-            for i, site in enumerate(NIGHTMARE_WALL_SITES)]
-    return edits
+    return [(f"Nightmare {effect}: creation record", where, REGION_ROCK,
+             bytes.fromhex(vanilla), bytes(3))]
 
 
 def nightmare_group_name(effect: str) -> str:
@@ -366,6 +399,11 @@ DATA_EDIT_SITES: frozenset = frozenset(
 
 QOL_EDITS.update({nightmare_group_name(e): _nightmare_group(e)
                   for e in NIGHTMARE_EFFECTS})
+QOL_EDITS[NIGHTMARE_WALL_GROUP] = [
+    (f"North Pole ice wall, copy {i + 1} of 4", site + 8, REGION_ROCK,
+     bytes.fromhex(NIGHTMARE_WALL_VANILLA),
+     bytes.fromhex(NIGHTMARE_WALL_PATCHED))
+    for i, site in enumerate(NIGHTMARE_WALL_SITES)]
 
 # ---- The endgame gate ---------------------------------------------------------
 # Issue -1 of the post-release register, and the durable fix the client-side

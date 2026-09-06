@@ -261,6 +261,52 @@ class StageUnlocks(Toggle):
     display_name = "Stage Unlocks"
 
 
+class NightmareWallAlwaysOpen(Toggle):
+    """Open North Pole's ice wall without waiting for Blaze Heatnix.
+
+    Nine locations sit behind that wall - Blizzard Wolfang's Heart Tank, his
+    EX Tank and seven of his sixteen Reploids - and in the base game the only
+    thing that opens it is Nightmare Fire being active on his stage. Fire
+    arrives when you beat Blaze Heatnix, so those nine carry a stage-order
+    requirement that nothing else in the game has. Under `stage_unlocks` that
+    becomes a real constraint on where the fill may put things.
+
+    With this on the wall is never in your way, whatever you have beaten and
+    whichever effect is on the stage, and the nine become ordinary checks you
+    can take on your first visit.
+
+    **Expect fire in that room.** The disc edit makes the one test that
+    decides the wall answer "Fire" every time, and that test does not only
+    gate the wall - it selects how the room is set up. So the room behaves as
+    though Nightmare Fire were on it, hazards included. That is the room
+    exactly as the base game presents it, because Fire being on is the only
+    way anyone gets in there at all.
+
+    What it does NOT do is switch the effect on. Your Nightmare Effect state
+    is untouched: North Pole still shows no Nightmare on the stage select, the
+    Nightmare Virus and soul drops behave normally, and no other stage changes.
+    Confirmed in play 2026-09-06 - the effect byte stayed clear for the whole
+    run while the room ran its Fire version.
+
+    Forcing the test rather than the effect is also stabler than the real
+    thing: North Pole holds one effect at a time, and beating Shield Sheldon
+    replaces Fire with Mirror - which leaves the wall shut. Vanilla access can
+    therefore be taken away again. This cannot.
+
+    Leaving it off changes nothing: logic keeps requiring an opener and the
+    disc keeps its own bytes.
+
+    Interacts with `disabled_nightmare_effects`. Turning Fire off already
+    forces the wall open, because otherwise those nine would be sealed for
+    good - but on its own it also marks them excluded, so fill leaves only
+    junk there. Turning THIS on says you want them to count, so the exclusion
+    is lifted and progression may land behind the wall.
+
+    Changes the disc.
+    """
+    display_name = "Nightmare Wall Always Open"
+
+
 class DisabledNightmareEffects(OptionSet):
     """Switch off individual Nightmare Effects.
 
@@ -758,6 +804,7 @@ class MMX6Options(PerGameCommonOptions):
     boss_hp_randomization: BossHpRandomization
     weapon_damage: WeaponDamage
     disabled_nightmare_effects: DisabledNightmareEffects
+    nightmare_wall_always_open: NightmareWallAlwaysOpen
     scaravich_no_progression: ScaravichNoProgression
     no_progression_behind: NoProgressionBehind
     starting_rank: StartingRank

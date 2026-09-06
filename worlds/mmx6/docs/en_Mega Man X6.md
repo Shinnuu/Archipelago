@@ -48,9 +48,9 @@ enough for one player, let alone a multiworld. It is there for completeness.
 
 **`text_skip`**, **`skip_intro_videos`**, **`exit_stage_anytime`**,
 **`protect_reploids`**, **`boss_hp_randomization`**, **`weapon_damage`**,
-**`starting_hp`**, **`starting_rank`**, **`disabled_nightmare_effects`** and
-your **goal** are all applied to the disc image itself rather than by the
-client. Patch from the file the seed produced rather than reusing an older
+**`starting_hp`**, **`starting_rank`**, **`disabled_nightmare_effects`**,
+**`nightmare_wall_always_open`** and your **goal** are all applied to the disc
+image itself rather than by the client. Patch from the file the seed produced rather than reusing an older
 image, and re-patch whenever you change one of them.
 
 With every disc option off, the patched image differs from your clean dump by
@@ -107,7 +107,9 @@ when the patch is opened — the setup guide explains how.
   Fire is on the stage, and nine locations sit behind it (Blizzard Wolfang's
   Heart Tank, his EX Tank and seven Reploids), so they are excluded and hold
   junk. The patch also tries to hold the wall open so you can still collect
-  them, but no seed depends on it.
+  them, but no seed depends on it — unless you set
+  `nightmare_wall_always_open`, which is exactly the statement that you want
+  it to.
 
   Two side effects, neither of which costs you a check. **Nightmare Souls get
   much harder to farm**, because the Nightmare Virus only drops a fresh Orb
@@ -119,6 +121,27 @@ when the patch is opened — the setup guide explains how.
   nothing at all. The endgame gate does not care either way:
   under `all_mavericks` the Souls opening is already switched off on the disc
   (see below).
+- **`nightmare_wall_always_open` takes the stage order out of North Pole.**
+  Nine of Blizzard Wolfang's locations sit behind an ice wall, and the only
+  thing that opens it in the base game is Nightmare Fire being active on his
+  stage — which means beating Blaze Heatnix first. Those nine are the only
+  checks in the game with a stage-order requirement, and under `stage_unlocks`
+  it is a real constraint. Turn this on and the wall is never in your way,
+  whatever you have beaten.
+
+  **Expect fire in that room.** The single test this forces does not only gate
+  the wall — it selects how the room is set up, so the room runs its
+  Fire-afflicted version, hazards and all. That is the room exactly as the base
+  game presents it, since Fire being on is the only way anyone gets in there.
+
+  It does **not** switch the effect on. Your Nightmare Effect state is
+  untouched: North Pole still shows no Nightmare on the stage select, the
+  Nightmare Virus and soul drops behave normally, and no other stage changes.
+
+  Forcing the test rather than the effect is also steadier than the real thing:
+  North Pole holds one effect at a time, so beating Shield Sheldon replaces
+  Fire with Mirror and shuts the wall again. Vanilla access can be taken away;
+  this cannot.
 - **`scaravich_no_progression` answers Central Museum's random rooms.** Ground
   Scaravich's stage is assembled from totem-pole rooms the game picks four of
   at random each time you enter, and its Heart Tank, its Blade Armor Helmet and

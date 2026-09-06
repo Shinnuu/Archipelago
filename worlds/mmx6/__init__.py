@@ -217,8 +217,11 @@ class MMX6World(World):
         for cls in self.options.no_progression_behind.classes:
             excluded |= gated_locations(GATE_CLASSES[cls], reploid_checks)
         # Fire off means the wall may never open, so set_rules excludes what
-        # is behind it whether the player asked for that or not.
-        if "Fire" in self.options.disabled_nightmare_effects.effects:
+        # is behind it whether the player asked for that or not - unless the
+        # seed asked for the wall to be open, which waives the fail-safe. Kept
+        # in step with set_rules; the reasoning is spelled out there.
+        if ("Fire" in self.options.disabled_nightmare_effects.effects
+                and not self.options.nightmare_wall_always_open):
             excluded |= gated_locations("wall", reploid_checks)
         if self.options.scaravich_no_progression:
             # The whole stage, which set_rules takes off the REGION - the same
@@ -588,9 +591,15 @@ class MMX6World(World):
         # False for a seed that asked for `all`, quietly leaving the Fire
         # requirement on a disc whose wall is patched open.
         fire_off = "Fire" in self.options.disabled_nightmare_effects.effects
+        # `nightmare_wall_always_open` applies the SAME four edits deliberately
+        # rather than doing anything new: the branch that decides the wall is
+        # forced to the Fire arm, so no opener is needed and no effect has to
+        # be on the stage. It is stabler than real Fire, which Sheldon's
+        # Mirror overwrites - see the disassembly in disc.py.
+        wall_open = fire_off or bool(self.options.nightmare_wall_always_open)
 
         def wolfang_wall(state) -> bool:
-            if fire_off:
+            if wall_open:
                 return True     # the wall is patched open on this disc
             if not self.options.stage_unlocks:
                 return True     # Heatnix is always enterable
@@ -605,16 +614,27 @@ class MMX6World(World):
         also_needs(names.heart_location(names.WOLFANG), wolfang_wall)
         also_needs(names.tank_location(names.WOLFANG), wolfang_wall)
 
-        if fire_off:
+        if fire_off and not self.options.nightmare_wall_always_open:
             # FAIL-SAFE, and the reason it is here rather than a wall patch:
             # with Fire disabled, nothing behind North Pole's ice wall may be
-            # worth having. The disc edits that open that wall are our own
-            # disassembly and have never been watched in a running game, so
-            # relying on them would mean logic promising nine locations on the
-            # strength of an unverified patch - and if the wall stayed shut the
-            # seed would be unfinishable. Excluding them instead means the wall
-            # edits can fail completely and the worst case is nine filler
-            # checks nobody can pick up.
+            # worth having. Excluding them means the wall edits can fail
+            # completely and the worst case is nine filler checks nobody can
+            # pick up, rather than an unfinishable seed.
+            #
+            # The wall edits were VERIFIED LIVE 2026-09-06 - walked through the
+            # wall with Heatnix unbeaten and North Pole's effect byte clear -
+            # so this is no longer standing in for an unverified patch. It is
+            # kept anyway, because a player who turned Fire off did not ask for
+            # anything to be behind that wall. Waiving it is what
+            # nightmare_wall_always_open is for.
+            #
+            # `nightmare_wall_always_open` WAIVES this. That option exists to
+            # make those nine ordinary checks, and excluding them would leave
+            # it doing nothing a player could see. The waiver is the whole
+            # reason the option must not ship before someone has stood at that
+            # wall with the patch on: here, and only here, a seed's winnability
+            # rests on the edit working. Turning Fire off without it stays as
+            # safe as it was.
             #
             # Same shape as scaravich_no_progression, and taken off the RULE
             # rather than a hand-written list: anything the wall gates is

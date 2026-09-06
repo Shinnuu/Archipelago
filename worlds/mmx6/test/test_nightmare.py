@@ -38,8 +38,9 @@ FIRE_GROUP = disc.nightmare_group_name("Fire")
 class Namespace:
     """Just enough of an options object for qol_features."""
 
-    def __init__(self, effects=()) -> None:
+    def __init__(self, effects=(), wall_open=False) -> None:
         self.disabled_nightmare_effects = DisabledNightmareEffects(set(effects))
+        self.nightmare_wall_always_open = wall_open
         for option in ("text_skip", "skip_intro_videos", "exit_stage_anytime",
                        "protect_reploids"):
             setattr(self, option, type("O", (), {"value": 0})())
@@ -136,11 +137,17 @@ class TestGroups(unittest.TestCase):
         for effect in disc.NIGHTMARE_EFFECTS:
             group = disc.nightmare_group_name(effect)
             self.assertIn(group, disc.QOL_EDITS, effect)
-            self.assertEqual(nightmare_groups(Namespace([effect])), [group])
+            asked = nightmare_groups(Namespace([effect]))
+            # Fire drags the wall group along with it - that is mandatory, and
+            # TestDisablingFireAlwaysOpensTheWall is where it is pinned.
+            self.assertEqual([g for g in asked
+                              if g != disc.NIGHTMARE_WALL_GROUP], [group])
 
     def test_all_eight_selects_all_eight(self) -> None:
         every = list(disc.NIGHTMARE_EFFECTS)
-        self.assertEqual(len(nightmare_groups(Namespace(every))), 8)
+        asked = nightmare_groups(Namespace(every))
+        self.assertEqual(len([g for g in asked
+                              if g != disc.NIGHTMARE_WALL_GROUP]), 8)
 
     def test_the_order_does_not_depend_on_the_yaml(self) -> None:
         # A set has no order, so without sorting into the table's own order
@@ -149,31 +156,30 @@ class TestGroups(unittest.TestCase):
         b = nightmare_groups(Namespace(["Fire", "Dark", "Bug"]))
         self.assertEqual(a, b)
         self.assertEqual(a, [disc.nightmare_group_name(e)
-                             for e in ("Bug", "Fire", "Dark")])
+                             for e in ("Bug", "Fire", "Dark")]
+                         + [disc.NIGHTMARE_WALL_GROUP])
 
-    def test_a_non_fire_group_is_one_edit(self) -> None:
+    def test_every_effect_group_is_one_edit(self) -> None:
+        # All eight are now uniform: one creation record each. The wall edits
+        # used to make Fire the exception and no longer do.
         for effect in disc.NIGHTMARE_EFFECTS:
-            if effect == "Fire":
-                continue
             self.assertEqual(len(disc.QOL_EDITS[disc.nightmare_group_name(effect)]),
                              1, effect)
 
 
-class TestTheFireBundle(unittest.TestCase):
+class TestTheWallEdits(unittest.TestCase):
     """The seed-stranding case, pinned from several directions."""
 
-    def test_fire_carries_the_wall_edits(self) -> None:
-        edits = disc.QOL_EDITS[FIRE_GROUP]
-        self.assertEqual(len(edits), 5, "record + four wall sites")
+    def test_the_group_is_exactly_the_four_wall_edits(self) -> None:
+        self.assertEqual(len(disc.QOL_EDITS[disc.NIGHTMARE_WALL_GROUP]), 4)
 
     def test_it_covers_all_four_copies_of_the_check(self) -> None:
         # The Tweaks patcher only covers two of the four. The other two were
         # found by searching ROCK for the instruction itself; if this ever
         # drops back to two, disabling Fire shuts the wall in some overlays
         # and takes nine locations with it.
-        record = disc.NIGHTMARE_EFFECTS["Fire"][0]
-        sites = {w for _l, w, _r, _v, _p in disc.QOL_EDITS[FIRE_GROUP]
-                 if w != record}
+        sites = {w for _l, w, _r, _v, _p
+                 in disc.QOL_EDITS[disc.NIGHTMARE_WALL_GROUP]}
         self.assertEqual(sites,
                          {s + 8 for s in disc.NIGHTMARE_WALL_SITES})
         self.assertEqual(len(disc.NIGHTMARE_WALL_SITES), 4)
@@ -189,14 +195,37 @@ class TestTheFireBundle(unittest.TestCase):
         self.assertEqual((new >> 21) & 0x1F, 0, "rs is not zero")
         self.assertEqual((new >> 16) & 0x1F, 0, "rt is not zero")
 
-    def test_no_other_effect_touches_the_wall(self) -> None:
+    def test_no_effect_group_touches_the_wall(self) -> None:
+        # Including Fire. QOL_EDITS groups have to stay disjoint or they
+        # cannot all be applied together, which is what test_qol's
+        # no-two-edits-overlap invariant is protecting.
+        wall = {s + 8 for s in disc.NIGHTMARE_WALL_SITES}
+        for effect in disc.NIGHTMARE_EFFECTS:
+            sites = {w for _l, w, _r, _v, _p
+                     in disc.QOL_EDITS[disc.nightmare_group_name(effect)]}
+            self.assertFalse(sites & wall, effect)
+
+
+class TestDisablingFireAlwaysOpensTheWall(unittest.TestCase):
+    """The guarantee that used to be carried by bundling the wall edits inside
+    the Fire group. It is carried by Rom.nightmare_groups now, so this is the
+    only thing standing between a future edit and nine sealed locations."""
+
+    def test_fire_asks_for_the_wall_group(self) -> None:
+        self.assertIn(disc.NIGHTMARE_WALL_GROUP,
+                      nightmare_groups(Namespace(["Fire"])))
+
+    def test_all_asks_for_it_too(self) -> None:
+        # `all` is the trap a plain `in` test on the option would miss.
+        self.assertIn(disc.NIGHTMARE_WALL_GROUP,
+                      nightmare_groups(Namespace(["all"])))
+
+    def test_no_other_effect_asks_for_it(self) -> None:
         for effect in disc.NIGHTMARE_EFFECTS:
             if effect == "Fire":
                 continue
-            sites = {w for _l, w, _r, _v, _p
-                     in disc.QOL_EDITS[disc.nightmare_group_name(effect)]}
-            self.assertFalse(sites & {s + 8 for s in disc.NIGHTMARE_WALL_SITES},
-                             effect)
+            self.assertNotIn(disc.NIGHTMARE_WALL_GROUP,
+                             nightmare_groups(Namespace([effect])), effect)
 
 
 @unittest.skipUnless(have_rom, "vanilla disc image not present")
@@ -365,3 +394,104 @@ class TestAnotherEffectDoesNotRelaxIt(_WallBase):
 class TestTheOptionIsReal(unittest.TestCase):
     def test_it_is_in_the_options_dataclass(self) -> None:
         self.assertIn("disabled_nightmare_effects", MMX6Options.type_hints)
+        self.assertIn("nightmare_wall_always_open", MMX6Options.type_hints)
+
+
+# ---- nightmare_wall_always_open ---------------------------------------------
+# The same four edits as the Fire bundle, asked for on their own. Everything
+# here is about the two paths not colliding and the exclusion being waived.
+
+class TestTheStandaloneWallGroup(unittest.TestCase):
+    def test_the_group_exists_and_is_the_four_wall_edits(self) -> None:
+        edits = disc.QOL_EDITS[disc.NIGHTMARE_WALL_GROUP]
+        self.assertEqual(len(edits), 4)
+        self.assertEqual({w for _l, w, _r, _v, _p in edits},
+                         {s + 8 for s in disc.NIGHTMARE_WALL_SITES})
+
+    def test_it_zeroes_no_creation_record(self) -> None:
+        # It opens a wall; it disables no effect. If it ever touched a record
+        # the option would be silently disabling a Nightmare effect too.
+        records = {w for w, _v in disc.NIGHTMARE_EFFECTS.values()}
+        sites = {w for _l, w, _r, _v, _p
+                 in disc.QOL_EDITS[disc.NIGHTMARE_WALL_GROUP]}
+        self.assertFalse(sites & records)
+
+    def test_no_effect_name_can_produce_it(self) -> None:
+        for effect in disc.NIGHTMARE_EFFECTS:
+            self.assertNotEqual(disc.nightmare_group_name(effect),
+                                disc.NIGHTMARE_WALL_GROUP, effect)
+
+
+class TestTheTwoPathsNeverCollide(unittest.TestCase):
+    """Two options reach the same group. apply_basepatch refuses two edits on
+    one disc byte, so asking twice would fail the whole patch for a reason no
+    player could act on - and `qol_edits` walks QOL_EDITS by key, which makes
+    the group idempotent only if it is never listed twice."""
+
+    def _wall_sites(self, ns) -> list:
+        return [w for _l, w, _r, _v, _p in disc.qol_edits(qol_features(ns))
+                if w in {s + 8 for s in disc.NIGHTMARE_WALL_SITES}]
+
+    def test_off_asks_for_nothing(self) -> None:
+        self.assertEqual(nightmare_groups(Namespace(wall_open=False)), [])
+
+    def test_on_alone_asks_for_the_wall_group(self) -> None:
+        self.assertEqual(nightmare_groups(Namespace(wall_open=True)),
+                         [disc.NIGHTMARE_WALL_GROUP])
+
+    def test_on_with_fire_off_asks_once(self) -> None:
+        groups = nightmare_groups(Namespace(["Fire"], wall_open=True))
+        self.assertEqual(groups.count(disc.NIGHTMARE_WALL_GROUP), 1)
+        self.assertEqual(groups, [FIRE_GROUP, disc.NIGHTMARE_WALL_GROUP])
+
+    def test_on_with_all_asks_once(self) -> None:
+        groups = nightmare_groups(Namespace(["all"], wall_open=True))
+        self.assertEqual(groups.count(disc.NIGHTMARE_WALL_GROUP), 1)
+
+    def test_every_combination_writes_each_site_exactly_once(self) -> None:
+        for effects in ([], ["Fire"], ["all"], ["Mirror"], ["Mirror", "Fire"]):
+            for wall in (False, True):
+                sites = self._wall_sites(Namespace(effects, wall_open=wall))
+                self.assertEqual(len(sites), len(set(sites)),
+                                 f"duplicate wall edit: {effects} {wall}")
+                expected = 4 if (wall or "Fire" in effects
+                                 or "all" in effects) else 0
+                self.assertEqual(len(sites), expected, f"{effects} {wall}")
+
+
+class TestWallOpenRelaxesTheRule(_WallBase):
+    """The point of the option: the nine stop needing Heatnix, with Nightmare
+    Fire still fully enabled."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "nightmare_wall_always_open": True}
+
+    def test_all_nine_stop_needing_heatnix(self) -> None:
+        for loc, ok in self._reachable().items():
+            self.assertTrue(ok, f"{loc} still needs Heatnix")
+
+    def test_none_of_the_nine_is_excluded(self) -> None:
+        # The waiver. Excluding them would leave the option doing nothing a
+        # player could see.
+        from BaseClasses import LocationProgressType
+        for loc in FIRE_GATED:
+            self.assertNotEqual(
+                self.multiworld.get_location(loc, 1).progress_type,
+                LocationProgressType.EXCLUDED, loc)
+
+
+class TestWallOpenWaivesTheFireExclusion(_WallBase):
+    """Fire off AND the wall asked for: reachable, and no longer excluded."""
+    options = {"stage_unlocks": True, "reploid_checks": True,
+               "disabled_nightmare_effects": ["all"],
+               "nightmare_wall_always_open": True}
+
+    def test_all_nine_stop_needing_heatnix(self) -> None:
+        for loc, ok in self._reachable().items():
+            self.assertTrue(ok, f"{loc} still needs Heatnix")
+
+    def test_none_of_the_nine_is_excluded(self) -> None:
+        from BaseClasses import LocationProgressType
+        for loc in FIRE_GATED:
+            self.assertNotEqual(
+                self.multiworld.get_location(loc, 1).progress_type,
+                LocationProgressType.EXCLUDED, loc)

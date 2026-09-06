@@ -747,8 +747,43 @@ HEART_BIT_TO_STAGE = {
     7: names.DINOREX,   # Mattrex
 }
 
-BASE_MAX_HP = 0x20
-HP_PER_HEART = 2
+BASE_MAX_HP = 0x20              # what a fresh vanilla save starts with
+HP_PER_HEART = 2                # vanilla step, and the default for the option
+# The engine reads the maximum with a SIGNED byte load (`lb v0, 0x47(v1)` at
+# 0x80025D3C and 0x80026028), so 0x7F is the real ceiling - 0x80 and up would
+# read negative and every bar calculation downstream would run backwards. The
+# old 0x40 grant cap was VANILLA's maximum, not the engine's, and it is what
+# used to make a Heart Tank silently worth nothing once you reached 64.
+LIFE_HARD_MAX = 0x7F
+
+
+def _clamp_setting(value: object, lo: int, hi: int, default: int) -> int:
+    """A slot_data number, or the default if it is missing or nonsense.
+
+    Slot data comes off the wire and can be absent (an older seed), a string,
+    or out of range. Every use of these two settings drives a WRITE into the
+    save struct, so a bad value has to land on something safe rather than
+    propagate - a corrupt starting maximum must not read as "one hit from
+    death", and must never exceed the signed-byte ceiling.
+    """
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, number))
+
+
+def life_settings(ctx: "BizHawkClientContext") -> tuple[int, int]:
+    """(starting maximum, life per Heart Tank) for this seed.
+
+    Defaults are vanilla, so a seed generated before these options existed
+    behaves exactly as it did before.
+    """
+    data = ctx.slot_data or {}
+    return (_clamp_setting(data.get("starting_hp"), 1, LIFE_HARD_MAX,
+                           BASE_MAX_HP),
+            _clamp_setting(data.get("heart_tank_value"), 0, LIFE_HARD_MAX,
+                           HP_PER_HEART))
 
 
 class MMX5Client(BizHawkClient):
@@ -1461,7 +1496,31 @@ class MMX5Client(BizHawkClient):
             # launch pinning - already keys off this one flag, so training is
             # inert everywhere at once instead of in three places that could
             # drift apart.
-            save_sane = 0x10 <= save[OFF_MAX_HP_X] <= 0x40 and not training
+            # ---- The residency test, and why its bounds move with the seed --
+            # Max HP is the byte we use to decide the save struct is
+            # initialized at all. `starting_hp` moves it, so a fixed
+            # 0x10..0x40 window would make a legal seed read as "no save
+            # resident" and SILENTLY STOP SENDING CHECKS - the worst failure
+            # this client has, because nothing looks wrong from the game side.
+            #
+            # The new window is derived from the seed instead. Nothing in X5
+            # ever takes life away, so a save belonging to this seed holds at
+            # least its starting maximum - EXCEPT in the one window that
+            # matters here: a brand-new save sits at vanilla's 0x20 until the
+            # adoption block below writes the seed's value into it. So the
+            # floor is the LOWER of the two, and the ceiling is the engine's.
+            #
+            # For a default seed this is 0x20..0x7F: TIGHTER at the bottom
+            # than the 0x10 it replaces, looser at the top. It only genuinely
+            # weakens for a seed that starts very low, and that is survivable
+            # because this test was never what carried the weight - see the
+            # four additional requirements under "What it takes to BELIEVE the
+            # save struct" below. Gameplay mode, trust and the seed stamp are
+            # what actually closed the 2026-08-06 phantom-check bug.
+            life_start, life_step = life_settings(ctx)
+            save_sane = (min(BASE_MAX_HP, life_start)
+                         <= save[OFF_MAX_HP_X] <= LIFE_HARD_MAX
+                         and not training)
             if training != self.last_training_state:
                 self.last_training_state = training
                 if training:
@@ -1659,9 +1718,10 @@ class MMX5Client(BizHawkClient):
             # The mailbox ring below is deliberately NOT gated - it lives in
             # its own free-RAM block and carries a per-record validity bit.
             # ---- What it takes to BELIEVE the save struct -------------------
-            # `save_sane` alone is far too weak: its only residency test is
-            # 0x10 <= maxHP <= 0x40, which RAM left over from a previous game
-            # satisfies exactly - and RAM survives a soft reset, so "I started
+            # `save_sane` alone is far too weak: its only residency test is a
+            # plausible max HP (a seed-derived window - see the gate above,
+            # which `starting_hp` widened), which RAM left over from a previous
+            # game satisfies exactly - and RAM survives a soft reset, so "I started
             # a new save" does not mean the struct held that new save when we
             # read it. A tester's world sent 24 phantom checks to an 8-player
             # multiworld on 2026-08-06; on a patched disc the client cannot
@@ -1772,10 +1832,45 @@ class MMX5Client(BizHawkClient):
                             f"mainmemory.writebyte(0x{SAVE_BASE + OFF_STAMP:06X}, "
                             f"0x{self._seed_stamp(ctx):02X})")
                     return
-                await bizhawk.write(ctx.bizhawk_ctx, [(
-                    SAVE_BASE + OFF_STAMP, [self._seed_stamp(ctx)], "MainRAM")])
+                # ---- `starting_hp` rides the adoption, and that IS its flag --
+                # This is the one moment in a save's life that is guaranteed
+                # to happen exactly once: it fires only on an unstamped,
+                # progress-free save, and its own write is what makes the save
+                # stamped. So the stamp doubles as the "baseline applied"
+                # record, and the setting needs no persisted byte of its own -
+                # which is just as well, because the four spare persisted
+                # bytes are fully spoken for (0x1C4D weapons, 0x1C4E/4F
+                # processed, 0x1C50 this stamp).
+                #
+                # SHIFTED, not assigned. A save can legitimately be a couple
+                # of points above vanilla's 32 before we ever see it: Alia's
+                # Life Up reward is +2, it is not an AP item, and it does not
+                # count as `progressed` above (it lives in bits 8-15 of the
+                # u32 at 0x1C80, while that test reads byte 0x1C80). Adding
+                # the difference keeps it; assigning would eat it.
+                #
+                # Both characters, like every other life grant here.
+                adopt = [(SAVE_BASE + OFF_STAMP, [self._seed_stamp(ctx)],
+                          "MainRAM")]
+                # The delta is floored at zero, and that is not decoration.
+                # Only X's byte passes the residency gate above; ZERO'S IS
+                # NEVER VALIDATED, and a save read in a window where it is
+                # still 0 would otherwise compute `start + 0 - 32` and write a
+                # permanently crippled maximum. A character can never hold
+                # LESS than vanilla's base, so a negative difference means the
+                # byte is not meaningful yet - read it as "nothing earned".
+                baseline = [
+                    min(LIFE_HARD_MAX,
+                        life_start + max(0, save[off] - BASE_MAX_HP))
+                    for off in (OFF_MAX_HP_X, OFF_MAX_HP_Z)]
+                if baseline != [save[OFF_MAX_HP_X], save[OFF_MAX_HP_Z]]:
+                    adopt.append((SAVE_BASE + OFF_MAX_HP_X, baseline,
+                                  "MainRAM"))
+                await bizhawk.write(ctx.bizhawk_ctx, adopt)
                 logger.debug("MMX5: fresh save adopted (stamped "
-                             f"{self._seed_stamp(ctx):02X})")
+                             f"{self._seed_stamp(ctx):02X}, life "
+                             f"{save[OFF_MAX_HP_X]}/{save[OFF_MAX_HP_Z]} -> "
+                             f"{baseline[0]}/{baseline[1]})")
             if self.unstamped_warned and save_trusted \
                     and save[OFF_STAMP] == self._seed_stamp(ctx):
                 self.unstamped_warned = False
@@ -2563,8 +2658,31 @@ class MMX5Client(BizHawkClient):
                         # BOTH characters (design decision 2026-08-01):
                         # vanilla hearts only boost the collector, but an AP
                         # heart item shouldn't shortchange whoever's benched.
-                        new_max_x = min(0x40, save[OFF_MAX_HP_X] + HP_PER_HEART * new_hearts)
-                        new_max_z = min(0x40, save[OFF_MAX_HP_Z] + HP_PER_HEART * new_hearts)
+                        #
+                        # INCREMENTAL on purpose, and this is load-bearing.
+                        # X6 solved the same problem by writing the maximum
+                        # ABSOLUTELY every cycle, because it has no
+                        # exactly-once record of what it has applied. We do:
+                        # OFF_PROCESSED is committed in the SAME guarded write
+                        # as these grants, so each Heart Tank is counted once,
+                        # ever - across reconnects, restarts and savestates.
+                        #
+                        # Adding to what is already there is also what keeps
+                        # Alia's Life Up rewards. They are worth +2, they are
+                        # granted by the game's own code, and they are NOT
+                        # Archipelago items - an absolute write would rebuild
+                        # the maximum from AP's items alone and silently erase
+                        # up to 16 points of earned life. Nothing here has to
+                        # know they exist; they are already in the byte.
+                        #
+                        # Cap is the ENGINE's 0x7F, not vanilla's 0x40. Under
+                        # the old cap every Heart Tank past 64 was worth
+                        # nothing, which `heart_tank_value` would have made
+                        # trivial to hit.
+                        new_max_x = min(LIFE_HARD_MAX,
+                                        save[OFF_MAX_HP_X] + life_step * new_hearts)
+                        new_max_z = min(LIFE_HARD_MAX,
+                                        save[OFF_MAX_HP_Z] + life_step * new_hearts)
                         writes.append((SAVE_BASE + OFF_MAX_HP_X, [new_max_x, new_max_z], "MainRAM"))
 
                     if new_energy:

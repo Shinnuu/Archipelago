@@ -572,6 +572,99 @@ def music_edits(assignment: dict[str, int]) -> list[tuple[int, bytes, str]]:
             for row in sorted(rows)]
 
 
+# ---- The life bar's low end (PER-SEED, only when the seed can go under 32) ---
+# The player life bar picks its frame as a SPRITE INDEX, `(maxHP - 32) / 2 +
+# 0x88`, clamped only at the TOP (0x98). Two identical copies of the block:
+#
+#   80025D3C: lb    v0, 0x47(v1)      ; v1 = 0x800D1C00 + charIdx
+#   80025D44: addiu v0, v0, -32       ; <- the site we patch
+#   80025D48: srl   v1, v0, 31        ; the signed-rounding trio: for x >= 0 it
+#   80025D4C: addu  v0, v0, v1        ;   is a no-op, so flooring first lets us
+#   80025D50: sra   v0, v0, 1         ;   drop it and keep the same result
+#   80025D54: addiu s3, v0, 136       ; <- where the hook returns
+#   80025D58: slti  v1, s3, 153       ; the ONLY clamp, and it is the top one
+#
+# THERE IS NO LOWER CLAMP, so a maximum below 32 indexes beneath the bar
+# artwork and draws other HUD sprites. This is the same defect X6 shipped and
+# then fixed (MMX6 handoff 2026-09-04); X5's code is instruction-for-
+# instruction identical, so the fix is X6's, with four addresses changed.
+# Verified against `Games/MegamanX5/Megaman X5.bin` on 2026-09-06 by extracting
+# the SLUS region and disassembling both sites - not inferred from X6.
+#
+# ABOVE 64 nothing changes. The frame stops growing while the fill keeps going,
+# so a large maximum draws a bar that overflows its own container. That is how
+# the genre draws a bar past its vanilla maximum, it is what X6's players read
+# as correct, and it is Ivor's explicit call for X5 (2026-09-06). Do not
+# "fix" it by capping the value - X6 did exactly that and reverted it a day
+# later, having closed the half that was never broken.
+#
+# The floor cannot be done in place: it needs four operations (sra/nor/and to
+# clamp at zero, then the shift) where the rounding trio needs three - one
+# instruction over, at both sites. So each site jumps to a six-word hook.
+LIFE_BAR_REGION = "SLUS exe"
+LIFE_BAR_VANILLA_SUB = 0x2442FFE0      # addiu v0, v0, -32, the word each has
+# Free-space run A, after the pickupsanity checked table (which ends by
+# 0x8007788C). The run is 0x800776A0..0x800778F8; two hooks need 48 bytes and
+# leave ~56 spare. Same validated run the pickup/capsule/pickupsanity stubs
+# already live in, deliberately - it is zero in the file AND canaried at
+# runtime, which a merely-zero region elsewhere in the EXE is not.
+LIFE_BAR_HOOK_ADDR = 0x80077890
+LIFE_BAR_RUN_END = 0x800778F8          # first byte past free-space run A
+
+# (label, site patched with the jump, address the hook returns to)
+LIFE_BAR_SITES: list[tuple[str, int, int]] = [
+    ("life bar frame (player HUD)", 0x80025D44, 0x80025D54),
+    ("life bar frame (second copy)", 0x80026030, 0x80026040),
+]
+
+_LIFE_BAR_BODY: tuple[int | None, ...] = (
+    0x2442FFE0,     # addiu v0, v0, -32     x = maxHP - 32
+    0x00021FC3,     # sra   v1, v0, 31      -1 if x < 0 else 0
+    0x00601827,     # nor   v1, v1, zero    0 if x < 0 else -1
+    0x00431024,     # and   v0, v0, v1      max(x, 0)   <- the floor
+    None,           # j     <return>        filled in per site
+    0x00021043,     # sra   v0, v0, 1       DELAY SLOT: the /2
+)
+LIFE_BAR_HOOK_WORDS = len(_LIFE_BAR_BODY)
+
+
+def _life_bar_jump(target: int) -> int:
+    """`j target` as a whole instruction word."""
+    return (0x02 << 26) | ((target >> 2) & 0x03FFFFFF)
+
+
+def life_bar_edits(starting_hp: int) -> list[tuple[int, bytes, str]]:
+    """Floor the life bar's frame index at 0x88, or nothing.
+
+    Emitted ONLY when the seed can actually go below 32. Max HP is
+    `starting_hp` plus upgrades, and nothing in X5 ever takes life away, so a
+    seed starting at 32 or above can never reach the broken range - and gets a
+    byte-identical disc.
+
+    The outgoing jump's delay slot is vanilla's `srl v1, v0, 31`, which writes
+    only v1; the hook recomputes v1 from v0 (still the raw maximum), so the
+    leaked instruction is harmless. The return jump's delay slot does the
+    shift, so no slot is wasted.
+    """
+    if starting_hp >= 32:
+        return []
+    out: list[tuple[int, bytes, str]] = []
+    hook = LIFE_BAR_HOOK_ADDR
+    for _label, site, ret in LIFE_BAR_SITES:
+        out.append((site, _life_bar_jump(hook).to_bytes(4, "little"),
+                    LIFE_BAR_REGION))
+        body = b"".join(
+            (_life_bar_jump(ret) if word is None else word).to_bytes(4, "little")
+            for word in _LIFE_BAR_BODY)
+        out.append((hook, body, LIFE_BAR_REGION))
+        hook += len(body)
+    if hook > LIFE_BAR_RUN_END:
+        raise ValueError(
+            f"life bar hooks run past free-space run A "
+            f"(0x{hook:08X} > 0x{LIFE_BAR_RUN_END:08X})")
+    return out
+
+
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------
 _ecc_f = [0] * 256
 _ecc_b = [0] * 256

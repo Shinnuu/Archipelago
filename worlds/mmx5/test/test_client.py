@@ -82,9 +82,9 @@ def seed_edits_for(**overrides) -> list:
     import random as _random
 
     from .. import Rom
-    from ..options import (ExitStageAnytime, Goal, LaunchOdds, PickupSanity,
-                           StageMusic, TextSkip, WaterStageSpeed,
-                           WeaponDamage, BossDamage)
+    from ..options import (ExitStageAnytime, Goal, HeartTankValue, LaunchOdds,
+                           PickupSanity, StageMusic, StartingHp, TextSkip,
+                           WaterStageSpeed, WeaponDamage, BossDamage)
 
     opts = {"goal": Goal(Goal.option_sigma),
             "launch_odds": LaunchOdds(LaunchOdds.option_deterministic),
@@ -94,10 +94,15 @@ def seed_edits_for(**overrides) -> list:
             "water_stage_speed": WaterStageSpeed(0),
             "weapon_damage": WeaponDamage(0),
             "boss_damage": BossDamage(0),
-            "stage_music": StageMusic(0)}
+            "stage_music": StageMusic(0),
+            # Vanilla by default: at 32 the life-bar hook is not emitted, so
+            # the disc stays byte-identical and no existing assertion moves.
+            "starting_hp": StartingHp(32),
+            "heart_tank_value": HeartTankValue(2)}
     for key, value in overrides.items():
         cls = {"goal": Goal, "launch_odds": LaunchOdds, "text_skip": TextSkip,
                "pickupsanity": PickupSanity,
+               "starting_hp": StartingHp, "heart_tank_value": HeartTankValue,
                "exit_stage_anytime": ExitStageAnytime,
                "water_stage_speed": WaterStageSpeed,
                "weapon_damage": WeaponDamage,

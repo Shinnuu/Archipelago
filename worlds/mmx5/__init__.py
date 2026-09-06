@@ -500,4 +500,6 @@ class MMX5World(World):
             "rematch_checks": self.options.rematch_checks.value,
             "reploid_checks": self.options.reploid_checks.value,
             "dna_parts_in_pool": self.options.dna_parts_in_pool.value,
+            "starting_hp": self.options.starting_hp.value,
+            "heart_tank_value": self.options.heart_tank_value.value,
         }

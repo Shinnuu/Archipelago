@@ -141,6 +141,14 @@ class TestRandomizedOptionList(unittest.TestCase):
         excluded = {f"{t}_palette" for t in
                     ("x", "zero", "falcon", "gaea", "ultimate")}
         excluded |= {"stage_music"}
+        # starting_hp and heart_tank_value are Ranges, not Choices, and that
+        # is why they are excluded rather than rolled. Every option in
+        # RANDOMIZED_OPTIONS offers a short list of curated, playable values;
+        # these two span 1..127 and 0..64, where a uniform roll lands on an
+        # extreme far more often than on anything anyone would have chosen -
+        # a 1-life run is a deliberate challenge, not a surprise. Anyone who
+        # wants the dice can still ask for a specific value.
+        excluded |= {"starting_hp", "heart_tank_value"}
         excluded |= {"start_inventory_from_pool", "randomize_options",
                     "endgame_checks", "rematch_checks", "reploid_checks",
                     "exit_stage_anytime", "water_stage_speed",

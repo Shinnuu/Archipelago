@@ -1020,6 +1020,110 @@ def boss_hp_edits(rolls: dict[str, int]) -> list[tuple[str, int, str, bytes, byt
                             boss_hp_load(word, value).to_bytes(4, "little")))
     return out
 
+
+# ---- Stage music shuffle -----------------------------------------------------
+# All music is CD-XA streamed out of XA/BGM.XA. Two EXE tables sit between the
+# game and the audio:
+#
+#   STREAM TABLE  0x8006E58C, 30 x 16 bytes {start, end, channel, loop}
+#                 -> where a BGM id lives on the disc
+#   CUE TABLE     0x8007093C, 8 bytes per stage id, four (id, volume) pairs
+#                 -> which BGM id a stage asks for
+#
+# `play_bgm(id, volume)` (0x80018060) is the stream table's only reader;
+# `bgm_for_current_stage()` (0x8001854C) indexes the cue table with the stage
+# id at 0x800CCEDC - the byte the RAM notes call Current Stage Index.
+#
+# WE EDIT THE CUE TABLE, NEVER THE STREAM TABLE. Permuting the stream table
+# would move a track for every context that plays it; rewriting cue rows moves
+# it only for the stages we name, so menus, cutscenes, the Mission Report and
+# every jingle keep vanilla music by construction, with nothing to exclude by
+# hand. Confirmed live 2026-09-06: two stages traded themes and an untouched
+# third stayed vanilla (ai-docs/plans/2026-09-06_music-randomization-feasibility.md).
+#
+# Rows are chosen against the stage roster in mmx6-ram-notes.md ("Game flow and
+# the stage roster"). Deliberately EXCLUDED:
+#   0x09, 0x0A  undocumented; they share track 0x14 with a cutscene, so a
+#               guess here would move music in a scene nobody asked about
+#   0x0B        Cutscene
+#   0x0D/0E/0F  Stage Select / Title Menus / Mission Report
+#   0x17..0x1C  the rest of the menu block
+# INCLUDED and worth naming: 0x0C is Secret Lab 3A (boss rush) and 3B (Sigma),
+# 0x10..0x12 are Secret Lab 1 / 2A / 2B, and 0x13..0x16 are the eight Maverick
+# stages AGAIN - the revisits, packed two stages per row through the second
+# selector. Those revisit rows are why this is a single id->id mapping applied
+# everywhere rather than a per-row roll: a stage has to sound the same on the
+# second visit as it did on the first.
+MUSIC_CUE_TABLE = 0x8007093C
+
+# Vanilla row bytes, extracted from the disc EXE rather than transcribed.
+# Each row is four (id, volume) pairs; only the id bytes are ever rewritten -
+# the volumes are the game's own mix (0x70/0x75/0x7F) and are left alone.
+MUSIC_STAGE_ROWS: dict[int, bytes] = {
+    0x00: bytes.fromhex("0975097009750970"),   # Intro stage
+    0x01: bytes.fromhex("0b7f0b7f0b7f0b7f"),   # Commander Yammark
+    0x02: bytes.fromhex("0d7f0d7f0d7f0d7f"),   # Blizzard Wolfang
+    0x03: bytes.fromhex("0e7f0e7f0e7f0e7f"),   # Blaze Heatnix
+    0x04: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Metal Shark Player
+    0x05: bytes.fromhex("0f7f0f7f0f7f0f7f"),   # Ground Scaravich
+    0x06: bytes.fromhex("107f107f107f107f"),   # Rainy Turtloid
+    0x07: bytes.fromhex("117f117f117f117f"),   # Shield Sheldon
+    0x08: bytes.fromhex("127f127f127f127f"),   # Infinity Mijinion
+    0x0C: bytes.fromhex("147f147f147f147f"),   # Secret Lab 3A rush / 3B Sigma
+    0x10: bytes.fromhex("137f137f137f137f"),   # Secret Lab 1
+    0x11: bytes.fromhex("137f137f137f137f"),   # Secret Lab 2A
+    0x12: bytes.fromhex("137f137f137f137f"),   # Secret Lab 2B
+    0x13: bytes.fromhex("0b7f0b7f0d7f0d7f"),   # revisit: Yammark / Wolfang
+    0x14: bytes.fromhex("0e7f0e7f0c7f0c7f"),   # revisit: Heatnix / Metal Shark
+    0x15: bytes.fromhex("0f7f0f7f107f107f"),   # revisit: Scaravich / Turtloid
+    0x16: bytes.fromhex("1175117012751270"),   # revisit: Sheldon / Mijinion
+}
+
+# The tracks those rows use - the pool, and nothing outside it. Every one is a
+# full-length looping stream (360-416 s), so any of them can stand in for any
+# other without a stage falling silent partway through.
+MUSIC_STAGE_TRACKS: tuple[int, ...] = (
+    0x09, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14)
+
+
+def music_permutation(rng) -> dict[int, int]:
+    """Roll a permutation of the stage tracks. Bijective by construction, so
+    every stage theme still exists somewhere and none is used twice."""
+    shuffled = list(MUSIC_STAGE_TRACKS)
+    rng.shuffle(shuffled)
+    return dict(zip(MUSIC_STAGE_TRACKS, shuffled))
+
+
+def music_edits(mapping: dict[int, int]) -> list:
+    """Cue-row rewrites for a stage-track permutation, or nothing.
+
+    EVERY stage row is emitted whenever the option is on, including rows whose
+    track happened to map to itself. Skipping the unchanged ones would make
+    the set of edit SITES depend on the seed, and the unpatcher's manifest is
+    built by running patch_rom once at a fixed seed: a row skipped in that
+    build would have no vanilla bytes recorded, and a player whose seed DID
+    move that row could not be unpatched. A handful of no-op byte writes is
+    the cheap side of that trade.
+    """
+    if not mapping:
+        return []
+    if set(mapping) != set(MUSIC_STAGE_TRACKS):
+        raise ValueError("music mapping must cover exactly the stage tracks")
+    if sorted(mapping.values()) != sorted(MUSIC_STAGE_TRACKS):
+        raise ValueError("music mapping must be a permutation, not a mapping "
+                         "onto a smaller set - a duplicated track would leave "
+                         "another one unreachable")
+    out = []
+    for row, vanilla in sorted(MUSIC_STAGE_ROWS.items()):
+        patched = bytearray(vanilla)
+        for pair in range(4):
+            patched[pair * 2] = mapping[vanilla[pair * 2]]
+        out.append((f"stage music cue row 0x{row:02X}",
+                    MUSIC_CUE_TABLE + row * 8, REGION_EXE,
+                    bytes(vanilla), bytes(patched)))
+    return out
+
+
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------
 _ecc_f = [0] * 256
 _ecc_b = [0] * 256

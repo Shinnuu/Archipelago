@@ -764,6 +764,27 @@ class WeaponDamage(Choice):
     default = 0
 
 
+class StageMusic(Toggle):
+    """Shuffle the music between stages.
+
+    Every stage keeps a real stage theme - the eleven themes the stages
+    already use are dealt back out among them, so nothing is missing and
+    nothing plays twice. Amazon Area might get Northpole's music, the Secret
+    Lab might get a Maverick's.
+
+    ONLY stages change. Menus, the Stage Select, cutscenes, the Mission
+    Report, every jingle and the ending keep their vanilla music.
+
+    A stage sounds the same every time you enter it, including the revisits
+    later in the game.
+
+    Purely cosmetic - it moves no checks and changes no logic.
+
+    Changes the disc.
+    """
+    display_name = "Stage Music"
+
+
 class RandomizeOptions(Toggle):
     """Let the seed pick your gameplay options for you.
 
@@ -824,6 +845,7 @@ class MMX6Options(PerGameCommonOptions):
     stage_unlocks: StageUnlocks
     boss_hp_randomization: BossHpRandomization
     weapon_damage: WeaponDamage
+    stage_music: StageMusic
     disabled_nightmare_effects: DisabledNightmareEffects
     nightmare_wall_always_open: NightmareWallAlwaysOpen
     scaravich_no_progression: ScaravichNoProgression

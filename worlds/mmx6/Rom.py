@@ -333,6 +333,13 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
                   for group in damage.WEAPON_GROUPS}
         seed_edits += damage.damage_edits(scales)
 
+    # Cosmetic, but it rides on the disc rather than in slot_data because the
+    # cue table is read by the game at stage start and the client never sees
+    # the decision. Rolled here so the seed owns it and it is reproducible,
+    # exactly like the boss HP and damage rolls above.
+    if world.options.stage_music:
+        seed_edits += disc.music_edits(disc.music_permutation(world.random))
+
     edits = [{"addr": where, "region": region,
               "hex": patched.hex(), "van": van.hex()}
              for _label, where, region, van, patched in seed_edits]

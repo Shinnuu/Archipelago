@@ -3,6 +3,28 @@
 
 ## Unreleased
 
+**New option: `stage_music`** — shuffles the music between stages.
+
+The eleven themes the stages already use are dealt back out among them, so
+every stage still gets a real stage theme, nothing goes missing and nothing
+plays twice.
+
+**Only stages change.** The Stage Select, Title Menus, the Mission Report,
+cutscenes, every jingle and the ending keep their vanilla music. That is
+structural rather than a curated exclusion list: the game picks stage music
+through a cue table indexed by stage id, and only the rows that are stages are
+rewritten. The table that says where a track lives on the disc is never
+touched, so a theme moves only for the stages named.
+
+A stage sounds the same every time you enter it, including the revisits later
+in the game, because one track-to-track mapping is applied everywhere rather
+than a separate roll per stage. The Secret Lab rooms still share one theme with
+each other, as they do in vanilla.
+
+Purely cosmetic — it moves no checks and changes no logic.
+
+**Changes the disc** — re-patch if you turn it on. Off by default.
+
 **The `all_mavericks` goal is now called `all_mavericks_sigma`**, because it
 always did require beating Sigma afterwards and the old name did not say so.
 Nothing about the goal changed. **Your existing YAML keeps working** —

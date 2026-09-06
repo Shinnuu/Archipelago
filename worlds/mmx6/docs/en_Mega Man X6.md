@@ -59,8 +59,9 @@ enough for one player, let alone a multiworld. It is there for completeness.
 
 **`text_skip`**, **`skip_intro_videos`**, **`exit_stage_anytime`**,
 **`protect_reploids`**, **`boss_hp_randomization`**, **`weapon_damage`**,
-**`starting_hp`**, **`starting_rank`**, **`disabled_nightmare_effects`**,
-**`nightmare_wall_always_open`** and your **goal** are all applied to the disc
+**`stage_music`**, **`starting_hp`**, **`starting_rank`**,
+**`disabled_nightmare_effects`**, **`nightmare_wall_always_open`** and your
+**goal** are all applied to the disc
 image itself rather than by the client. Patch from the file the seed produced rather than reusing an older
 image, and re-patch whenever you change one of them.
 
@@ -244,6 +245,13 @@ when the patch is opened — the setup guide explains how.
   Nothing rolls to zero and instant kills stay instant kills. It stacks with
   `boss_hp_randomization`, and `weak` weapons against randomized boss health is
   a very different game.
+- **`stage_music` shuffles the music between stages.** The eleven themes the
+  stages already use are dealt back out among them, so every stage still gets a
+  real stage theme, nothing goes missing and nothing plays twice. Only stages
+  change — the Stage Select, Title Menus, the Mission Report, cutscenes, jingles
+  and the ending all keep their vanilla music. A stage sounds the same every
+  time you enter it, including the revisits later in the game. Purely cosmetic:
+  it moves no checks and changes no logic.
 - **`randomize_options` lets the seed choose your settings.** It rolls the
   goal, difficulty, `parts_in_pool`, `zero_unlock`, `secret_armors_in_pool`,
   `text_skip`, `stage_unlocks`, `boss_hp_randomization` and `weapon_damage`,

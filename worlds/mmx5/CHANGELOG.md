@@ -1,6 +1,13 @@
 # Mega Man X5 apworld changelog
 
-## Unreleased
+## 0.7.0 — 2026-09-06
+
+**Re-patch if you turn either disc feature on.** `stage_music` always changes
+the disc; `starting_hp` changes it only when you start below 32. A seed that
+uses neither produces a disc byte-identical to 0.6.2's, so it needs nothing.
+Where you do re-patch: generate a fresh `.apmmx5`, re-patch, and carry on —
+your save and any in-flight seed are unaffected. If you have lost your clean
+dump, `MMX5-Unpatcher.exe` on the release page will restore any patched disc.
 
 **New option: `starting_hp`** — how much life X and Zero begin with. Vanilla is
 32; anything from 1 to 127 is allowed. 127 is the ceiling because the game

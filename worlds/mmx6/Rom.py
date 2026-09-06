@@ -338,7 +338,7 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     # the decision. Rolled here so the seed owns it and it is reproducible,
     # exactly like the boss HP and damage rolls above.
     if world.options.stage_music:
-        seed_edits += disc.music_edits(disc.music_permutation(world.random))
+        seed_edits += disc.music_edits(disc.music_assignment(world.random))
 
     edits = [{"addr": where, "region": region,
               "hex": patched.hex(), "van": van.hex()}

@@ -6,20 +6,28 @@ byte of the rows that are stages. The stream table - where a BGM id actually
 lives on the disc - is deliberately NOT touched, which is what keeps menus,
 cutscenes and jingles on vanilla music without an exclusion list.
 
-So what needs protecting is not the byte offsets (those were extracted from
-the disc EXE, not typed) but the PROPERTIES that make the shuffle safe:
+Music is assigned per PLACE, not per track. A row's four (id, volume) pairs
+are indexed d*2 + c, so one row can hold two places: rows 0x13..0x16 are the
+eight Maverick stages a second time (the revisits, two per row), and row 0x0C
+is Secret Lab 3A, the boss rush, alongside 3B, Sigma. Assigning per place is
+what lets the three Secret Lab rooms differ, where vanilla had them on one
+track.
 
-  * it is a permutation, so no theme vanishes and none is used twice;
-  * volumes survive, because the game mixes stages at three different levels
-    and a flat 0x7F would make the quiet ones wrong;
-  * one global id->id mapping, so a stage sounds the same on its revisit as
-    it did on the first visit, and rows that shared a track still share it;
-  * rows that are NOT stages stay out of the table entirely.
+There are more places (14) than tracks (11), so unlike a permutation some
+track must repeat. What is protected here:
 
-The revisit property is the one that would rot silently. X6 rows 0x13..0x16
-are the eight Maverick stages a second time, packed two stages per row, and a
-per-row roll would give a stage different music the second time you enter it.
+  * every track still reaches somewhere, and none is used more than twice;
+  * slots that share a ROW stay distinct, or splitting Sigma off from the boss
+    rush would be quietly undone by an unlucky roll;
+  * a Maverick stage and its revisit are the SAME slot, so a stage cannot
+    change music between visits - that is the property that would rot silently;
+  * volumes survive, because the game mixes stages at three different levels;
+  * every (row, pair) belongs to exactly one slot, and each slot is a single
+    track in vanilla - if that stops holding, the slot table has drifted from
+    the disc;
+  * rows that are NOT stages stay out entirely, 0x0B (a Cutscene) included.
 """
+import collections
 import random
 import unittest
 
@@ -34,65 +42,116 @@ def _vols(row: bytes) -> tuple[int, ...]:
     return tuple(row[i * 2 + 1] for i in range(4))
 
 
-def _patched_rows(mapping: dict[int, int]) -> dict[int, bytes]:
-    """Every stage row after the edit, including rows the edit left alone."""
+def _patched_rows(assignment: dict[str, int]) -> dict[int, bytes]:
     out = dict(disc.MUSIC_STAGE_ROWS)
-    for _label, where, _region, _van, patched in disc.music_edits(mapping):
+    for _label, where, _region, _van, patched in disc.music_edits(assignment):
         out[(where - disc.MUSIC_CUE_TABLE) // 8] = patched
     return out
 
 
-class TestThePool(unittest.TestCase):
+class TestTheSlotTable(unittest.TestCase):
+    def test_every_row_pair_belongs_to_exactly_one_slot(self) -> None:
+        seen = collections.Counter()
+        for _name, positions in disc.MUSIC_SLOTS:
+            for row, pairs in positions:
+                for pair in pairs:
+                    seen[(row, pair)] += 1
+        expected = {(row, pair) for row in disc.MUSIC_STAGE_ROWS
+                    for pair in range(4)}
+        self.assertEqual(set(seen), expected)
+        self.assertEqual(set(seen.values()), {1})
+
+    def test_each_slot_is_one_track_in_vanilla(self) -> None:
+        # A slot spanning two vanilla tracks would mean the slot table has
+        # drifted from the disc - it would be claiming two places are one.
+        for name, positions in disc.MUSIC_SLOTS:
+            tracks = {disc.MUSIC_STAGE_ROWS[row][pair * 2]
+                      for row, pairs in positions for pair in pairs}
+            self.assertEqual(len(tracks), 1, f"{name}: {tracks}")
+
     def test_the_pool_is_exactly_the_tracks_the_stage_rows_use(self) -> None:
         used = {i for row in disc.MUSIC_STAGE_ROWS.values() for i in _ids(row)}
         self.assertEqual(used, set(disc.MUSIC_STAGE_TRACKS))
 
-    def test_the_permutation_is_a_permutation(self) -> None:
-        for seed in range(50):
-            mapping = disc.music_permutation(random.Random(seed))
-            self.assertEqual(set(mapping), set(disc.MUSIC_STAGE_TRACKS))
-            self.assertEqual(sorted(mapping.values()),
-                             sorted(disc.MUSIC_STAGE_TRACKS))
+    def test_the_revisit_rows_are_folded_into_the_maverick_slots(self) -> None:
+        # This is the check that the roster pairing was transcribed right:
+        # row 0x13 half d=0 must carry the same vanilla track as the Yammark
+        # stage row, and so on for all eight.
+        for stage_row, revisit, half in ((0x01, 0x13, (0, 1)), (0x02, 0x13, (2, 3)),
+                                         (0x03, 0x14, (0, 1)), (0x04, 0x14, (2, 3)),
+                                         (0x05, 0x15, (0, 1)), (0x06, 0x15, (2, 3)),
+                                         (0x07, 0x16, (0, 1)), (0x08, 0x16, (2, 3))):
+            stage_track = disc.MUSIC_STAGE_ROWS[stage_row][0]
+            for pair in half:
+                self.assertEqual(disc.MUSIC_STAGE_ROWS[revisit][pair * 2],
+                                 stage_track,
+                                 f"row 0x{revisit:02X} pair {pair}")
 
-    def test_a_mapping_that_loses_a_track_is_refused(self) -> None:
-        # Onto a smaller set: one theme would become unreachable.
-        collapsed = {t: disc.MUSIC_STAGE_TRACKS[0]
-                     for t in disc.MUSIC_STAGE_TRACKS}
-        with self.assertRaises(ValueError):
-            disc.music_edits(collapsed)
+    def test_secret_lab_3_is_two_slots(self) -> None:
+        names = [n for n, _p in disc.MUSIC_SLOTS if n.startswith("Secret Lab 3")]
+        self.assertEqual(len(names), 2)
 
-    def test_a_mapping_over_the_wrong_ids_is_refused(self) -> None:
-        with self.assertRaises(ValueError):
-            disc.music_edits({0x00: 0x01})
 
-    def test_no_mapping_means_no_edits(self) -> None:
-        self.assertEqual(disc.music_edits({}), [])
+class TestTheAssignment(unittest.TestCase):
+    def test_it_covers_exactly_the_slots(self) -> None:
+        a = disc.music_assignment(random.Random(0))
+        self.assertEqual(set(a), {n for n, _p in disc.MUSIC_SLOTS})
 
-    def test_the_edit_sites_do_not_depend_on_the_roll(self) -> None:
-        # The unpatcher's manifest is built by running patch_rom once at a
-        # fixed seed and recording the sites it emits. If a row whose track
-        # mapped to itself were skipped, that row's vanilla bytes would go
-        # unrecorded and a player whose seed DID move it could not be
-        # unpatched. So every stage row is written on every seed.
-        expected = {disc.MUSIC_CUE_TABLE + row * 8
-                    for row in disc.MUSIC_STAGE_ROWS}
-        for seed in range(25):
-            mapping = disc.music_permutation(random.Random(seed))
-            sites = {where for _l, where, _r, _v, _p in disc.music_edits(mapping)}
-            self.assertEqual(sites, expected, f"seed {seed}")
+    def test_every_track_still_reaches_somewhere(self) -> None:
+        for seed in range(200):
+            a = disc.music_assignment(random.Random(seed))
+            self.assertEqual(set(a.values()), set(disc.MUSIC_STAGE_TRACKS),
+                             f"seed {seed}")
 
-    def test_the_identity_permutation_still_writes_every_row_unchanged(self) -> None:
-        identity = {t: t for t in disc.MUSIC_STAGE_TRACKS}
-        edits = disc.music_edits(identity)
-        self.assertEqual(len(edits), len(disc.MUSIC_STAGE_ROWS))
-        for label, _w, _r, van, patched in edits:
-            self.assertEqual(patched, van, label)
+    def test_no_track_is_used_more_than_it_has_to_be(self) -> None:
+        cap = -(-len(disc.MUSIC_SLOTS) // len(disc.MUSIC_STAGE_TRACKS))
+        for seed in range(200):
+            counts = collections.Counter(
+                disc.music_assignment(random.Random(seed)).values())
+            self.assertLessEqual(max(counts.values()), cap, f"seed {seed}")
+
+    def test_slots_sharing_a_row_get_different_tracks(self) -> None:
+        for seed in range(200):
+            a = disc.music_assignment(random.Random(seed))
+            self.assertFalse(disc._shares_a_row_track(a), f"seed {seed}")
+
+    def test_the_boss_rush_and_sigma_always_differ(self) -> None:
+        # They share row 0x0C, so the same-row rule covers them - stated on its
+        # own because it is the reason that rule exists.
+        for seed in range(200):
+            a = disc.music_assignment(random.Random(seed))
+            self.assertNotEqual(a["Secret Lab 3A (boss rush)"],
+                                a["Secret Lab 3B (Sigma)"], f"seed {seed}")
+
+    def test_no_place_keeps_the_track_it_already_had(self) -> None:
+        # Cosmetic option: a stage still playing its own theme is
+        # indistinguishable from the option not working.
+        vanilla = disc.slot_vanilla_tracks()
+        for seed in range(200):
+            a = disc.music_assignment(random.Random(seed))
+            for name, was in vanilla.items():
+                self.assertNotEqual(a[name], was, f"seed {seed}: {name}")
+
+    def test_slot_vanilla_tracks_matches_the_row_table(self) -> None:
+        for name, positions in disc.MUSIC_SLOTS:
+            for row, pairs in positions:
+                for pair in pairs:
+                    self.assertEqual(disc.MUSIC_STAGE_ROWS[row][pair * 2],
+                                     disc.slot_vanilla_tracks()[name], name)
+
+    def test_the_same_seed_gives_the_same_music(self) -> None:
+        self.assertEqual(disc.music_assignment(random.Random(99)),
+                         disc.music_assignment(random.Random(99)))
+
+    def test_different_seeds_give_different_music(self) -> None:
+        self.assertNotEqual(disc.music_assignment(random.Random(1)),
+                            disc.music_assignment(random.Random(2)))
 
 
 class TestTheEdits(unittest.TestCase):
     def setUp(self) -> None:
-        self.mapping = disc.music_permutation(random.Random(1234))
-        self.edits = disc.music_edits(self.mapping)
+        self.assignment = disc.music_assignment(random.Random(1234))
+        self.edits = disc.music_edits(self.assignment)
 
     def test_the_declared_vanilla_matches_the_row_table(self) -> None:
         for label, where, region, van, _patched in self.edits:
@@ -101,7 +160,7 @@ class TestTheEdits(unittest.TestCase):
             self.assertEqual(van, disc.MUSIC_STAGE_ROWS[row], label)
 
     def test_volumes_are_never_touched(self) -> None:
-        for label, where, _region, van, patched in self.edits:
+        for label, _w, _r, van, patched in self.edits:
             self.assertEqual(_vols(patched), _vols(van), label)
 
     def test_every_written_id_is_a_stage_track(self) -> None:
@@ -122,11 +181,37 @@ class TestTheEdits(unittest.TestCase):
                 self.assertNotIn(where + i, seen, label)
                 seen.add(where + i)
 
+    def test_the_edit_sites_do_not_depend_on_the_roll(self) -> None:
+        expected = {disc.MUSIC_CUE_TABLE + row * 8
+                    for row in disc.MUSIC_STAGE_ROWS}
+        for seed in range(25):
+            a = disc.music_assignment(random.Random(seed))
+            sites = {w for _l, w, _r, _v, _p in disc.music_edits(a)}
+            self.assertEqual(sites, expected, f"seed {seed}")
+
+    def test_no_assignment_means_no_edits(self) -> None:
+        self.assertEqual(disc.music_edits({}), [])
+
+    def test_a_wrong_slot_set_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            disc.music_edits({"Intro stage": 0x09})
+
+    def test_a_non_stage_track_is_refused(self) -> None:
+        a = dict(self.assignment)
+        a["Intro stage"] = 0x01          # a menu theme, not a stage track
+        with self.assertRaises(ValueError):
+            disc.music_edits(a)
+
+    def test_dropping_a_track_entirely_is_refused(self) -> None:
+        a = {name: disc.MUSIC_STAGE_TRACKS[0] for name in self.assignment}
+        with self.assertRaises(ValueError):
+            disc.music_edits(a)
+
 
 class TestNonStagesAreLeftAlone(unittest.TestCase):
-    # Rows identified from the stage roster in mmx6-ram-notes.md. 0x0B is a
-    # cutscene and 0x0D/0x0E/0x0F are Stage Select / Title Menus / Mission
-    # Report - the four that look most like stages and are not.
+    # From the stage roster in mmx6-ram-notes.md. 0x0B is a Cutscene and
+    # 0x0D/0x0E/0x0F are Stage Select / Title Menus / Mission Report - the
+    # four that look most like stages and are not.
     NOT_STAGES = (0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F,
                   0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C)
 
@@ -138,55 +223,39 @@ class TestNonStagesAreLeftAlone(unittest.TestCase):
         forbidden = {disc.MUSIC_CUE_TABLE + row * 8 + i
                      for row in self.NOT_STAGES for i in range(8)}
         for seed in range(25):
-            mapping = disc.music_permutation(random.Random(seed))
-            for label, where, _r, _van, patched in disc.music_edits(mapping):
+            a = disc.music_assignment(random.Random(seed))
+            for label, where, _r, _van, patched in disc.music_edits(a):
                 for i in range(len(patched)):
                     self.assertNotIn(where + i, forbidden, label)
 
 
-class TestAStageSoundsTheSameEveryVisit(unittest.TestCase):
-    # X6 rows 0x13..0x16 are the eight Maverick stages again - the revisits,
-    # two stages per row. A per-row roll would change a stage's music between
-    # visits; one global id->id mapping cannot.
-    FIRST_VISIT = (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
-    REVISIT = (0x13, 0x14, 0x15, 0x16)
-
-    def test_the_revisit_rows_reuse_the_first_visit_tracks(self) -> None:
-        first = {t for row in self.FIRST_VISIT
-                 for t in _ids(disc.MUSIC_STAGE_ROWS[row])}
-        again = {t for row in self.REVISIT
-                 for t in _ids(disc.MUSIC_STAGE_ROWS[row])}
-        self.assertEqual(again, first)
-
-    def test_a_revisit_plays_what_the_first_visit_plays(self) -> None:
-        for seed in range(25):
-            mapping = disc.music_permutation(random.Random(seed))
-            rows = _patched_rows(mapping)
-            # vanilla track -> what the Maverick rows now play for it
-            became: dict[int, int] = {}
-            for row in self.FIRST_VISIT:
-                for was, now in zip(_ids(disc.MUSIC_STAGE_ROWS[row]),
-                                    _ids(rows[row])):
-                    became[was] = now
-            for row in self.REVISIT:
-                for was, now in zip(_ids(disc.MUSIC_STAGE_ROWS[row]),
-                                    _ids(rows[row])):
-                    self.assertEqual(now, became[was],
-                                     f"seed {seed}, revisit row 0x{row:02X}")
-
-
-class TestSharedRowsStayShared(unittest.TestCase):
-    # Secret Lab 1 / 2A / 2B are three rows on one track in vanilla. They have
-    # to stay on ONE track, or the finale changes music between its own rooms.
+class TestWhatSplitAndWhatDidNot(unittest.TestCase):
     SECRET_LAB = (0x10, 0x11, 0x12)
+    FIRST_VISIT = (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
+    REVISIT = ((0x13, (0, 1)), (0x13, (2, 3)), (0x14, (0, 1)), (0x14, (2, 3)),
+               (0x15, (0, 1)), (0x15, (2, 3)), (0x16, (0, 1)), (0x16, (2, 3)))
 
-    def test_they_share_a_track_in_vanilla(self) -> None:
+    def test_the_secret_lab_rooms_shared_a_track_in_vanilla(self) -> None:
         tracks = {t for row in self.SECRET_LAB
                   for t in _ids(disc.MUSIC_STAGE_ROWS[row])}
         self.assertEqual(len(tracks), 1)
 
-    def test_they_still_share_one_after_any_shuffle(self) -> None:
-        for seed in range(25):
-            rows = _patched_rows(disc.music_permutation(random.Random(seed)))
-            tracks = {t for row in self.SECRET_LAB for t in _ids(rows[row])}
-            self.assertEqual(len(tracks), 1, f"seed {seed}")
+    def test_the_secret_lab_rooms_can_now_differ(self) -> None:
+        # A repeat can still make two coincide, which is why this is
+        # "some seed" rather than "every seed".
+        separated = 0
+        for seed in range(50):
+            rows = _patched_rows(disc.music_assignment(random.Random(seed)))
+            if len({_ids(rows[r])[0] for r in self.SECRET_LAB}) == 3:
+                separated += 1
+        self.assertGreater(separated, 0)
+
+    def test_a_revisit_always_plays_what_the_first_visit_plays(self) -> None:
+        for seed in range(50):
+            rows = _patched_rows(disc.music_assignment(random.Random(seed)))
+            for stage_row, (revisit, half) in zip(self.FIRST_VISIT,
+                                                  self.REVISIT):
+                want = _ids(rows[stage_row])[0]
+                for pair in half:
+                    self.assertEqual(_ids(rows[revisit])[pair], want,
+                                     f"seed {seed}, row 0x{revisit:02X}")

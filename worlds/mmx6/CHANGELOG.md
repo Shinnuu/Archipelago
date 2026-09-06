@@ -6,8 +6,15 @@
 **New option: `stage_music`** — shuffles the music between stages.
 
 The eleven themes the stages already use are dealt back out among them, so
-every stage still gets a real stage theme, nothing goes missing and nothing
-plays twice.
+every stage still gets a real stage theme, every theme is still used somewhere,
+and no stage keeps the theme it started with. There are fourteen places and
+eleven themes, so three themes turn up in two places.
+
+Places that merely shared music in the base game are **split**: Secret Lab 1,
+2A and 2B each get their own theme, and the Secret Lab 3 boss rush is separated
+from Sigma. That last one is a place the cue table hides — row 0x0C carries
+both, picked by the same selector byte that packs two Maverick stages into each
+revisit row.
 
 **Only stages change.** The Stage Select, Title Menus, the Mission Report,
 cutscenes, every jingle and the ending keep their vanilla music. That is

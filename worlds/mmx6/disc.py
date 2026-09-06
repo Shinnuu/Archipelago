@@ -1079,6 +1079,37 @@ MUSIC_STAGE_ROWS: dict[int, bytes] = {
     0x16: bytes.fromhex("1175117012751270"),   # revisit: Sheldon / Mijinion
 }
 
+# Each of these rows is one or more PLACES. The row's four (id, volume) pairs
+# are indexed d*2 + c from two selector bytes, so d=0 is pairs {0,1} and d=1
+# is pairs {2,3}. That is how rows 0x13..0x16 carry two Maverick stages each -
+# the roster writes them "1300"/"1301", and that trailing byte IS d.
+#
+# Row 0x0C is the same trick and is easy to miss: 0C00 is Secret Lab 3A, the
+# BOSS RUSH, and 0C01 is 3B, SIGMA. Vanilla gives both halves the same track;
+# splitting them lets Sigma have his own.
+#
+# A slot is a PLACE, and every slot's positions hold ONE track in vanilla.
+# Music is assigned per slot, so places that merely happened to share a track
+# no longer have to - the three Secret Lab rooms get three separate rolls -
+# while a Maverick stage and its revisit are deliberately the SAME slot, so a
+# stage sounds the same however often you enter it.
+MUSIC_SLOTS: tuple[tuple[str, tuple[tuple[int, tuple[int, ...]], ...]], ...] = (
+    ("Intro stage",                 ((0x00, (0, 1, 2, 3)),)),
+    ("Amazon (Yammark)",            ((0x01, (0, 1, 2, 3)), (0x13, (0, 1)))),
+    ("Northpole (Wolfang)",         ((0x02, (0, 1, 2, 3)), (0x13, (2, 3)))),
+    ("Magma (Heatnix)",             ((0x03, (0, 1, 2, 3)), (0x14, (0, 1)))),
+    ("Recycle Lab (Metal Shark)",   ((0x04, (0, 1, 2, 3)), (0x14, (2, 3)))),
+    ("Central Museum (Scaravich)",  ((0x05, (0, 1, 2, 3)), (0x15, (0, 1)))),
+    ("Inami Temple (Turtloid)",     ((0x06, (0, 1, 2, 3)), (0x15, (2, 3)))),
+    ("Laser Institute (Sheldon)",   ((0x07, (0, 1, 2, 3)), (0x16, (0, 1)))),
+    ("Weapon Center (Mijinion)",    ((0x08, (0, 1, 2, 3)), (0x16, (2, 3)))),
+    ("Secret Lab 3A (boss rush)",   ((0x0C, (0, 1)),)),
+    ("Secret Lab 3B (Sigma)",       ((0x0C, (2, 3)),)),
+    ("Secret Lab 1",                ((0x10, (0, 1, 2, 3)),)),
+    ("Secret Lab 2A",               ((0x11, (0, 1, 2, 3)),)),
+    ("Secret Lab 2B",               ((0x12, (0, 1, 2, 3)),)),
+)
+
 # The tracks those rows use - the pool, and nothing outside it. Every one is a
 # full-length looping stream (360-416 s), so any of them can stand in for any
 # other without a stage falling silent partway through.
@@ -1086,42 +1117,100 @@ MUSIC_STAGE_TRACKS: tuple[int, ...] = (
     0x09, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14)
 
 
-def music_permutation(rng) -> dict[int, int]:
-    """Roll a permutation of the stage tracks. Bijective by construction, so
-    every stage theme still exists somewhere and none is used twice."""
-    shuffled = list(MUSIC_STAGE_TRACKS)
-    rng.shuffle(shuffled)
-    return dict(zip(MUSIC_STAGE_TRACKS, shuffled))
-
-
-def music_edits(mapping: dict[int, int]) -> list:
-    """Cue-row rewrites for a stage-track permutation, or nothing.
-
-    EVERY stage row is emitted whenever the option is on, including rows whose
-    track happened to map to itself. Skipping the unchanged ones would make
-    the set of edit SITES depend on the seed, and the unpatcher's manifest is
-    built by running patch_rom once at a fixed seed: a row skipped in that
-    build would have no vanilla bytes recorded, and a player whose seed DID
-    move that row could not be unpatched. A handful of no-op byte writes is
-    the cheap side of that trade.
-    """
-    if not mapping:
-        return []
-    if set(mapping) != set(MUSIC_STAGE_TRACKS):
-        raise ValueError("music mapping must cover exactly the stage tracks")
-    if sorted(mapping.values()) != sorted(MUSIC_STAGE_TRACKS):
-        raise ValueError("music mapping must be a permutation, not a mapping "
-                         "onto a smaller set - a duplicated track would leave "
-                         "another one unreachable")
-    out = []
-    for row, vanilla in sorted(MUSIC_STAGE_ROWS.items()):
-        patched = bytearray(vanilla)
-        for pair in range(4):
-            patched[pair * 2] = mapping[vanilla[pair * 2]]
-        out.append((f"stage music cue row 0x{row:02X}",
-                    MUSIC_CUE_TABLE + row * 8, REGION_EXE,
-                    bytes(vanilla), bytes(patched)))
+def slot_vanilla_tracks() -> dict[str, int]:
+    """What each slot plays in the unpatched game."""
+    out = {}
+    for name, positions in MUSIC_SLOTS:
+        row, pairs = positions[0]
+        out[name] = MUSIC_STAGE_ROWS[row][pairs[0] * 2]
     return out
+
+
+def _keeps_its_own_track(assignment: dict[str, int]) -> bool:
+    """True if any place drew the very track it already had.
+
+    Worth rejecting: this is a COSMETIC option, so a stage that still plays
+    its own theme is indistinguishable from the option not working. With 14
+    places over 11 tracks that lands on roughly one stage per seed, which is
+    often enough to be noticed and reported as a bug.
+    """
+    vanilla = slot_vanilla_tracks()
+    return any(assignment[name] == vanilla[name] for name in vanilla)
+
+
+def _shares_a_row_track(assignment: dict[str, int]) -> bool:
+    """True if one cue row has two slots on the same track."""
+    per_row: dict[int, list[int]] = {}
+    for name, positions in MUSIC_SLOTS:
+        for row, _pairs in positions:
+            per_row.setdefault(row, []).append(assignment[name])
+    return any(len(v) != len(set(v)) for v in per_row.values())
+
+
+def music_assignment(rng) -> dict[str, int]:
+    """Roll a track for every slot.
+
+    There are more PLACES than tracks (14 against 11), which is the price of
+    splitting the shared ones - so this cannot be a permutation and some track
+    has to appear twice. It deals a bag rather than sampling per slot: every
+    track goes in once, then `r` further tracks are drawn WITHOUT replacement
+    to fill the remainder. So each track is used at least once, none more than
+    twice, and which ones repeat is uniform rather than falling on whichever
+    slots happen to come last.
+
+    Two constraints on top. Slots that SHARE A ROW are kept distinct -
+    splitting the boss rush from Sigma is the whole point of giving row 0x0C
+    two slots, and a roll handing both the same track would quietly undo that.
+    And no place keeps the track it already had, because this is cosmetic and
+    a stage still playing its own theme reads as the option not working.
+    """
+    pool = list(MUSIC_STAGE_TRACKS)
+    k, r = divmod(len(MUSIC_SLOTS), len(pool))
+    for _attempt in range(50):
+        bag = pool * k + rng.sample(pool, r)
+        rng.shuffle(bag)
+        out = {name: bag[i] for i, (name, _pos) in enumerate(MUSIC_SLOTS)}
+        if not _shares_a_row_track(out) and not _keeps_its_own_track(out):
+            return out
+    return out          # 50 unlucky deals: take it rather than loop forever
+
+
+def music_edits(assignment: dict[str, int]) -> list:
+    """Cue-row rewrites for a slot assignment, or nothing.
+
+    EVERY stage row is emitted whenever the option is on, including rows no
+    roll happened to change. Skipping them would make the edit SITES depend on
+    the seed, and the unpatcher's manifest is built by running patch_rom once
+    at a fixed seed: a row skipped in that build would have no vanilla bytes
+    recorded, and a player whose seed DID move that row could not be
+    unpatched. A handful of no-op byte writes is the cheap side of that trade.
+    """
+    if not assignment:
+        return []
+    names = {name for name, _pos in MUSIC_SLOTS}
+    if set(assignment) != names:
+        raise ValueError("music assignment must cover exactly the slots")
+    unknown = set(assignment.values()) - set(MUSIC_STAGE_TRACKS)
+    if unknown:
+        raise ValueError(f"music assignment uses non-stage tracks: {unknown}")
+    missing = set(MUSIC_STAGE_TRACKS) - set(assignment.values())
+    if missing:
+        raise ValueError(
+            "music assignment drops "
+            f"{sorted(hex(m) for m in missing)} - every stage theme must still "
+            "be reachable somewhere")
+
+    rows = {row: bytearray(vanilla)
+            for row, vanilla in MUSIC_STAGE_ROWS.items()}
+    for name, positions in MUSIC_SLOTS:
+        track = assignment[name]
+        for row, pairs in positions:
+            for pair in pairs:
+                rows[row][pair * 2] = track
+    return [(f"stage music cue row 0x{row:02X}",
+             MUSIC_CUE_TABLE + row * 8, REGION_EXE,
+             MUSIC_STAGE_ROWS[row], bytes(rows[row]))
+            for row in sorted(rows)]
 
 
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------

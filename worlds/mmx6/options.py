@@ -768,9 +768,16 @@ class StageMusic(Toggle):
     """Shuffle the music between stages.
 
     Every stage keeps a real stage theme - the eleven themes the stages
-    already use are dealt back out among them, so nothing is missing and
-    nothing plays twice. Amazon Area might get Northpole's music, the Secret
-    Lab might get a Maverick's.
+    already use are dealt back out among them. Amazon Area might get
+    Northpole's music, the Secret Lab might get a Maverick's, and no stage
+    keeps the theme it started with.
+
+    There are fourteen places and eleven themes, so three themes turn up in
+    two places. Every theme is still used somewhere.
+
+    Places that share music in the base game are split: Secret Lab 1, 2A and
+    2B each get their own theme, and the Secret Lab 3 boss rush is separated
+    from Sigma.
 
     ONLY stages change. Menus, the Stage Select, cutscenes, the Mission
     Report, every jingle and the ending keep their vanilla music.

@@ -247,11 +247,15 @@ when the patch is opened — the setup guide explains how.
   a very different game.
 - **`stage_music` shuffles the music between stages.** The eleven themes the
   stages already use are dealt back out among them, so every stage still gets a
-  real stage theme, nothing goes missing and nothing plays twice. Only stages
-  change — the Stage Select, Title Menus, the Mission Report, cutscenes, jingles
-  and the ending all keep their vanilla music. A stage sounds the same every
-  time you enter it, including the revisits later in the game. Purely cosmetic:
-  it moves no checks and changes no logic.
+  real stage theme, every theme is still used somewhere, and **no stage keeps
+  the theme it started with**. There are fourteen places and eleven themes, so
+  three themes turn up in two places. Places that share music in the base game
+  are **split**: Secret Lab 1, 2A and 2B each get their own, and the Secret Lab
+  3 boss rush is separated from Sigma. Only stages change — the Stage Select,
+  Title Menus, the Mission Report, cutscenes, jingles and the ending all keep
+  their vanilla music. A stage sounds the same every time you enter it,
+  including the revisits later in the game. Purely cosmetic: it moves no checks
+  and changes no logic.
 - **`randomize_options` lets the seed choose your settings.** It rolls the
   goal, difficulty, `parts_in_pool`, `zero_unlock`, `secret_armors_in_pool`,
   `text_skip`, `stage_unlocks`, `boss_hp_randomization` and `weapon_damage`,

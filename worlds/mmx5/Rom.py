@@ -576,7 +576,18 @@ def patch_rom(world: "MMX5World", patch: MMX5ProcedurePatch) -> None:
         # the decision. Rolled here so the seed owns it and it is reproducible,
         # exactly like the weapon and boss damage tables above.
         for addr, payload, region in disc.music_edits(
-                disc.music_permutation(world.random)):
+                disc.music_assignment(world.random)):
+            seed_edits.append({"addr": addr, "hex": payload.hex(),
+                               "region": region})
+
+    if world.options.starting_hp.value < 32:
+        # Floors the life bar's frame index so a maximum under 32 draws the
+        # smallest real bar instead of unrelated HUD sprites. Emitted ONLY for
+        # seeds that can reach that range - nothing takes life away in X5, so
+        # a seed starting at 32 never can, and its disc stays byte-identical.
+        # Above 64 is deliberately untouched; see disc.life_bar_edits.
+        for addr, payload, region in disc.life_bar_edits(
+                world.options.starting_hp.value):
             seed_edits.append({"addr": addr, "hex": payload.hex(),
                                "region": region})
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from Options import (Choice, DefaultOnToggle, PerGameCommonOptions,
+from Options import (Choice, DefaultOnToggle, PerGameCommonOptions, Range,
                      StartInventoryPool, Toggle)
 
 from . import palettes
@@ -411,9 +411,16 @@ class StageMusic(Toggle):
     """Shuffle the music between stages.
 
     Every stage keeps a real stage theme - the thirteen themes the stages
-    already use are dealt back out among them, so nothing is missing and
-    nothing plays twice. Grizzly Slash might get Mattrex's music, Zero Space
-    might get a Maverick's.
+    already use are dealt back out among them. Grizzly Slash might get
+    Mattrex's music, Zero Space might get a Maverick's, and no stage keeps the
+    theme it started with.
+
+    There are seventeen places and thirteen themes, so four themes turn up in
+    two places. Every theme is still used somewhere.
+
+    Places that share music in the base game are split: Zero Space 1, Zero
+    Space 2 and the X-vs-Zero duel each get their own theme, as do the Enigma
+    and shuttle sorties.
 
     ONLY stages change. The hub, the stage select, cutscenes, the results and
     transition screens, every jingle and the ending keep their vanilla music.
@@ -425,6 +432,71 @@ class StageMusic(Toggle):
     Changes the disc.
     """
     display_name = "Stage Music"
+
+
+class StartingHp(Range):
+    """How much life X and Zero start with. Vanilla is 32.
+
+    1 is one hit from anything. 127 is the most the game can hold - it reads
+    the maximum with a SIGNED byte load, so 128 and above would read as
+    negative - and this stops there. All of it plays.
+
+    ABOVE 64 the life bar runs past the end of its own frame. The frame has
+    seventeen sizes covering 32 to 64 and stops growing there, while the fill
+    keeps going one notch per point, so a very large maximum draws a bar that
+    overflows its container. That is how most games in this genre draw a bar
+    past their vanilla maximum, and it is accepted here rather than treated as
+    a fault. The extra life is real.
+
+    BELOW 32 the bar would draw other HUD sprites, because its frame index runs
+    off the front of the artwork. That is fixed on the disc: the frame stops
+    shrinking at its smallest real size, so a low-life run looks right from the
+    first frame. The edit is applied only to seeds that start below 32; every
+    other seed's disc is byte-identical.
+
+    Heart Tanks add on top (see `heart_tank_value`), as do the Life Up rewards
+    Alia offers after a boss, and the total is capped at 127.
+
+    APPLIED TO A NEW SAVE, once, when the client first adopts it. A save that
+    is already part of this seed is left alone, so changing this mid-run does
+    nothing until you start a new game.
+    """
+    display_name = "Starting Life"
+    range_start = 1
+    range_end = 127
+    default = 32
+
+
+class HeartTankValue(Range):
+    """How much life each Heart Tank is worth. Vanilla is 2.
+
+    X5 has 8 Heart Tanks, which at 2 each is what takes a vanilla run from 32
+    to 48 - the other 16 points come from Alia's Life Up rewards, which are not
+    Archipelago items and are NOT affected by this setting. They stay worth 2
+    each, and they still count on top of whatever you set here.
+
+    0 makes Heart Tanks worth nothing - the check still sends, the gauge does
+    not move.
+
+    The total is capped at 127, the most the game can hold, so a large value
+    reaches the top sooner rather than going past it.
+
+    Above 2 you will pass 64 part-way through the run, and from there the bar
+    draws longer than its own frame. See `starting_hp`: that is accepted, not
+    a fault.
+
+    Heart Tanks received from the multiworld raise BOTH characters, unlike
+    vanilla, where the pickup only boosts whoever collected it.
+
+    APPLIED AS EACH HEART TANK ARRIVES, so changing this mid-run affects only
+    the ones you receive afterwards - the life you already have is kept.
+
+    Weapon energy is untouched - EX items keep their vanilla step.
+    """
+    display_name = "Life Per Heart Tank"
+    range_start = 0
+    range_end = 64
+    default = 2
 
 
 class RandomizeOptions(Toggle):
@@ -597,6 +669,8 @@ class MMX5Options(PerGameCommonOptions):
     weapon_damage: WeaponDamage
     boss_damage: BossDamage
     stage_music: StageMusic
+    starting_hp: StartingHp
+    heart_tank_value: HeartTankValue
     secret_armors_in_pool: SecretArmorsInPool
     stage_unlocks: StageUnlocks
     endgame_checks: EndgameChecks

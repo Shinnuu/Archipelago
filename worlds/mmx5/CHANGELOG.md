@@ -2,11 +2,57 @@
 
 ## Unreleased
 
+**New option: `starting_hp`** — how much life X and Zero begin with. Vanilla is
+32; anything from 1 to 127 is allowed. 127 is the ceiling because the game
+reads the maximum with a *signed* byte load, so 128 would read as negative.
+
+It is applied to a **new save**, once, the first time the client adopts it. A
+save that is already part of this seed is left alone, so changing this mid-run
+does nothing until you start a new game. Life the game itself granted you —
+Alia's Life Up rewards, which are not Archipelago items — is kept rather than
+overwritten.
+
+**Above 64 the life bar overflows its own frame.** The frame has seventeen
+sizes covering 32 to 64 and stops growing there, while the fill keeps going one
+notch per point. That is how the genre draws a bar past its vanilla maximum,
+the extra life is real, and it is deliberately left alone.
+
+**Below 32 needed a disc fix.** The frame is a sprite index with a clamp at the
+top and *none* at the bottom, so a maximum under 32 indexed off the front of
+the artwork and drew unrelated HUD elements. Both copies of that code now floor
+the index at the smallest real bar. **The edit is emitted only for seeds that
+start below 32** — every other seed's disc is byte-identical, so only a low
+`starting_hp` asks you to re-patch.
+
+**New option: `heart_tank_value`** — what each Heart Tank is worth. Vanilla is
+2. 0 makes them worth nothing while the check still sends. The total stops at
+127 rather than at vanilla's 64, which also fixes a quieter bug: Heart Tanks
+received past a maximum of 64 used to be silently worth nothing.
+
+Alia's Life Up rewards are **not** affected — they are the game's own, not
+Archipelago items, and they stay worth 2 each on top of whatever you set.
+Changing this mid-run affects the tanks you receive afterwards; the life you
+already have is kept.
+
+Client-side, so it works on a disc you have already patched.
+
+**Also fixed:** the client decided whether a save was resident by checking its
+maximum life against a fixed 16–64 window. Both new options can legitimately
+leave that window, and a save judged not resident stops sending checks *without
+saying anything*. The window is now derived from the seed.
+
 **New option: `stage_music`** — shuffles the music between stages.
 
 The thirteen themes the stages already use are dealt back out among them, so
-every stage still gets a real stage theme, nothing goes missing and nothing
-plays twice.
+every stage still gets a real stage theme, every theme is still used somewhere,
+and no stage keeps the theme it started with. There are seventeen places and
+thirteen themes, so four themes turn up in two places.
+
+Places that merely shared music in the base game are **split**: Zero Space 1,
+Zero Space 2 and the X-vs-Zero duel each get their own theme, and so do the
+Enigma and shuttle sorties. The three unlabelled Zero Space rows stay together
+with each other on purpose - they may be further rooms rather than stages, and
+splitting a room off from its stage would change the music mid-visit.
 
 **Only stages change.** The hub, the stage select, cutscenes, the results and
 transition screens, every jingle and the ending keep their vanilla music. That

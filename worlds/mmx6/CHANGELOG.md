@@ -1,7 +1,19 @@
 # Mega Man X6 apworld — changelog
 
 
-## Unreleased
+## 0.4.0 — 2026-09-06
+
+Three new things and one rename. Everything new is **off by default**, so a
+seed generated before this release is unaffected until you ask for one of them.
+
+**All three change the disc, so re-patch if you turn one on.** Only
+`nightmare_wall_always_open` changes LOGIC — it makes nine of Blizzard
+Wolfang's locations reachable without Blaze Heatnix and lets real items land
+there — so that is the only one that needs a seed regenerated rather than just
+re-patched. The new goal changes what the disc does, not what logic believes:
+victory is the same event either way, and the High Max requirement is enforced
+on the disc.
+
 
 **New option: `stage_music`** — shuffles the music between stages.
 

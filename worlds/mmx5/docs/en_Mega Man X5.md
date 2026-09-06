@@ -80,9 +80,9 @@ X wears as the stage loads. **Black Zero** applies on the spot.
 
 ## Which options change the disc?
 
-Seven: **`text_skip`**, **`launch_odds`**, **`pickupsanity`**,
-**`exit_stage_anytime`**, **`water_stage_speed`**, **`weapon_damage`**
-and **`boss_damage`**. If
+Eight: **`text_skip`**, **`launch_odds`**, **`pickupsanity`**,
+**`exit_stage_anytime`**, **`water_stage_speed`**, **`weapon_damage`**,
+**`boss_damage`** and **`stage_music`**. If
 you change any of those, re-patch your disc — the `.apmmx5` you generate
 carries the difference. Note `exit_stage_anytime` is **on by default**, so a
 disc patched before it existed needs re-patching even if you changed nothing.
@@ -206,6 +206,14 @@ override it when the patch is opened — the setup guide explains how.
   share that stage's roll. The game caps HP at 127, so a very high roll on a
   late-game boss can hit that ceiling and come out lower than the multiplier
   suggests.
+- **`stage_music` shuffles the music between stages.** The thirteen themes the
+  stages already use are dealt back out among them, so every stage still gets a
+  real stage theme, nothing goes missing and nothing plays twice. Only stages
+  change — the hub, the stage select, cutscenes, the results and transition
+  screens, every jingle and the ending all keep their vanilla music. Places
+  that share a theme in the base game still share one: the Zero Space rooms
+  agree with each other, and so do the two Dynamo sorties. Purely cosmetic: it
+  moves no checks and changes no logic.
 - **`weapon_damage` rerolls how hard YOUR weapons hit.** `weak` is 50–90% of
   normal, `regular` 80–130%, `strong` 120–200%, `chaotic` 25–250%. Every attack
   X and Zero have is rolled separately and then fixed for the seed, so part of

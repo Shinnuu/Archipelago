@@ -365,6 +365,113 @@ BASE_EDITS: list[tuple[int, bytes, str]] = [
 ]
 
 
+# ---- Stage music shuffle -----------------------------------------------------
+# All music is CD-XA streamed out of XA/BGM.XA. Two EXE tables sit between the
+# game and the audio:
+#
+#   STREAM TABLE  0x800705DC, 31 x 16 bytes {start, end, channel, loop}
+#                 -> where a BGM id lives on the disc
+#   CUE TABLE     0x800707CC, 8 bytes per stage id, four (id, volume) pairs
+#                 -> which BGM id a stage asks for
+#
+# `play_bgm(id, volume)` (0x800177B0) is the stream table's only reader;
+# `bgm_for_current_stage()` (0x80017B84) indexes the cue table with the stage
+# id at 0x800D1C0C - the spawn engine's stage input, per the RAM notes.
+#
+# WE EDIT THE CUE TABLE, NEVER THE STREAM TABLE. Permuting the stream table
+# would move a track for every context that plays it; rewriting cue rows moves
+# it only for the stages we name, so the hub, cutscenes, the transition screen
+# and every jingle keep vanilla music by construction, with nothing to exclude
+# by hand. Confirmed live 2026-09-06 on both games: two stages traded themes
+# and an untouched third stayed vanilla
+# (ai-docs/plans/2026-09-06_music-randomization-feasibility.md).
+#
+# Rows are chosen from what the research docs actually pin down. EXCLUDED:
+#   0x0B        the Enigma/shuttle LAUNCH CUTSCENE - overlay-findings records
+#               that confirming a launch sets mode 0x14 (story cutscene) and
+#               stage id 0x0B. It looks exactly like a stage in this table and
+#               is not one.
+#   0x0D, 0x0E  unidentified, and cutscene-shaped: 0x0D mixes in id 0x18,
+#               an 8-second one-shot no stage would use
+#   0x0F        the ram-notes call it the transition screen outright
+#   0x17..0x1C  the hub / menu block
+# INCLUDED: 0x09 and 0x0A are the Enigma and shuttle Dynamo sorties (they share
+# one track); 0x10..0x15 are the Zero Space set, of which 0x10/0x11/0x12 are
+# confirmed Zero Space 1, Zero Space 2 and the X-vs-Zero duel. 0x13..0x15 are
+# unlabelled but carry the SAME track as those three, so they can only ever
+# move with them - excluding them would make the set disagree with itself.
+MUSIC_CUE_TABLE = 0x800707CC
+MUSIC_REGION = "SLUS exe"
+
+# Vanilla row bytes, extracted from the disc EXE rather than transcribed.
+# Each row is four (id, volume) pairs; only the id bytes are ever rewritten -
+# the volumes are the game's own mix (0x70/0x75/0x78/0x7F) and are left alone.
+MUSIC_STAGE_ROWS: dict[int, bytes] = {
+    0x00: bytes.fromhex("0275037002750370"),   # Intro stage
+    0x01: bytes.fromhex("047f047f047f047f"),   # Grizzly Slash
+    0x02: bytes.fromhex("0b7f0b7f0b7f0b7f"),   # Dark Dizzy
+    0x03: bytes.fromhex("0575057505750575"),   # Duff McWhalen
+    0x04: bytes.fromhex("0878087808780878"),   # Mattrex
+    0x05: bytes.fromhex("0675067506750675"),   # Squid Adler
+    0x06: bytes.fromhex("0a7f0a7f0a7f0a7f"),   # Izzy Glow
+    0x07: bytes.fromhex("077f077f077f077f"),   # Axle the Red
+    0x08: bytes.fromhex("097f097f097f097f"),   # The Skiver
+    0x09: bytes.fromhex("0f7f0f7f0f7f0f7f"),   # Dynamo sortie (Enigma)
+    0x0A: bytes.fromhex("0f7f0f7f0f7f0f7f"),   # Dynamo sortie (shuttle)
+    0x0C: bytes.fromhex("0d7f0d7f0d7f0d7f"),   # Sigma
+    0x10: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Zero Space 1
+    0x11: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Zero Space 2
+    0x12: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # X vs Zero duel
+    0x13: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Zero Space (unlabelled)
+    0x14: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Zero Space (unlabelled)
+    0x15: bytes.fromhex("0c7f0c7f0c7f0c7f"),   # Zero Space (unlabelled)
+    0x16: bytes.fromhex("0275037002750370"),   # training
+}
+
+# The tracks those rows use - the pool, and nothing outside it. Every one is a
+# full-length looping stream (307-364 s), so any of them can stand in for any
+# other without a stage falling silent partway through.
+MUSIC_STAGE_TRACKS: tuple[int, ...] = (
+    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+    0x0F)
+
+
+def music_permutation(rng) -> dict[int, int]:
+    """Roll a permutation of the stage tracks. Bijective by construction, so
+    every stage theme still exists somewhere and none is used twice."""
+    shuffled = list(MUSIC_STAGE_TRACKS)
+    rng.shuffle(shuffled)
+    return dict(zip(MUSIC_STAGE_TRACKS, shuffled))
+
+
+def music_edits(mapping: dict[int, int]) -> list[tuple[int, bytes, str]]:
+    """Cue-row rewrites for a stage-track permutation, or nothing.
+
+    EVERY stage row is emitted whenever the option is on, including rows whose
+    track happened to map to itself. Skipping the unchanged ones would make
+    the set of edit SITES depend on the seed, and the unpatcher's manifest is
+    built by running patch_rom once at a fixed seed: a row skipped in that
+    build would have no vanilla bytes recorded, and a player whose seed DID
+    move that row could not be unpatched. A handful of no-op byte writes is
+    the cheap side of that trade.
+    """
+    if not mapping:
+        return []
+    if set(mapping) != set(MUSIC_STAGE_TRACKS):
+        raise ValueError("music mapping must cover exactly the stage tracks")
+    if sorted(mapping.values()) != sorted(MUSIC_STAGE_TRACKS):
+        raise ValueError("music mapping must be a permutation, not a mapping "
+                         "onto a smaller set - a duplicated track would leave "
+                         "another one unreachable")
+    out = []
+    for row, vanilla in sorted(MUSIC_STAGE_ROWS.items()):
+        patched = bytearray(vanilla)
+        for pair in range(4):
+            patched[pair * 2] = mapping[vanilla[pair * 2]]
+        out.append((MUSIC_CUE_TABLE + row * 8, bytes(patched), MUSIC_REGION))
+    return out
+
+
 # ---- Mode2 Form1 EDC/ECC (Corlett ecm-style tables) --------------------------
 _ecc_f = [0] * 256
 _ecc_b = [0] * 256

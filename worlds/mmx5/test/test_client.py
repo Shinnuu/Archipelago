@@ -83,8 +83,8 @@ def seed_edits_for(**overrides) -> list:
 
     from .. import Rom
     from ..options import (ExitStageAnytime, Goal, LaunchOdds, PickupSanity,
-                           TextSkip, WaterStageSpeed, WeaponDamage,
-                           BossDamage)
+                           StageMusic, TextSkip, WaterStageSpeed,
+                           WeaponDamage, BossDamage)
 
     opts = {"goal": Goal(Goal.option_sigma),
             "launch_odds": LaunchOdds(LaunchOdds.option_deterministic),
@@ -93,14 +93,16 @@ def seed_edits_for(**overrides) -> list:
             "exit_stage_anytime": ExitStageAnytime(0),
             "water_stage_speed": WaterStageSpeed(0),
             "weapon_damage": WeaponDamage(0),
-            "boss_damage": BossDamage(0)}
+            "boss_damage": BossDamage(0),
+            "stage_music": StageMusic(0)}
     for key, value in overrides.items():
         cls = {"goal": Goal, "launch_odds": LaunchOdds, "text_skip": TextSkip,
                "pickupsanity": PickupSanity,
                "exit_stage_anytime": ExitStageAnytime,
                "water_stage_speed": WaterStageSpeed,
                "weapon_damage": WeaponDamage,
-               "boss_damage": BossDamage}[key]
+               "boss_damage": BossDamage,
+               "stage_music": StageMusic}[key]
         opts[key] = cls(value)
 
     # patch_rom resolves the cosmetic colours into the patch too, so the stub

@@ -570,6 +570,16 @@ def patch_rom(world: "MMX5World", patch: MMX5ProcedurePatch) -> None:
                                       world.random).hex(),
             "region": BOSS_DAMAGE_REGION})
 
+    if world.options.stage_music:
+        # Cosmetic, but it rides on the disc rather than in slot_data: the cue
+        # table is read by the game at stage start and the client never sees
+        # the decision. Rolled here so the seed owns it and it is reproducible,
+        # exactly like the weapon and boss damage tables above.
+        for addr, payload, region in disc.music_edits(
+                disc.music_permutation(world.random)):
+            seed_edits.append({"addr": addr, "hex": payload.hex(),
+                               "region": region})
+
     if world.options.pickupsanity:
         # Consumable-pickup stub + jump-table redirects for kinds 0x02-0x08.
         # Per-seed on purpose: without the option the disc stays byte-identical

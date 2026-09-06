@@ -407,6 +407,26 @@ class BossDamage(Choice):
     default = 0
 
 
+class StageMusic(Toggle):
+    """Shuffle the music between stages.
+
+    Every stage keeps a real stage theme - the thirteen themes the stages
+    already use are dealt back out among them, so nothing is missing and
+    nothing plays twice. Grizzly Slash might get Mattrex's music, Zero Space
+    might get a Maverick's.
+
+    ONLY stages change. The hub, the stage select, cutscenes, the results and
+    transition screens, every jingle and the ending keep their vanilla music.
+
+    A stage sounds the same every time you enter it.
+
+    Purely cosmetic - it moves no checks and changes no logic.
+
+    Changes the disc.
+    """
+    display_name = "Stage Music"
+
+
 class RandomizeOptions(Toggle):
     """Let the seed pick your gameplay options for you.
 
@@ -576,6 +596,7 @@ class MMX5Options(PerGameCommonOptions):
     boss_hp_randomization: BossHPRandomization
     weapon_damage: WeaponDamage
     boss_damage: BossDamage
+    stage_music: StageMusic
     secret_armors_in_pool: SecretArmorsInPool
     stage_unlocks: StageUnlocks
     endgame_checks: EndgameChecks

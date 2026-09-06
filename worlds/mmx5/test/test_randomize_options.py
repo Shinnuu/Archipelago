@@ -134,9 +134,13 @@ class TestRandomizedOptionList(unittest.TestCase):
         # quality of life rather than vary the challenge, which is not what
         # this option is for.
         # The palettes are cosmetic, and each already offers `random` on its
-        # own for anyone who wants the dice.
+        # own for anyone who wants the dice. stage_music is excluded for the
+        # same reason: it is purely cosmetic, so rolling it on for someone who
+        # did not ask changes the soundtrack of their run without varying the
+        # challenge, which is not what randomize_options is for.
         excluded = {f"{t}_palette" for t in
                     ("x", "zero", "falcon", "gaea", "ultimate")}
+        excluded |= {"stage_music"}
         excluded |= {"start_inventory_from_pool", "randomize_options",
                     "endgame_checks", "rematch_checks", "reploid_checks",
                     "exit_stage_anytime", "water_stage_speed",

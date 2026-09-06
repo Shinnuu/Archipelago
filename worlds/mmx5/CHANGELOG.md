@@ -1,5 +1,30 @@
 # Mega Man X5 apworld changelog
 
+## Unreleased
+
+**New option: `stage_music`** — shuffles the music between stages.
+
+The thirteen themes the stages already use are dealt back out among them, so
+every stage still gets a real stage theme, nothing goes missing and nothing
+plays twice.
+
+**Only stages change.** The hub, the stage select, cutscenes, the results and
+transition screens, every jingle and the ending keep their vanilla music. That
+is structural rather than a curated exclusion list: the game picks stage music
+through a cue table indexed by stage id, and only the rows that are stages are
+rewritten. The table that says where a track lives on the disc is never
+touched, so a theme moves only for the stages named.
+
+Places that share a theme in the base game still share one, because a single
+track-to-track mapping is applied everywhere rather than a separate roll per
+stage: the six Zero Space rooms agree with each other, the Enigma and shuttle
+sorties agree, and the intro keeps its two-part theme as two parts.
+
+Purely cosmetic — it moves no checks and changes no logic.
+
+**Changes the disc** — re-patch if you turn it on. Off by default.
+
+
 ## 0.6.2 — 2026-09-04
 
 **You need to re-patch.** This changes the disc. Generate a fresh `.apmmx5`,

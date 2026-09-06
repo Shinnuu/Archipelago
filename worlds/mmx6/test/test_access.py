@@ -351,3 +351,51 @@ class TestTheBladeBodyLedge(MMX6TestBase):
         # part-type disagreement about who may equip it. Pinned so that
         # promoting it later is a decision someone takes on purpose.
         self.assertFalse(self._reachable(names.JUMPER))
+
+
+class TestTurtloidSevenIsBehindSpikes(MMX6TestBase):
+    """Rainy Turtloid's Reploid 7 needs the Shadow Armor.
+
+    Reported from play (2026-09-06): it is behind spikes. The SECOND
+    REPLOID_GATES row to come from play rather than from a landmark, and the
+    second instance of the blind spot roster 4.1 describes - the roster puts
+    no gated pickup beside it ("last rain, 2nd left ledge"), so the
+    inherit-the-landmark rule gave it nothing, and it sat ungated between
+    three Shadow-gated neighbours while carrying an Energy Up.
+
+    Like Sheldon 5 this needs its own test: delete the row and every generic
+    assertion in this file still passes, because an ungated Reploid is simply
+    reachable and that is exactly what they assert.
+    """
+    options = {"reploid_checks": True}
+
+    def _reachable(self, *item_names: str) -> bool:
+        # By hand, not collect_by_name - a sweep collects whatever this seed's
+        # fill put behind the collected items, so an "unreachable" assertion
+        # would turn on the seed rather than on the rule.
+        state = CollectionState(self.multiworld)
+        for name in item_names:
+            state.collect(self.world.create_item(name), prevent_sweep=True)
+        return self.multiworld.get_location(
+            names.reploid_location(names.TURTLOID, 7),
+            self.player).can_reach(state)
+
+    def test_shut_with_an_empty_inventory(self) -> None:
+        self.assertFalse(self._reachable())
+
+    def test_the_whole_shadow_armor_opens_it(self) -> None:
+        self.assertTrue(self._reachable(*names.SHADOW_PARTS))
+
+    def test_three_shadow_parts_do_not(self) -> None:
+        self.assertFalse(self._reachable(*names.SHADOW_PARTS[:3]))
+
+    def test_zero_alone_does_not(self) -> None:
+        # Spikes are a Shadow problem, not a mobility one. If this ever passes
+        # the row has been mis-scoped to `mob`.
+        self.assertFalse(self._reachable(names.ZERO))
+
+    def test_it_is_gated_the_same_way_as_its_neighbours(self) -> None:
+        from .. import reploids
+        for n in (7, 8, 9, 10):
+            self.assertEqual(reploids.REPLOID_GATES[(names.TURTLOID, n)],
+                             ("shadow",), f"Turtloid {n}")

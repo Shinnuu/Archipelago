@@ -148,6 +148,13 @@ REPLOID_GATES: dict[tuple[str, int], tuple[str, ...]] = {
     ("Metal Shark Player", 16): ("mob",),     # the AR, past Shadow Head
 
     # -- Inami Temple: the last acid-rain room's spike alcoves ---------------
+    # 7 comes from PLAY, not from a landmark - Ivor, 2026-09-06 [L]: it is
+    # behind spikes. The roster puts no gated pickup beside it ("last rain,
+    # 2nd left ledge"), so the inherit-the-landmark rule gave it nothing, and
+    # it sat ungated between three Shadow-gated neighbours carrying an Energy
+    # Up. That is the Sheldon 5 shape exactly, and roster 4.1 names it: an
+    # ungated landmark is not evidence of a reachable neighbour.
+    ("Rainy Turtloid", 7):     ("shadow",),   # last rain, behind spikes [L]
     ("Rainy Turtloid", 8):     ("shadow",),   # by the Heart Tank (shadow)
     ("Rainy Turtloid", 9):     ("shadow",),   # by the AR mouth
     ("Rainy Turtloid", 10):    ("shadow",),   # by Shadow Body (shadow)

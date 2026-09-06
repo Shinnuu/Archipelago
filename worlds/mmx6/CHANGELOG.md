@@ -6,13 +6,22 @@
 Three new things and one rename. Everything new is **off by default**, so a
 seed generated before this release is unaffected until you ask for one of them.
 
-**All three change the disc, so re-patch if you turn one on.** Only
-`nightmare_wall_always_open` changes LOGIC — it makes nine of Blizzard
-Wolfang's locations reachable without Blaze Heatnix and lets real items land
-there — so that is the only one that needs a seed regenerated rather than just
-re-patched. The new goal changes what the disc does, not what logic believes:
-victory is the same event either way, and the High Max requirement is enforced
-on the disc.
+**All three change the disc, so re-patch if you turn one on.** The new goal
+changes what the disc does, not what logic believes: victory is the same event
+either way, and the High Max requirement is enforced on the disc.
+
+**Regenerate rather than just re-patching**, because this release also carries
+a logic fix (below) that applies to every seed, and because
+`nightmare_wall_always_open` changes logic when you use it — it makes nine of
+Blizzard Wolfang's locations reachable without Blaze Heatnix and lets real
+items land there.
+
+**Fixed: Rainy Turtloid's Reploid 7 is behind spikes**, and logic did not know.
+It now needs the Shadow Armor, like its three neighbours in that room. Found in
+play. Until now a multiworld could put anything there — including another
+player's progression — behind spikes that seeds were never told about, which is
+the same shape as the Shield Sheldon Reploid 5 bug fixed in 0.3.0. **This is a
+logic change: regenerate.** Discs are unaffected.
 
 
 **New option: `stage_music`** — shuffles the music between stages.

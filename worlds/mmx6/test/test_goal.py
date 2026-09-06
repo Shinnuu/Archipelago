@@ -16,10 +16,11 @@ here:
 """
 import unittest
 
-from ..client import (ENDING_SCREENS, GOAL_ALL_MAVERICKS, GOAL_SIGMA,
+from ..client import (ENDING_SCREENS, GOAL_ALL_MAVERICKS_SIGMA, GOAL_SIGMA,
                       SCREEN_END_CREDITS_HELD, TRUSTED_SCREENS,
                       SCREEN_END_CREDITS, SCREEN_INGAME,
                       SCREEN_MISSION_REPORT, MMX6Client)
+from ..options import Goal
 
 
 def client(patched=True, kills=0, warned=False, sent=False) -> MMX6Client:
@@ -81,17 +82,17 @@ class TestSigmaGoal(unittest.TestCase):
 class TestAllMavericksGoal(unittest.TestCase):
     def test_does_not_fire_during_play(self) -> None:
         c = client(kills=8)
-        self.assertFalse(c._goal_decision(SCREEN_INGAME, GOAL_ALL_MAVERICKS))
+        self.assertFalse(c._goal_decision(SCREEN_INGAME, GOAL_ALL_MAVERICKS_SIGMA))
 
     def test_fires_on_the_ending_with_all_eight(self) -> None:
         self.assertTrue(
             client(kills=8)._goal_decision(SCREEN_END_CREDITS,
-                                           GOAL_ALL_MAVERICKS))
+                                           GOAL_ALL_MAVERICKS_SIGMA))
 
     def test_a_short_ending_warns_and_does_not_fire(self) -> None:
         c = client(kills=6)
         self.assertFalse(c._goal_decision(SCREEN_END_CREDITS,
-                                          GOAL_ALL_MAVERICKS))
+                                          GOAL_ALL_MAVERICKS_SIGMA))
         self.assertTrue(c.short_ending_warned)
 
     def test_the_warning_does_not_tell_the_player_to_keep_playing(self) -> None:
@@ -103,7 +104,7 @@ class TestAllMavericksGoal(unittest.TestCase):
         # actually reading at that moment.
         with self.assertLogs("Client", level="WARNING") as caught:
             client(kills=6)._goal_decision(SCREEN_END_CREDITS,
-                                           GOAL_ALL_MAVERICKS)
+                                           GOAL_ALL_MAVERICKS_SIGMA)
         message, = caught.output
         self.assertIn("LOAD A SAVE", message)
         self.assertIn("no play after the credits", message)
@@ -112,24 +113,24 @@ class TestAllMavericksGoal(unittest.TestCase):
         # Reaching the credits early must not strand the run - which was the
         # worry that started this. Beat the rest and it completes.
         c = client(kills=6)
-        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS)
+        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS_SIGMA)
         c.mavericks_defeated = 8
-        self.assertTrue(c._goal_decision(SCREEN_INGAME, GOAL_ALL_MAVERICKS))
+        self.assertTrue(c._goal_decision(SCREEN_INGAME, GOAL_ALL_MAVERICKS_SIGMA))
 
     def test_eight_kills_alone_never_completes_without_an_ending(self) -> None:
         # The late-completion path must not become a back door that skips
         # Sigma entirely.
         c = client(kills=8)
         for screen in (SCREEN_INGAME, SCREEN_MISSION_REPORT, 0x02, 0x04):
-            self.assertFalse(c._goal_decision(screen, GOAL_ALL_MAVERICKS),
+            self.assertFalse(c._goal_decision(screen, GOAL_ALL_MAVERICKS_SIGMA),
                              f"completed with no ending on {screen:#04x}")
         self.assertFalse(c.short_ending_warned)
 
     def test_the_warning_fires_once(self) -> None:
         c = client(kills=6)
-        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS)
+        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS_SIGMA)
         self.assertTrue(c.short_ending_warned)
-        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS)
+        c._goal_decision(SCREEN_END_CREDITS, GOAL_ALL_MAVERICKS_SIGMA)
         self.assertTrue(c.short_ending_warned)   # still latched, not reset
 
 
@@ -140,7 +141,7 @@ class TestDiscState(unittest.TestCase):
         c = client(patched=False, kills=8)
         self.assertFalse(c._goal_decision(SCREEN_END_CREDITS, GOAL_SIGMA))
         self.assertFalse(c._goal_decision(SCREEN_END_CREDITS,
-                                          GOAL_ALL_MAVERICKS))
+                                          GOAL_ALL_MAVERICKS_SIGMA))
 
     def test_an_undetermined_probe_still_goals(self) -> None:
         # None means "retry", never "vanilla". The credits can clobber the
@@ -169,3 +170,32 @@ class TestKillLatch(unittest.TestCase):
         self.assertEqual(c.mavericks_defeated, 0)
         self.assertFalse(c.short_ending_warned)
         self.assertFalse(c.victory_sent)
+
+
+class TestTheGoalNames(unittest.TestCase):
+    """`all_mavericks` was renamed `all_mavericks_sigma` after 0.3.1.
+
+    The rename is cosmetic - it just says out loud that the goal includes
+    Sigma - so every YAML already written has to keep generating, and the
+    stored value has to stay 1 or existing seeds would mean something else to
+    the client.
+    """
+
+    def test_the_new_name_is_the_one_that_is_stored(self) -> None:
+        self.assertEqual(Goal.option_all_mavericks_sigma, 1)
+        self.assertEqual(Goal.name_lookup[1], "all_mavericks_sigma")
+
+    def test_the_old_name_still_parses_to_the_same_value(self) -> None:
+        self.assertEqual(Goal.from_text("all_mavericks").value, 1)
+        self.assertEqual(Goal.from_text("all_mavericks_sigma").value, 1)
+
+    def test_sigma_is_untouched(self) -> None:
+        self.assertEqual(Goal.from_text("sigma").value, 0)
+        self.assertEqual(Goal.option_sigma, 0)
+
+    def test_the_client_constant_agrees_with_the_option(self) -> None:
+        # Two files, one number. They are what a seed generated by one and
+        # played by the other rely on matching.
+        self.assertEqual(GOAL_ALL_MAVERICKS_SIGMA,
+                         Goal.option_all_mavericks_sigma)
+        self.assertEqual(GOAL_SIGMA, Goal.option_sigma)

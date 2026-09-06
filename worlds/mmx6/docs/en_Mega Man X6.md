@@ -12,9 +12,20 @@ routing is yours to decide. (`stage_unlocks` changes that if you want it to.)
 
 ## What is the goal?
 
-- **all_mavericks** (default) — defeat all 8 Mavericks, then reach and defeat
+- **all_mavericks_sigma** (default) — defeat all 8 Mavericks, then reach and defeat
   Sigma. The randomizer also holds Gate's Lab shut until all eight are down,
   so you cannot reach the ending early; see the notes below.
+- **all_mavericks_high_max_sigma** — as above, and High Max as well. Gate's Lab
+  stays shut until all eight Mavericks are down **and** High Max has been
+  beaten in an Another Route, so the longest route through the game is the one
+  you have to take. High Max is the *second* Another Route boss, so getting to
+  him means clearing one route first — that is the Zero Nightmare, and beating
+  it hands you Zero whether or not `zero_unlock` put him in the pool.
+
+  This goal cannot be spoiled by the base game's missable-boss problem. Once
+  Gate's Lab opens, High Max is gone from that file for good, so a goal that
+  merely *asked* for him could be made impossible by opening the lab first.
+  Here the lab cannot open until he is dead.
 - **sigma** — defeat Sigma, however you got there. Mega Man X6 does not open
   its endgame on Maverick kills at all: it opens on a Nightmare Soul count of
   3000, and souls drop from Nightmare enemies throughout every stage. So under
@@ -119,7 +130,7 @@ when the patch is opened — the setup guide explains how.
   so this is not free: Hunter Rank comes from Souls, separately for X and for
   Zero, and below Rank A — 500 of that character's own Souls — you can equip
   nothing at all. The endgame gate does not care either way:
-  under `all_mavericks` the Souls opening is already switched off on the disc
+  under `all_mavericks_sigma` the Souls opening is already switched off on the disc
   (see below).
 - **`nightmare_wall_always_open` takes the stage order out of North Pole.**
   Nine of Blizzard Wolfang's locations sit behind an ice wall, and the only
@@ -177,7 +188,7 @@ when the patch is opened — the setup guide explains how.
   they always did. Note that rank also drives boss fight level (Lv.2 at SA,
   Lv.3 at GA, Lv.4 at PA and UH), so `rank_a` is the only value that is purely
   a convenience.
-- **The endgame is gated on all 8 Mavericks under `all_mavericks`.** Vanilla
+- **The endgame is gated on all 8 Mavericks under `all_mavericks_sigma`.** Vanilla
   does not enforce that goal — beating High Max in an Another Route opens
   Gate's Lab early, and there is **no play after the credits**, so reaching the
   ending short would leave you with no way back except a save from before the

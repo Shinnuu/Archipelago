@@ -142,7 +142,7 @@ def _seed_edits(world) -> set:
 
 
 class TestAppliedUnderAllMavericks(MMX6TestBase):
-    options = {"goal": Goal.option_all_mavericks}
+    options = {"goal": Goal.option_all_mavericks_sigma}
 
     def test_the_seed_carries_the_gate_edits(self) -> None:
         carried = _seed_edits(self.world)

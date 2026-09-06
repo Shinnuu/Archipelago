@@ -512,7 +512,7 @@ class MMX6World(World):
         # Access Codes INSIDE the endgame those codes were needed to reach -
         # a hard deadlock that still "won" the playthrough check, because
         # logic only ever looked at the weapon items. Applied for every goal,
-        # not just all_mavericks: X6 opens its endgame on a soul count logic
+        # not just all_mavericks_sigma: X6 opens its endgame on a soul count logic
         # does not model, and being stricter than the game only narrows
         # placement while being looser strands seeds.
         endgame_needs = set(names.WEAPONS)
@@ -700,7 +700,7 @@ class MMX6World(World):
                     LocationProgressType.EXCLUDED
 
         # Both goals complete on the VICTORY event in The Gate, which already
-        # carries the all-weapons entrance rule. all_mavericks needs no extra
+        # carries the all-weapons entrance rule. all_mavericks_sigma needs no extra
         # rule: every Maverick is reachable from the start and killable with
         # no items, so "defeat all 8" is satisfiable wherever VICTORY is. The
         # difference between the goals is in-game timing, which logic does not

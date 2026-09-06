@@ -9,8 +9,23 @@ from . import palettes
 class Goal(Choice):
     """Victory condition.
 
-    all_mavericks: defeat all 8 Mavericks, then reach and defeat Sigma. The
-    default, and the way most people want to play.
+    all_mavericks_sigma: defeat all 8 Mavericks, then reach and defeat Sigma.
+    The default, and the way most people want to play.
+
+    all_mavericks_high_max_sigma: as above, and High Max as well. Gate's Lab
+    stays shut until all eight Mavericks are down AND High Max has been beaten
+    in an Another Route, so the longest route through the game is the one you
+    have to take.
+
+    High Max is the SECOND Another Route boss, so reaching him means clearing
+    one route first - which is the Zero Nightmare, and beating that hands you
+    Zero whether or not `zero_unlock` put him in the pool. Worth knowing if you
+    wanted Zero to be a real unlock.
+
+    This goal is safe from the missable-boss problem the base game has. Once
+    Gate's Lab opens, High Max is gone from that file for good - so a goal that
+    merely ASKED for him could be made impossible by opening the lab first.
+    Here the lab cannot open until he is dead, so he cannot be missed.
 
     sigma: defeat Sigma, however you got there. Mega Man X6 does not open its
     endgame on Maverick kills at all - it opens on a Nightmare Soul count of
@@ -19,7 +34,13 @@ class Goal(Choice):
     """
     display_name = "Goal"
     option_sigma = 0
-    option_all_mavericks = 1
+    option_all_mavericks_sigma = 1
+    option_all_mavericks_high_max_sigma = 2
+    # `all_mavericks` was this value's name up to 0.3.1. Kept as an alias so
+    # every YAML already written keeps generating - the new name says the goal
+    # includes Sigma, but nothing about the goal itself changed. The stored
+    # value is still 1, so seeds and clients are unaffected either way.
+    alias_all_mavericks = 1
     default = 1
 
 
@@ -353,7 +374,7 @@ class DisabledNightmareEffects(OptionSet):
       (UH). You can equip NO Parts at all below Rank A. Turn effects off and
       Parts are much harder to make use of - and X and Zero each need their
       own 500.
-    * **The endgame gate does not care either way.** Under `all_mavericks`
+    * **The endgame gate does not care either way.** Under `all_mavericks_sigma`
       the 3000-Soul opening is already switched off on the disc, so the gate
       never depends on how many Souls you can farm.
 

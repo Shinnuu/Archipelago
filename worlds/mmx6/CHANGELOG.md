@@ -3,6 +3,33 @@
 
 ## Unreleased
 
+**The `all_mavericks` goal is now called `all_mavericks_sigma`**, because it
+always did require beating Sigma afterwards and the old name did not say so.
+Nothing about the goal changed. **Your existing YAML keeps working** —
+`all_mavericks` is kept as an alias, and the stored value is unchanged, so
+seeds already generated mean exactly what they meant before.
+
+**New goal: `all_mavericks_high_max_sigma`** — all eight Mavericks **and**
+High Max, then Sigma. Gate's Lab stays shut until both are done, so the longest
+route through the game is the one you have to take.
+
+High Max is the second Another Route boss, so reaching him means clearing one
+route first — the Zero Nightmare — which hands you Zero whether or not
+`zero_unlock` put him in the pool. Worth knowing if you wanted Zero to be a
+real unlock.
+
+The base game makes High Max **missable**: once Gate's Lab opens he is gone
+from that file for good. So a goal that merely asked for him could be made
+impossible by opening the lab first. This one cannot — the lab does not open
+until he is dead.
+
+**Changes the disc** — re-patch if you choose it.
+
+Verified in a running game with the full truth table, not just the happy path:
+eight Mavericks with High Max alive leaves the lab shut, High Max dead with one
+Maverick leaves it shut, and both together open it through the game's own
+unlock cutscene.
+
 **New option: `nightmare_wall_always_open`.** Off by default; nothing changes
 unless you ask for it.
 

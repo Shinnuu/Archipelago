@@ -157,7 +157,7 @@ ENDGAME_GATE_MAX_CORRECTIONS = 3
 # ---- Ending detection --------------------------------------------------------
 # Victory fires on the post-Sigma ENDING SCREEN, not on the endgame being
 # unlocked. The previous rule fired on `endgame open (+ 8 kills for
-# all_mavericks)`, which meant neither goal ever required beating Sigma at all -
+# all_mavericks_sigma)`, which meant neither goal ever required beating Sigma at all -
 # the `sigma` goal, documented as "defeat Sigma, however you got there",
 # completed the moment the soul counter crossed 3000, mid-stage, in a Maverick
 # stage, having never entered a lab.
@@ -268,7 +268,15 @@ AP_WEAPONS = 0x800CCF7B
 OFF_AP_WEAPONS = _off(AP_WEAPONS)
 
 GOAL_SIGMA = 0
-GOAL_ALL_MAVERICKS = 1
+GOAL_ALL_MAVERICKS_SIGMA = 1
+GOAL_ALL_MAVERICKS_HIGH_MAX_SIGMA = 2
+
+# The goals that require all eight Mavericks before the ending counts. Both do;
+# the second also requires High Max, and that half is enforced ON THE DISC - the
+# gate cannot open without him - so the client does not need a record of him to
+# hold the goal correctly.
+GOALS_NEEDING_ALL_MAVERICKS = (GOAL_ALL_MAVERICKS_SIGMA,
+                               GOAL_ALL_MAVERICKS_HIGH_MAX_SIGMA)
 
 # ---- Stage unlocks -----------------------------------------------------------
 # The stage-select overlay turns a cursor slot into a stage id through an
@@ -951,7 +959,8 @@ class MMX6Client(BizHawkClient):
             return False
 
         if screen in ENDING_SCREENS:
-            if goal == GOAL_ALL_MAVERICKS and self.mavericks_defeated < 8:
+            if (goal in GOALS_NEEDING_ALL_MAVERICKS
+                    and self.mavericks_defeated < 8):
                 if not self.short_ending_warned:
                     self.short_ending_warned = True
                     # "Beat the rest" is what this used to say, and it is
@@ -963,7 +972,7 @@ class MMX6Client(BizHawkClient):
                     # the one that works.
                     logger.warning(
                         "MMX6: the ending was reached with only %d/8 Mavericks "
-                        "beaten, and this seed's goal is all_mavericks - so it "
+                        "beaten, and this seed's goal is all_mavericks_sigma - so it "
                         "is NOT complete yet. There is no play after the "
                         "credits: LOAD A SAVE from before Gate's Lab, beat the "
                         "remaining Mavericks, then go back through the endgame. "
@@ -972,7 +981,7 @@ class MMX6Client(BizHawkClient):
                 return False
             return True
 
-        # all_mavericks satisfied AFTER a short ending. Gated on having SEEN
+        # all_mavericks_sigma satisfied AFTER a short ending. Gated on having SEEN
         # the ending, so this can never stand in for beating Sigma.
         return self.short_ending_warned and self.mavericks_defeated >= 8
 
@@ -1046,7 +1055,7 @@ class MMX6Client(BizHawkClient):
                                   save: bytes, screen: int) -> None:
         """Hold Gate's Lab shut until all eight Mavericks are down.
 
-        Under `all_mavericks` the goal is a conjunction - the ending only
+        Under `all_mavericks_sigma` the goal is a conjunction - the ending only
         counts at 8/8 - and vanilla does not enforce it. High Max in an
         Another Route opens the Gate early (ship plan 20; seen live
         2026-08-27 at THREE Mavericks beaten). Reaching the credits short used
@@ -1070,8 +1079,15 @@ class MMX6Client(BizHawkClient):
         the re-open to it would strand any seed where the write we overwrote
         was its only one - see the comment on the 8/8 branch.
         """
+        # DELIBERATELY all_mavericks_sigma ONLY, not GOALS_NEEDING_ALL_MAVERICKS.
+        # Under all_mavericks_high_max_sigma the disc decides the gate, and this
+        # guard re-opens the byte on the Maverick count alone - it has no record
+        # of High Max, so running it there would re-open a lab the disc had
+        # correctly kept shut and quietly undo the whole goal. The disc edit is
+        # the durable mechanism this guard was always a stand-in for, so where
+        # the disc is authoritative the guard stands down.
         if (ctx.slot_data or {}).get("goal",
-                                     GOAL_ALL_MAVERICKS) != GOAL_ALL_MAVERICKS:
+                                     GOAL_ALL_MAVERICKS_SIGMA) != GOAL_ALL_MAVERICKS_SIGMA:
             return
         if screen not in STAGE_SELECT_SCREENS:
             return
@@ -1086,7 +1102,7 @@ class MMX6Client(BizHawkClient):
         # which popcounts the save struct HERE, on the stage select - a screen
         # this client explicitly does not trust (TRUSTED_SCREENS is gameplay
         # and the Mission Report only). It was justified as "a wrong open is
-        # just vanilla behaviour", and that is false: under all_mavericks a
+        # just vanilla behaviour", and that is false: under all_mavericks_sigma a
         # wrong open is the exact thing this gate exists to prevent, and it
         # sticks, where a wrong close would heal on the next poll.
         #
@@ -1246,7 +1262,7 @@ class MMX6Client(BizHawkClient):
         # all the way through the credits and would swallow the goal entirely.
         if self._goal_decision(screen,
                                (ctx.slot_data or {}).get("goal",
-                                                         GOAL_ALL_MAVERICKS)):
+                                                         GOAL_ALL_MAVERICKS_SIGMA)):
             self.victory_sent = True
             await ctx.send_msgs([{"cmd": "StatusUpdate",
                                   "status": ClientStatus.CLIENT_GOAL}])

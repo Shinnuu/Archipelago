@@ -1,6 +1,6 @@
 """Endgame gate tests - holding Gate's Lab shut until all 8 Mavericks are down.
 
-Vanilla does not enforce the `all_mavericks` goal. High Max in an Another
+Vanilla does not enforce the `all_mavericks_sigma` goal. High Max in an Another
 Route opens the Gate early, and that is not theoretical: it happened in the
 2026-08-27 playthrough at THREE Mavericks beaten. Because there is no
 post-credits play, a player who then walks into the credits has no way back
@@ -26,7 +26,7 @@ Gate icon drawn but not re-selectable:
   * the gate acts ONLY on a Maverick count taken from a TRUSTED screen. It
     used to popcount the save struct on the stage select, which this client
     does not trust, excused as "a wrong open is just vanilla behaviour" - and
-    under all_mavericks a wrong open is the whole thing the gate prevents.
+    under all_mavericks_sigma a wrong open is the whole thing the gate prevents.
     With no trusted count yet, it does nothing at all;
   * it corrects the byte at most ENDGAME_GATE_MAX_CORRECTIONS times, then
     concedes and warns. "A value written into this byte STAYS" was measured
@@ -50,7 +50,7 @@ import unittest
 
 from .. import client as client_module
 from .. import names
-from ..client import (GOAL_ALL_MAVERICKS, GOAL_SIGMA, OFF_BEATEN, OFF_PROGRESS,
+from ..client import (GOAL_ALL_MAVERICKS_SIGMA, GOAL_SIGMA, OFF_BEATEN, OFF_PROGRESS,
                       PROGRESS_ENDGAME_OPEN, PROGRESS_STAGE_SELECT, SAVE_BASE,
                       SAVE_LEN, STAGE_SELECT_SCREENS, TRUSTED_SCREENS,
                       MMX6Client)
@@ -58,7 +58,7 @@ from ..locations import location_table
 
 
 class FakeCtx:
-    def __init__(self, goal=GOAL_ALL_MAVERICKS) -> None:
+    def __init__(self, goal=GOAL_ALL_MAVERICKS_SIGMA) -> None:
         self.slot_data = {"goal": goal}
         self.bizhawk_ctx = object()
 
@@ -368,7 +368,7 @@ class TestItNeverDoesHarm(unittest.TestCase):
                 save_at(PROGRESS_ENDGAME_OPEN), SELECT), [])
 
     def test_a_seed_with_no_slot_data_is_still_gated(self) -> None:
-        # all_mavericks is the default, and the fallback everywhere else in
+        # all_mavericks_sigma is the default, and the fallback everywhere else in
         # the client. A missing goal must not silently disable the gate.
         ctx = FakeCtx()
         ctx.slot_data = {}

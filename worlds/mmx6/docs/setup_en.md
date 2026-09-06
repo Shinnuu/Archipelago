@@ -204,7 +204,7 @@ exactly as much as "rescued", so losing one never costs you the item. With
 `protect_reploids` on (the default) it is not even destroyed — it reappears
 next time you enter the stage.
 
-**Under the `all_mavericks` goal the client holds Gate's Lab shut** until all
+**Under the `all_mavericks_sigma` goal the client holds Gate's Lab shut** until all
 eight Mavericks are down, and opens it itself on the eighth. This is
 deliberate: vanilla can open the Gate early, there is no play after the
 credits, and reaching the ending short would leave you needing a save from

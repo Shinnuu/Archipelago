@@ -428,7 +428,7 @@ QOL_EDITS[NIGHTMARE_WALL_GROUP] = [
 #   sltiu v0, v0, 3
 #   beq   a3, zero, ...    a3 == 0 -> no unlock
 #
-# Under `all_mavericks` only condition 1 should count. Conditions 2 and 3 are
+# Under `all_mavericks_sigma` only condition 1 should count. Conditions 2 and 3 are
 # switched off by raising the constant they compare against out of reach: a
 # Souls counter is a signed halfword the game caps far below 0x7FFF, so
 # `slti v0, v0, 0x7FFF` is always true and the "force a3" path is never taken.
@@ -482,6 +482,124 @@ ENDGAME_GATE_EDITS: list = [
     ("gate cutscene on souls (c)", 0x800347D8, REGION_EXE,
      bytes.fromhex("b80b6328"), bytes.fromhex("ff7f6328")),
 ]
+
+# ---- The endgame gate, AND High Max -----------------------------------------
+# For the `all_mavericks_high_max_sigma` goal: Gate's Lab opens only when all
+# eight Mavericks are down AND High Max has been beaten in an Another Route.
+#
+# Vanilla's a3 is an OR - it starts as the all-eight test and conditions 2 and
+# 3 can only ever force it to 1 - so no amount of raising comparison constants
+# reaches an AND. This is the one gate edit that changes instructions rather
+# than immediates.
+#
+# THE RECORD IS THE GAME'S OWN LATCH, and this is what makes the whole thing
+# cheap. SAVE+0x43B runs 0 -> 1 -> 2:
+#
+#   0 -> 1  handler 13 of the table at ROCK+0x0C5FD0 (the Zero Nightmare clear)
+#   1 -> 2  ROCK+0x0D6788, the gate consuming it when condition 3 fires
+#
+# CONFIRMED LIVE 2026-09-06: the latch read 1 with Zero Nightmare already
+# cleared and High Max alive, and went to 2 the moment High Max died - with one
+# Maverick beaten, which is also the control proving condition 3 is the High
+# Max route. So `latch == 2` IS "High Max beaten", it is the game's own byte,
+# and both save-serialisation routines copy it (ROCK+0x0CBF8C, ROCK+0x0D627C),
+# so it survives to the memory card.
+#
+# The edit keeps condition 3's consume (0x0D6788) and removes only its ability
+# to open the gate (0x0D6784), turning it into a pure recorder. The AND itself
+# goes in the SOULS block, which this goal neutralises anyway - so it costs no
+# free space, no trampoline and no overlay-relative jump:
+#
+#   0x0D6720  lbu   v0, 0x60(a1)      beaten             (was lh v0, 0xD2(a1))
+#   0x0D6724  nop                     (already a nop, load delay)
+#   0x0D6728  xori  v0, v0, 0x00FF                       (was slti v0,v0,3000)
+#   0x0D672C  sltiu a3, v0, 1         a3 = all eight     (was beq/souls)
+#   0x0D6730  lbu   v0, 0x43B(a1)     the latch          (was a nop)
+#   0x0D6734  addiu v1, zero, 2       "High Max beaten"  (was lh v0, 0xD4(a1))
+#   0x0D6738  beq   v0, v1, +0x0C     -> 0x0D6744, keeping a3   (was a nop)
+#   0x0D673C  nop                     (delay slot, runs either way)  (was slti)
+#   0x0D6740  addu  a3, zero, zero    NOT beaten -> a3 = 0          (was bne)
+#   0x0D6744  addiu v1, t0, -12592    KEPT - v1 = SAVE_BASE, read at 0x0D6750
+#   0x0D6748  nop                     the souls force            (was a3 = 1)
+#   0x0D674C  addiu v1, t0, -12592    KEPT (vanilla sets v1 twice)
+#   ...
+#   0x0D6784  nop                     condition 3 no longer opens (was a3 = 1)
+#
+# Both paths reach 0x0D6744, so v1 is SAVE_BASE either way. a1 is SAVE_BASE
+# throughout - proven live, not assumed: the diagnostic build's
+# `sb a3, 0xAB(a1)` landed on 0x800CCF7B exactly as predicted. Every load is
+# read at least two instructions later, clear of the R3000 load delay slot.
+#
+# WHY THE BEATEN TEST IS RECOMPUTED HERE. The first version relied on vanilla's
+# a3 at 0x0D671C and only ever CLEARED it. That failed live: ROCK+0x0D6708
+# branches directly to 0x0D6720, skipping the all-eight computation, so on that
+# path a3 was stale and nothing could set it. Vanilla survives the same branch
+# because condition 3 forces a3=1 further down - the exact force this patch
+# removes. Measured, not deduced: with beaten=FF and the latch at 2, a
+# diagnostic build exported a3 as 0.
+ENDGAME_GATE_HIGH_MAX_LATCH = 0x043B
+ENDGAME_GATE_HIGH_MAX_BEATEN = 2       # the latch value that means "beaten"
+
+ENDGAME_GATE_HIGH_MAX_EDITS: list = [
+    # (label, where, region, vanilla, patched)
+    #
+    # THE ALL-EIGHT TEST IS RECOMPUTED HERE, and that is not redundancy - it is
+    # the whole reason this version works. Vanilla computes a3 at 0x0D671C, but
+    # ROCK+0x0D6708 branches straight to 0x0D6720 and SKIPS it, leaving a3
+    # stale. Vanilla tolerates that because condition 3 could still force a3=1
+    # further down - and removing that force is precisely what this patch does.
+    # So the first version cleared a3 on that path and could never set it, and
+    # the gate was welded shut: measured live 2026-09-06 with beaten=FF and the
+    # latch at 2, a3 exported as 0.
+    ("High Max AND: reload the beaten field", 0x0D6720, REGION_ROCK,
+     bytes.fromhex("d200a284"), bytes.fromhex("6000a290")),
+    ("High Max AND: invert it", 0x0D6728, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("ff004238")),
+    ("High Max AND: a3 = all eight", 0x0D672C, REGION_ROCK,
+     bytes.fromhex("06004010"), bytes.fromhex("0100472c")),
+    ("High Max AND: load the latch", 0x0D6730, REGION_ROCK,
+     bytes.fromhex("00000000"), bytes.fromhex("3b04a290")),
+    ("High Max AND: the beaten value", 0x0D6734, REGION_ROCK,
+     bytes.fromhex("d400a284"), bytes.fromhex("02000324")),
+    ("High Max AND: skip the clear when beaten", 0x0D6738, REGION_ROCK,
+     bytes.fromhex("00000000"), bytes.fromhex("02004310")),
+    ("High Max AND: branch delay slot", 0x0D673C, REGION_ROCK,
+     bytes.fromhex("b80b4228"), bytes.fromhex("00000000")),
+    ("High Max AND: clear a3 when not beaten", 0x0D6740, REGION_ROCK,
+     bytes.fromhex("03004014"), bytes.fromhex("21380000")),
+    ("High Max AND: retire the souls unlock", 0x0D6748, REGION_ROCK,
+     bytes.fromhex("01000724"), bytes.fromhex("00000000")),
+    # Condition 3 keeps its consume at 0x0D6788 - that write is the record -
+    # and loses only its power to open the gate on its own.
+    ("High Max AND: condition 3 records, does not unlock", 0x0D6784, REGION_ROCK,
+     bytes.fromhex("01000724"), bytes.fromhex("00000000")),
+]
+
+# The sites in ENDGAME_GATE_EDITS that the AND block OVERWRITES (the copy-A
+# souls compares) or deliberately KEEPS ALIVE (the High Max path, which under
+# this goal is what writes the record). Everything else in that list is wanted
+# by both goals, so it is shared rather than duplicated - and taken by
+# subtraction so a site added to ENDGAME_GATE_EDITS later is shared by default
+# instead of being silently missed.
+_HIGH_MAX_SUPERSEDES = frozenset({0x0D6728, 0x0D673C, 0x0D6768})
+
+ENDGAME_GATE_SHARED_EDITS: list = [
+    e for e in ENDGAME_GATE_EDITS if e[1] not in _HIGH_MAX_SUPERSEDES]
+
+
+def endgame_gate_edits(high_max: bool) -> list:
+    """The endgame-gate edits for a goal that closes the gate.
+
+    `high_max` picks the AND: all eight Mavericks AND High Max, rather than all
+    eight alone. The two lists share the copy-B souls sites and the three
+    "Gate revealed" cutscene sites; they differ on the a3 computation itself,
+    and they MUST NOT both be applied - apply_basepatch would refuse the
+    duplicate, correctly.
+    """
+    if high_max:
+        return ENDGAME_GATE_HIGH_MAX_EDITS + ENDGAME_GATE_SHARED_EDITS
+    return list(ENDGAME_GATE_EDITS)
+
 
 # ---- Hunter Rank thresholds -------------------------------------------------
 # Rank is what buys Power-up Part slots, and it is bought with Nightmare Souls

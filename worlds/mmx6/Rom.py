@@ -279,7 +279,7 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     """
     seed_edits = list(disc.qol_edits(qol_features(world.options)))
 
-    # Issue -1: under `all_mavericks` the endgame must open on the eighth
+    # Issue -1: under `all_mavericks_sigma` the endgame must open on the eighth
     # Maverick and on nothing else. Vanilla also opens it on 3000 Nightmare
     # Souls or the High Max route, and the client cannot win that argument -
     # it writes the byte shut and the game writes it open again on the next
@@ -288,8 +288,15 @@ def patch_rom(world: "MMX6World", patch: MMX6ProcedurePatch) -> None:
     #
     # NOT applied under the `sigma` goal: there, opening on souls is the
     # game's own design and the seed is finishable either way.
-    if world.options.goal == world.options.goal.option_all_mavericks:
-        seed_edits += disc.ENDGAME_GATE_EDITS
+    #
+    # `all_mavericks_high_max_sigma` closes it harder still - all eight AND
+    # High Max - which is an AND rather than an OR and so is the one gate edit
+    # that rewrites instructions. See disc.ENDGAME_GATE_HIGH_MAX_EDITS.
+    _goal = world.options.goal
+    if _goal in (_goal.option_all_mavericks_sigma,
+                 _goal.option_all_mavericks_high_max_sigma):
+        seed_edits += disc.endgame_gate_edits(
+            _goal == _goal.option_all_mavericks_high_max_sigma)
 
     # The new-game initialiser writes 32 into both characters' life bytes.
     # The client cannot lower that - it only ever sees the save after the game

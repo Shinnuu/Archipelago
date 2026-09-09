@@ -1,5 +1,39 @@
 # Mega Man X5 apworld changelog
 
+## 0.7.1 — 2026-09-08
+
+**No re-patch.** This is client-side only — update the apworld and carry on
+with the disc you have.
+
+**Fixed: maximum life could overflow, freezing you with the HUD drawn across
+the screen.** Reported from a live seed in Zero Space, and it needed a high
+`starting_hp` or `heart_tank_value` to reach.
+
+The apworld's own grants stop at 127, which is the most the game can hold. The
+game's *own* grants do not check: Alia's Life Up rewards and the vanilla Heart
+Tank pickup each add 2 with no ceiling, because vanilla tops out at 64 and
+never needed one. Landing on top of a maximum already at 127, they pushed the
+byte to 129 — and the life bar reads that byte as **signed**, so 129 read as
+−127 and the bar's frame index landed 79 frames off the front of its artwork,
+painting unrelated HUD tiles over the whole screen. You could still open the
+weapon menu; you could not move.
+
+It was per-character, so the other character was unaffected and still
+playable — which is how the report described it.
+
+The client now corrects the maximum back to 127 as soon as it sees it, and
+restores the life you were left with. **A save that has already broken is
+repaired on connect**, so an affected run does not need to be restarted.
+
+**Also fixed, and quieter:** an overflowed maximum failed the client's "is a
+save resident" test, so the client stopped sending checks and said nothing
+about it — and every path that could have repaired the save ran behind that
+same test. That is why it could not recover on its own.
+
+`heart_tank_value` totals now stop at 127 **including** Alia's Life Ups, rather
+than letting hers push past it.
+
+
 ## 0.7.0 — 2026-09-06
 
 **Re-patch if you turn either disc feature on.** `stage_music` always changes

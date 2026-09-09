@@ -755,6 +755,15 @@ HP_PER_HEART = 2                # vanilla step, and the default for the option
 # old 0x40 grant cap was VANILLA's maximum, not the engine's, and it is what
 # used to make a Heart Tank silently worth nothing once you reached 64.
 LIFE_HARD_MAX = 0x7F
+# ...and the engine can push it PAST that ceiling behind our back. The vanilla
+# Heart Tank handler (0x800540A0: `lbu` / `addiu 2` / `sb`, disassembled off
+# the disc 2026-09-08) and Alia's Life Up reward both add 2 to this byte with
+# no bounds check of any kind - they never needed one, because vanilla tops
+# out at 0x40. Landing on top of our clamp, they are the only way the byte can
+# exceed LIFE_HARD_MAX, and this is the most they can add: eight Life Ups and
+# eight Heart Tanks, +2 each. A byte above that did not get there this way, so
+# `_repair_life_overflow` leaves it alone rather than guessing.
+MAX_ENGINE_LIFE_GRANT = 32
 
 
 def _clamp_setting(value: object, lo: int, hi: int, default: int) -> int:
@@ -848,6 +857,7 @@ class MMX5Client(BizHawkClient):
         # the previous session's bytes.
         self.gameplay_anchored = False
         self.unstamped_warned = False
+        self.life_overflow_warned = False
         self.victory_sent = False
         # Boss Rush rematch tracking: which boss the resident module names
         # (None outside the rush / unknown module), and the highest boss HP
@@ -1496,6 +1506,62 @@ class MMX5Client(BizHawkClient):
             # launch pinning - already keys off this one flag, so training is
             # inert everywhere at once instead of in three places that could
             # drift apart.
+            # ---- The maximum the ENGINE wrote, which it cannot read back -
+            # Every write this client makes is clamped to LIFE_HARD_MAX, at
+            # the grant and again at adoption. The game's own +2 grants are
+            # not (see MAX_ENGINE_LIFE_GRANT), so a save sitting at our clamp
+            # walks to 0x81 the next time Alia hands out a Life Up - and the
+            # life bar reads that byte with a SIGNED `lb`. At 129 the frame
+            # index computes to 0x39 instead of 0x88..0x98, 79 frames off the
+            # front of the artwork, and the HUD paints whole sheets of
+            # unrelated tiles over the screen while the player sits frozen at
+            # the spawn point. Reported off a live seed 2026-09-08, in Zero
+            # Space; the byte is per-character, which is why swapping to the
+            # other character was a working save and this one was not.
+            #
+            # Repaired HERE, ahead of the residency test, and that ordering is
+            # the point rather than tidiness: an overflowed byte fails that
+            # test, so the client would otherwise decide no save is resident
+            # and STOP SENDING CHECKS - the same silence 0.7.0 moved the
+            # window to prevent, arrived at from the other end. It is also why
+            # the client could not repair this after the fact: everything that
+            # writes runs behind the gate the bad byte had already closed.
+            overflowed = [off for off in (OFF_MAX_HP_X, OFF_MAX_HP_Z)
+                          if LIFE_HARD_MAX < save[off]
+                          <= LIFE_HARD_MAX + MAX_ENGINE_LIFE_GRANT]
+            if overflowed and not training and mode[0] in (0x0A, 0x0C)                     and save[OFF_STAMP] == self._seed_stamp(ctx):
+                repaired = bytearray(save)
+                for off in overflowed:
+                    repaired[off] = LIFE_HARD_MAX
+                writes = [(SAVE_BASE + OFF_MAX_HP_X,
+                           [repaired[OFF_MAX_HP_X], repaired[OFF_MAX_HP_Z]],
+                           "MainRAM")]
+                # The spawn full heal copies the maximum straight into the
+                # live HP byte, so an overflowed maximum arrives there
+                # verbatim - and bit 7 of THAT byte is the just-damaged flag,
+                # not part of the value, which is how 0x81 reads as "1 HP, and
+                # hurt". Restored only on that exact signature: a byte that
+                # has changed since is the engine's own business, and blanket
+                # clearing bit 7 would erase a real hit.
+                char = 1 if save[OFF_CHAR] else 0
+                if player_hp[0] == save[OFF_MAX_HP_X + char]:
+                    writes.append((PLAYER_HP_ADDR,
+                                   [repaired[OFF_MAX_HP_X + char]], "MainRAM"))
+                await bizhawk.write(ctx.bizhawk_ctx, writes)
+                # The gate below reads this snapshot, not RAM, so correcting
+                # it here is what keeps checks flowing through the same poll
+                # the overflow was found in.
+                save = bytes(repaired)
+                if not self.life_overflow_warned:
+                    self.life_overflow_warned = True
+                    logger.warning(
+                        "MMX5: maximum life had overflowed past %d (the game's "
+                        "own Life Up and Heart Tank grants do not check the "
+                        "ceiling) - corrected. The life bar draws wrong and "
+                        "the player cannot move while it is over; if you are "
+                        "stuck, leave the stage and re-enter.", LIFE_HARD_MAX)
+            elif not overflowed:
+                self.life_overflow_warned = False
             # ---- The residency test, and why its bounds move with the seed --
             # Max HP is the byte we use to decide the save struct is
             # initialized at all. `starting_hp` moves it, so a fixed

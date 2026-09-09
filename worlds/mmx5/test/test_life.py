@@ -19,9 +19,10 @@ import unittest
 from types import SimpleNamespace
 
 from .. import Rom, client as mmx5_client, disc
-from ..client import (BASE_MAX_HP, HP_PER_HEART, LIFE_HARD_MAX, MMX5Client,
-                      OFF_MAX_HP_X, OFF_MAX_HP_Z, OFF_STAMP, SAVE_BASE,
-                      life_settings)
+from ..client import (BASE_MAX_HP, HP_PER_HEART, LIFE_HARD_MAX,
+                      MAX_ENGINE_LIFE_GRANT, MMX5Client, OFF_CHAR,
+                      OFF_MAX_HP_X, OFF_MAX_HP_Z, OFF_STAMP, PLAYER_HP_ADDR,
+                      SAVE_BASE, TRAINING_ACT, life_settings)
 from .. import names
 from .test_client import (FakeContext, TEST_SEED_STAMP, make_save, run_watcher,
                           seed_edits_for)
@@ -516,3 +517,109 @@ class TestLifeBarAgainstDisc(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
+    """Reported off a live seed 2026-09-08: frozen at the spawn point in Zero
+    Space, HUD tiles painted across the screen, the other character fine.
+
+    Every write this client makes is clamped. The GAME's own +2 grants are
+    not - the vanilla Heart Tank handler at 0x800540A0 is `lbu`/`+2`/`sb` with
+    no bounds check - and they land on top of our clamp. Past 0x7F the byte
+    reads NEGATIVE through the life bar's signed load, and it simultaneously
+    fails the residency test, so the client goes silent and cannot repair
+    itself. Both halves are pinned here.
+    """
+
+    async def _poll(self, x_max, z_max=LIFE_HARD_MAX, *, stamp=None,
+                    player_hp=BASE_MAX_HP, char=0, intro=1, **slot_data):
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        ctx = FakeContext()
+        ctx.slot_data = {"goal": 0, "boss_difficulty": 1, **slot_data}
+        save = bytearray(make_save(x_max, intro=intro, stamp=stamp))
+        save[OFF_MAX_HP_Z] = z_max
+        save[OFF_CHAR] = char
+        return await run_watcher(bytes(save), client=client, ctx=ctx,
+                                 player_hp=player_hp)
+
+    @staticmethod
+    def _life_writes(ctx):
+        return [list(w[1]) for w in ctx.writes
+                if w[0] == SAVE_BASE + OFF_MAX_HP_X]
+
+    @staticmethod
+    def _hp_writes(ctx):
+        return [list(w[1]) for w in ctx.writes if w[0] == PLAYER_HP_ADDR]
+
+    async def test_the_overflowed_maximum_is_clamped_back(self):
+        ctx = await self._poll(LIFE_HARD_MAX + 2)
+        self.assertEqual(self._life_writes(ctx),
+                         [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
+
+    async def test_checks_still_flow_in_the_very_poll_it_is_found(self):
+        # The silent half. Without the repair this save fails save_sane and
+        # the client says nothing while sending nothing.
+        ctx = await self._poll(LIFE_HARD_MAX + 2)
+        self.assertTrue(ctx.checked_location_ids())
+
+    async def test_zero_overflows_on_its_own(self):
+        # The grants raise only the CURRENT character, which is exactly why
+        # the reporter could swap to Zero and keep playing.
+        ctx = await self._poll(LIFE_HARD_MAX, z_max=LIFE_HARD_MAX + 2)
+        self.assertEqual(self._life_writes(ctx),
+                         [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
+
+    async def test_a_legal_maximum_is_never_written(self):
+        for legal in (BASE_MAX_HP, 64, LIFE_HARD_MAX):
+            with self.subTest(max_hp=legal):
+                ctx = await self._poll(legal, z_max=legal)
+                self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_the_repair_stops_where_the_engine_could_have_reached(self):
+        # Eight Life Ups and eight Heart Tanks at +2 is the whole of what the
+        # game can add above our clamp. One point further is not this bug, so
+        # it is garbage and stays rejected rather than being guessed at.
+        reachable = LIFE_HARD_MAX + MAX_ENGINE_LIFE_GRANT
+        ctx = await self._poll(reachable)
+        self.assertEqual(self._life_writes(ctx),
+                         [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
+        ctx = await self._poll(reachable + 1)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_uninitialised_bytes_are_still_garbage(self):
+        # The pre-existing residency test rejected 0xFF and must keep doing so:
+        # a repair that swallowed it would hand the client a "resident" save
+        # built out of whatever RAM happened to hold.
+        ctx = await self._poll(0xFF, z_max=0xFF)
+        self.assertEqual(self._life_writes(ctx), [])
+        self.assertFalse(ctx.checked_location_ids())
+
+    async def test_a_save_that_is_not_ours_is_left_alone(self):
+        # Unstamped and carrying progress: the A3b hold. Repairing it would be
+        # writing into a save this seed has never adopted.
+        ctx = await self._poll(LIFE_HARD_MAX + 2, stamp=0)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_training_is_left_alone(self):
+        ctx = await self._poll(LIFE_HARD_MAX + 2, intro=TRAINING_ACT)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_the_live_hp_byte_is_restored_when_it_copied_the_bad_max(self):
+        # The spawn full heal copies the maximum verbatim, so 0x81 arrives in
+        # a byte whose bit 7 means "just damaged" - 1 HP, and hurt.
+        ctx = await self._poll(LIFE_HARD_MAX + 2, player_hp=LIFE_HARD_MAX + 2)
+        self.assertEqual(self._hp_writes(ctx), [[LIFE_HARD_MAX]])
+
+    async def test_the_restore_follows_the_selected_character(self):
+        ctx = await self._poll(LIFE_HARD_MAX, z_max=LIFE_HARD_MAX + 2,
+                               char=1, player_hp=LIFE_HARD_MAX + 2)
+        self.assertEqual(self._hp_writes(ctx), [[LIFE_HARD_MAX]])
+
+    async def test_a_damaged_player_keeps_the_damage_flag(self):
+        # 0x90: sixteen HP with bit 7 set. It is not a copy of the maximum, so
+        # it is a real hit and none of our business - clearing bit 7 wholesale
+        # would erase it.
+        ctx = await self._poll(LIFE_HARD_MAX + 2, player_hp=0x90)
+        self.assertEqual(self._hp_writes(ctx), [])

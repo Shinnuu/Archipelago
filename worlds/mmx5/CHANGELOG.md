@@ -1,5 +1,81 @@
 # Mega Man X5 apworld changelog
 
+## 0.7.2 — 2026-09-11
+
+**No re-patch.** Client-side only, like 0.7.1 — update the apworld and carry
+on with the disc you have.
+
+**Fixed: 0.7.1's repair for the life overflow could not fire where the
+overflow actually happens.** Reported from a live seed: cleared Zero Space 1,
+loaded into Zero Space 2, frozen at the spawn point with the life bar showing
+a single point.
+
+The repair only ran while the game was in gameplay or on the results screen.
+The client log shows the maximum going to 129 within 0.6 seconds of the Zero
+Space 1 clear — and endgame stages do not use the results screen at all, so
+from that moment the game walked cutscene → stage select → stage entry →
+frozen without ever passing through a state the repair was allowed to run in.
+It had been gated on the one condition the bug prevents.
+
+The correction now runs wherever the overflowed byte is found, so it is put
+back before the next stage can load and copy it into your live health. **A
+save that is already broken is fixed the moment you connect**, from the menus,
+without having to reach a stage first.
+
+**Also fixed: the repair gave up above 159.** That ceiling was "eight Life Ups
+and eight Heart Tanks" — a guess at how much life the game could hand out
+behind our back. Nothing counts those grants and nothing limits them to eight,
+so the only thing the ceiling guaranteed was that a save which drifted further
+could never be rescued. Any maximum above 127 is illegal and is now put back.
+
+**Fixed: a held-back armor part was not given back until your next item.**
+Owning Falcon Head hides the energy balls that open Squid Adler's capsule, so
+while you are in that stage the client holds that one part back. It stops as
+soon as the capsule check is collected or you leave — but nothing actually
+put the part back. It stayed missing until the next item arrived from the
+multiworld, and saving in that window wrote a card without it. It is now
+restored the moment the hold ends.
+
+A related fix: the armor-set completion flags were pinned once per client
+session rather than once per visit, so returning to Squid Adler much later
+could push those flags back to what they were on your first visit — possibly
+before you had finished another armor set. They are now re-read each visit.
+
+If you saw Squid Adler's energy balls missing and had never opened that
+capsule: that is expected when the check has already been banked, which
+Archipelago does for you automatically when another player in your multiworld
+finishes and collects — their auto-collect marks every location holding their
+items as checked, yours included. The location was complete and nothing was
+lost; the orbs had nothing left to guard.
+
+**Added: the client log now names the apworld version and your options at
+connect.** Bug reports arrive as client logs, and until now a log said which
+Archipelago the launcher was but never which version of this world — so
+answering "which release was this?" meant guessing from behaviour. One line
+at connect now carries the world version, seed, slot and every option the
+client acts on.
+
+**Fixed: Enigma and Shuttle Parts could be placed in the endgame — needs a new
+seed.** Unlike the above, this one is in generation, so it takes effect on
+seeds rolled from 0.7.2 onward; an in-flight seed keeps the placements it was
+rolled with.
+
+The parts decide whether the colony launch succeeds, and the launch resolves
+*before* Zero Space opens — the game fires the shuttle by itself once all
+eight Mavericks are down. A part inside Zero Space or Sigma's stage is
+therefore behind the one event it exists to affect. Reported from a live
+sigma-goal seed whose last Shuttle Part was a Zero Space check: the launch
+fired on schedule, failed for want of that part, and the part was sitting on
+the far side of the endgame it had just failed to open.
+
+Under the `sigma` and `all_mavericks` goals nothing objected, because the
+parts are only *useful* there — the seed was winnable and the player simply
+lost the successful-launch route with no way to tell why. Launcher parts are
+now kept out of every endgame location under every goal — and out of every
+OTHER Mega Man X5 slot's endgame too, since two X5 players both reach Zero
+Space only after their own launch has already fired.
+
+
 ## 0.7.1 — 2026-09-08
 
 **No re-patch.** This is client-side only — update the apworld and carry on

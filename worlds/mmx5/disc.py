@@ -69,7 +69,7 @@ def addr_to_disc(addr: int, region_name: str) -> int:
 # EXE free space serves every randomized pickup kind - the dispatcher enters
 # handlers via `lw a0,table[kind]; jr a0` with s1 = the item object, so the
 # stub reads kind (s1+0x82) and id (s1+2) itself. It appends
-# {stage 0x800D1C41, kind, id, seq} to the mailbox ring (16 slots at
+# {stage 0x800D1C0C, kind, id, seq} to the mailbox ring (16 slots at
 # 0x801FA020, monotonic count u32 at 0x801FA080, seq bit7 = record valid) and
 # exits through the consume-only tail j 0x800543C8 (li v0,3 = item consumed,
 # no vanilla effect - the client owns all grants; the item respawns until the

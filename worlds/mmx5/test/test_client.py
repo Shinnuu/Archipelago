@@ -488,6 +488,11 @@ class TestCapsuleArmorProtection(unittest.IsolatedAsyncioTestCase):
                       "Falcon Head not withheld - the capsule route stays hidden")
 
     async def test_not_withheld_once_the_capsule_is_checked(self) -> None:
+        # A checked location is a FINISHED location: its item was dispatched
+        # and re-checking it is a no-op, whether the player opened the capsule
+        # or AP's auto-collect banked it when another slot goaled (see
+        # `_armor_bit_to_withhold`). So there is nothing left to protect and
+        # the player should have their part back.
         checked = {location_table[names.capsule_location(names.KRAKEN)]}
         ctx = await self._run(self.SQUID_ID, self.FALCON_HEAD, checked=checked)
         self.assertNotIn(0x00, self._armor_writes(ctx),
@@ -505,6 +510,130 @@ class TestCapsuleArmorProtection(unittest.IsolatedAsyncioTestCase):
         for value in self._armor_writes(ctx):
             self.assertEqual(value, 0xFF & ~self.FALCON_HEAD,
                              f"withheld more than Falcon Head: {value:02X}")
+
+    async def _resume(self, client, stage_id, armor, checked=()):
+        """Another poll on the SAME client - a later stage or a later state."""
+        ctx = FakeContext()
+        ctx.checked_locations = set(checked)
+        save = bytearray(make_save(max_hp=0x20))
+        save[mmx5_client.OFF_ARMOR] = armor
+        return await run_watcher(bytes(save), stage_id=stage_id,
+                                 client=client, ctx=ctx)
+
+    async def test_the_withheld_bit_is_put_back_on_leaving_the_stage(self) -> None:
+        # THE DEFECT that made standing down look dangerous: nothing restored
+        # the bit. The only other write to OFF_ARMOR is the grant merge, which
+        # sits under `processed < total`, so the part stayed missing until the
+        # player's next item - and an in-game save in that window persisted a
+        # card without it.
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        await self._resume(client, self.SQUID_ID, self.FALCON_HEAD)
+        self.assertEqual(client.armor_withheld, self.FALCON_HEAD,
+                         "client did not record which bit it withheld")
+        ctx = await self._resume(client, 1, 0x00)      # Grizzly Slash, bit gone
+        self.assertIn(self.FALCON_HEAD, self._armor_writes(ctx),
+                      "Falcon Head never restored after leaving Squid Adler")
+        self.assertEqual(client.armor_withheld, 0)
+
+    async def test_the_bit_is_put_back_when_the_capsule_check_lands(self) -> None:
+        # Same restore, the other way the withhold ends: the player opens the
+        # capsule (or auto-collect banks it) without leaving the stage.
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        await self._resume(client, self.SQUID_ID, self.FALCON_HEAD)
+        checked = {location_table[names.capsule_location(names.KRAKEN)]}
+        ctx = await self._resume(client, self.SQUID_ID, 0x00, checked=checked)
+        self.assertIn(self.FALCON_HEAD, self._armor_writes(ctx),
+                      "Falcon Head still held after its capsule check landed")
+
+    async def test_the_setflags_pin_does_not_survive_the_stage_visit(self) -> None:
+        # Pinned once per CLIENT RUN, a revisit forced 0x1C4A back to a value
+        # captured before the player had finished another armor set. The pin
+        # is per-visit insurance, so it has to be dropped with the withhold.
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        await self._resume(client, self.SQUID_ID, self.FALCON_HEAD)
+        self.assertIsNotNone(client.armor_setflags_pin)
+        await self._resume(client, 1, 0x00)            # left for Grizzly Slash
+        self.assertIsNone(client.armor_setflags_pin,
+                          "stale set-completion pin carried into the next visit")
+
+    async def test_a_bit_we_never_withheld_is_never_granted(self) -> None:
+        # The restore must not become a second grant path: it may only put
+        # back what this client itself cleared, or a rewound save would be
+        # handed armor the player does not own.
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        ctx = await self._resume(client, 1, 0x00)      # never withheld anything
+        self.assertEqual(self._armor_writes(ctx), [],
+                         "restore wrote armor without ever having withheld it")
+
+
+class TestConnectBanner(unittest.IsolatedAsyncioTestCase):
+    """A bug report arrives as a client log, so the log has to say which
+    apworld and which options produced it. Until 0.7.2 it named only the
+    LAUNCHER's AP version, and "were they on 0.7.0 or 0.7.1?" had to be
+    inferred from behaviour - which cost a detour on the 2026-09-11 report."""
+
+    async def _run(self):
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        ctx = FakeContext()
+        ctx.slot_data = {"goal": 0, "boss_difficulty": 1, "pickupsanity": 1}
+        with self.assertLogs("Client", level="INFO") as captured:
+            await run_watcher(make_save(max_hp=0x20), client=client, ctx=ctx)
+        return client, ctx, "\n".join(captured.output)
+
+    async def test_the_banner_names_the_world_version(self) -> None:
+        from worlds.AutoWorld import AutoWorldRegister
+        expected = ".".join(
+            str(part) for part
+            in AutoWorldRegister.world_types["Mega Man X5"].world_version)
+        _client, _ctx, log = await self._run()
+        self.assertIn(f"apworld {expected}", log)
+
+    async def test_the_banner_names_the_seed_and_slot(self) -> None:
+        _client, _ctx, log = await self._run()
+        self.assertIn("seed TESTSEED", log)
+        self.assertIn("slot Player1", log)
+
+    async def test_the_banner_carries_the_slot_data(self) -> None:
+        # Every one of these changes what the client does; asking the player
+        # to dig their YAML out afterwards is a round trip the log can skip.
+        _client, _ctx, log = await self._run()
+        self.assertIn("'pickupsanity': 1", log)
+
+    async def test_the_banner_is_logged_once(self) -> None:
+        client, ctx, log = await self._run()
+        self.assertEqual(log.count("apworld"), 1)
+        self.assertTrue(client.banner_logged)
+        ctx2 = FakeContext()
+        await run_watcher(make_save(max_hp=0x20), client=client, ctx=ctx2)
+        self.assertNotIn("apworld", "".join(str(m) for m in ctx2.sent_msgs))
+
+    async def test_a_missing_world_registration_does_not_break_the_connect(self) -> None:
+        # The banner is diagnostics. It must never be the thing that stops a
+        # player connecting.
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        ctx = FakeContext()
+        with mock.patch.object(MMX5Client, "game", "Not A Registered Game"):
+            with self.assertLogs("Client", level="INFO") as captured:
+                await run_watcher(make_save(max_hp=0x20), client=client, ctx=ctx)
+        self.assertIn("apworld unknown", "\n".join(captured.output))
 
 
 class TestLaunchGoal(unittest.IsolatedAsyncioTestCase):

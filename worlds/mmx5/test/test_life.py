@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 from .. import Rom, client as mmx5_client, disc
 from ..client import (BASE_MAX_HP, HP_PER_HEART, LIFE_HARD_MAX,
-                      MAX_ENGINE_LIFE_GRANT, MMX5Client, OFF_CHAR,
+                      LIFE_UNINITIALISED, MMX5Client, OFF_CHAR,
                       OFF_MAX_HP_X, OFF_MAX_HP_Z, OFF_STAMP, PLAYER_HP_ADDR,
                       SAVE_BASE, TRAINING_ACT, life_settings)
 from .. import names
@@ -532,7 +532,8 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
     """
 
     async def _poll(self, x_max, z_max=LIFE_HARD_MAX, *, stamp=None,
-                    player_hp=BASE_MAX_HP, char=0, intro=1, **slot_data):
+                    player_hp=BASE_MAX_HP, char=0, intro=1, mode=0x0A,
+                    **slot_data):
         client = MMX5Client()
         client.ap_patched = True
         client.stub_present = True
@@ -542,7 +543,7 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
         save[OFF_MAX_HP_Z] = z_max
         save[OFF_CHAR] = char
         return await run_watcher(bytes(save), client=client, ctx=ctx,
-                                 player_hp=player_hp)
+                                 mode=mode, player_hp=player_hp)
 
     @staticmethod
     def _life_writes(ctx):
@@ -577,16 +578,45 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
                 ctx = await self._poll(legal, z_max=legal)
                 self.assertEqual(self._life_writes(ctx), [])
 
-    async def test_the_repair_stops_where_the_engine_could_have_reached(self):
-        # Eight Life Ups and eight Heart Tanks at +2 is the whole of what the
-        # game can add above our clamp. One point further is not this bug, so
-        # it is garbage and stays rejected rather than being guessed at.
-        reachable = LIFE_HARD_MAX + MAX_ENGINE_LIFE_GRANT
-        ctx = await self._poll(reachable)
+    async def test_every_illegal_maximum_is_repaired_not_just_a_plausible_one(self):
+        # 0.7.1 stopped at 0x7F + 32 - "eight Life Ups and eight Heart Tanks"
+        # - and called anything past that garbage. Nothing counts those
+        # grants and nothing limits them to eight, so that bound only
+        # guaranteed that a save which drifted further could never be
+        # rescued. Every value above the ceiling is illegal for a stamped
+        # save, and every one of them is now put back.
+        for illegal in (LIFE_HARD_MAX + 1, LIFE_HARD_MAX + 32,
+                        LIFE_HARD_MAX + 33, LIFE_UNINITIALISED - 1):
+            with self.subTest(max_hp=illegal):
+                ctx = await self._poll(illegal)
+                self.assertEqual(self._life_writes(ctx),
+                                 [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
+
+    async def test_the_repair_is_not_gated_on_gameplay(self):
+        # THE 0.7.1 DEFECT, from BizHawkClient_2026_09_11_01_57_56.txt: the
+        # byte went to 0x81 within 0.6s of a Zero Space 1 clear, and endgame
+        # stages never route through the 0x0C results screen. The walk from
+        # there is cutscene -> hub 0x04 -> stage entry 0x07-0x09 -> frozen at
+        # the spawn, so a repair gated on `mode in (0x0A, 0x0C)` got no
+        # eligible poll between the overflow and the freeze. Every mode on
+        # that path has to be able to put the byte back, because the mode the
+        # old gate waited for is the one the bug prevents.
+        for mode in (0x04, 0x07, 0x08, 0x09, 0x13, 0x14):
+            with self.subTest(mode=mode):
+                ctx = await self._poll(LIFE_HARD_MAX + 2, mode=mode)
+                self.assertEqual(self._life_writes(ctx),
+                                 [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
+
+    async def test_the_live_hp_byte_is_only_touched_in_gameplay(self):
+        # The save byte is repairable from anywhere; P+0x5C is not. Outside
+        # gameplay there is no player object behind that address, and
+        # ram-notes already flags client writes there as unreliable - so the
+        # rescue stays where it means something and prevention does the work.
+        ctx = await self._poll(LIFE_HARD_MAX + 2, mode=0x04,
+                               player_hp=LIFE_HARD_MAX + 2)
         self.assertEqual(self._life_writes(ctx),
                          [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
-        ctx = await self._poll(reachable + 1)
-        self.assertEqual(self._life_writes(ctx), [])
+        self.assertEqual(self._hp_writes(ctx), [])
 
     async def test_uninitialised_bytes_are_still_garbage(self):
         # The pre-existing residency test rejected 0xFF and must keep doing so:

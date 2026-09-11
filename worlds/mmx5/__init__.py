@@ -13,6 +13,7 @@ import settings
 from BaseClasses import ItemClassification, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
+from worlds.generic.Rules import forbid_items_for_player
 
 from . import names, pickups, reploids
 from .client import MMX5Client  # noqa: F401  (import registers the client)
@@ -458,6 +459,50 @@ class MMX5World(World):
         # when the boss is. (These replaced 8 PHANTOM "Energy Up pickup"
         # locations - Energy Ups are not stage items at all. See the
         # reachability plan for the four lines of evidence.)
+
+        # --- Launcher parts are never in the endgame -------------------------
+        # The Enigma and Shuttle Parts decide whether the colony launch
+        # succeeds, and the launch resolves BEFORE Zero Space opens - vanilla
+        # fires the shuttle by itself once all eight Mavericks are down, and
+        # the client pins the launch score from the parts held at that moment.
+        # A part sitting in Sigma Stages is therefore behind the one event it
+        # exists to affect.
+        #
+        # Under the launch goal that would be a straightforward unreachable-
+        # progression error. Under sigma/all_mavericks the parts are only
+        # `useful`, so fill is free to put them there and logic is still
+        # satisfied - the seed is winnable, the player has simply lost the
+        # successful-launch route with no way to tell. Reported live
+        # 2026-09-11: a sigma-goal seed whose last Shuttle Part was in a Zero
+        # Space location, so the launch could only ever fail.
+        #
+        # Applied for EVERY goal, because the goal is not what makes this
+        # wrong - the ordering of the launch and the endgame is, and that does
+        # not change. Costs nothing: these are 4+4 `useful` items against
+        # a pool with far more room elsewhere.
+        #
+        # `forbid_items_for_player` rather than assigning `item_rule`: it
+        # COMBINES with whatever rule a location already has instead of
+        # discarding it. Nothing else sets one here today, so the two are
+        # equivalent right now - but the one that silently drops a rule is the
+        # wrong one to leave lying around, and `locality_rules` (Main.py, run
+        # after set_rules) composes the same way for the same reason.
+        #
+        # EVERY MMX5 slot's parts, not just our own. The constraint belongs to
+        # the receiving player's game, and an MMX5 slot has it whoever's
+        # endgame the part is sitting in - two X5 slots both open Zero Space
+        # only after eight kills, which is the same moment their own launch
+        # has already fired. Caught by a two-slot generation during the 0.7.2
+        # review: `Sigma - 1-UP (SecondSlot): Shuttle Part (ClabeMMX5)` - one
+        # slot's part behind the other's endgame, which the self-scoped
+        # version allowed. Another GAME's identically-named item is still
+        # untouched: the test is slot membership, not the name.
+        launcher_parts = set(item_groups["Launcher Parts"])
+        endgame_locations = self.multiworld.get_region("Sigma Stages",
+                                                       player).locations
+        for other in self.multiworld.get_game_players(self.game):
+            for location in endgame_locations:
+                forbid_items_for_player(location, launcher_parts, other)
 
         if self.options.goal == "launch":
             # Victory = a successful launch, which the client only powers

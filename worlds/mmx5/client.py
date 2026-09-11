@@ -760,10 +760,17 @@ LIFE_HARD_MAX = 0x7F
 # the disc 2026-09-08) and Alia's Life Up reward both add 2 to this byte with
 # no bounds check of any kind - they never needed one, because vanilla tops
 # out at 0x40. Landing on top of our clamp, they are the only way the byte can
-# exceed LIFE_HARD_MAX, and this is the most they can add: eight Life Ups and
-# eight Heart Tanks, +2 each. A byte above that did not get there this way, so
-# `_repair_life_overflow` leaves it alone rather than guessing.
-MAX_ENGINE_LIFE_GRANT = 32
+# exceed LIFE_HARD_MAX.
+#
+# 0.7.1 bounded the repair at "eight Life Ups and eight Heart Tanks, +2 each"
+# and refused anything past 0x9F as garbage. That bound was a vanilla-shaped
+# guess: nothing counts the grants, they are not limited to eight, and a
+# client that is disconnected while several land would come back to a byte it
+# had decided not to touch. The honest rule is the one the hardware gives us -
+# every LEGAL maximum is <= LIFE_HARD_MAX, so any value above it in a save
+# stamped for this seed is illegal, full stop. Only 0xFF is reserved, as the
+# uninitialised-RAM sentinel the residency test has always rejected.
+LIFE_UNINITIALISED = 0xFF
 
 
 def _clamp_setting(value: object, lo: int, hi: int, default: int) -> int:
@@ -907,6 +914,8 @@ class MMX5Client(BizHawkClient):
         self.unpowered_launch_warned = False
         self.armor_workaround_warned = False
         self.armor_setflags_pin = None
+        self.armor_withheld = 0         # armor bit this client cleared, to put back
+        self.banner_logged = False
         self.tanks_withheld = 0         # bits held back this stage visit
         # Stage unlocks: last slot table we wrote, and the set of stages we
         # have announced as unlocked.
@@ -996,8 +1005,36 @@ class MMX5Client(BizHawkClient):
     def _armor_bit_to_withhold(self, ctx, stage_name: str) -> int:
         """Armor bit that must stay CLEAR to keep this stage's capsule openable.
 
-        Returns 0 once the capsule location is checked - after that the route
-        no longer matters and the player should have their armor back.
+        Returns 0 once the capsule location is checked: at that point there is
+        nothing left to protect and the player should have their part back.
+
+        0.7.2 briefly dropped that stand-down, on a 2026-09-11 report of a
+        player whose Squid Adler orbs were gone although they say they never
+        opened its capsule. The report is real and the client really did not
+        protect the route - `save trusted` held across the whole visit, the
+        grants line logs `merged_armor` (post-withhold) and read F1, and Squid
+        Adler Reploid checks fired off the same `cur_stage_id` - so the server
+        had that check banked with the capsule untouched. That looked like the
+        record could not be trusted.
+
+        It can. Their room ran `Collect permission: auto`, and AP's
+        `collect_player` registers as CHECKED every location in EVERY world
+        holding the collecting slot's items (`LocationStore.get_for_player`
+        -> `register_location_checks`, MultiServer.py; `collect_mode: auto` is
+        the host.yaml default). Their capsule locations hold other slots'
+        items - the same log has `Dark Dizzy - Armor Capsule` sending to
+        ClabeMMX4 - so any slot goaling banks ours. The location is genuinely
+        COMPLETE: its item was dispatched, re-checking is a no-op, the AP
+        disc's capsule stub grants nothing locally ("grant suppressed, capsule
+        dialog untouched", disc.py), and Squid Adler has no pickupsanity
+        locations behind the orbs. Nothing was lost, and there is no reachable
+        state where a banked check still needs the route open.
+
+        The safety the unconditional version was reaching for comes instead
+        from RESTORING the withheld bit the moment this returns 0 (see
+        game_watcher) - which is the defect that made standing down look
+        dangerous, because nothing put the bit back until the player's next
+        item arrived.
         """
         bit = STAGE_CAPSULE_ARMOR_BIT.get(stage_name, 0)
         if not bit:
@@ -1425,9 +1462,40 @@ class MMX5Client(BizHawkClient):
                        for i in (0, 1)]
         return hp_write, fill_writes
 
+    def _log_banner(self, ctx) -> None:
+        """One line at connect naming the world version and the seed's options.
+
+        A bug report arrives as a client log, and until 0.7.2 that log said
+        which AP the LAUNCHER was, never which apworld the world was - so
+        "were they on 0.7.0 or 0.7.1?" could only be answered by inference
+        from behaviour, which cost a detour on the 2026-09-11 report. The
+        options matter for the same reason: every one of them changes what
+        this client does, and asking the player to dig out their YAML after
+        the fact is a round trip the log can just avoid.
+
+        Version comes from the manifest AP already parsed onto the World class
+        (`worlds/__init__.py` -> `world_types[game].world_version`), so it
+        cannot drift from the shipped archipelago.json. 0.0.0 is the value AP
+        uses when a manifest is missing entirely, which is itself worth seeing
+        in a log rather than hiding behind a blank.
+        """
+        version = "unknown"
+        try:
+            from worlds.AutoWorld import AutoWorldRegister
+            world_type = AutoWorldRegister.world_types.get(self.game)
+            version = ".".join(str(part) for part in world_type.world_version)
+        except Exception:            # never let a banner break the connect
+            pass
+        logger.info("MMX5: apworld %s | seed %s | slot %s",
+                    version, ctx.seed_name, ctx.auth)
+        logger.info("MMX5: options %s", dict(sorted((ctx.slot_data or {}).items())))
+
     async def game_watcher(self, ctx: "BizHawkClientContext") -> None:
         if ctx.server is None or ctx.slot is None:
             return
+        if not self.banner_logged and ctx.slot_data is not None:
+            self.banner_logged = True
+            self._log_banner(ctx)
 
         try:
             # 0x0D1C00..0x0D1C0F in one read: mode at +0, and the spawn
@@ -1509,15 +1577,18 @@ class MMX5Client(BizHawkClient):
             # ---- The maximum the ENGINE wrote, which it cannot read back -
             # Every write this client makes is clamped to LIFE_HARD_MAX, at
             # the grant and again at adoption. The game's own +2 grants are
-            # not (see MAX_ENGINE_LIFE_GRANT), so a save sitting at our clamp
-            # walks to 0x81 the next time Alia hands out a Life Up - and the
+            # not (see LIFE_UNINITIALISED), so a save sitting at our clamp
+            # walks to 0x81 the next time the game hands out life - and the
             # life bar reads that byte with a SIGNED `lb`. At 129 the frame
             # index computes to 0x39 instead of 0x88..0x98, 79 frames off the
-            # front of the artwork, and the HUD paints whole sheets of
-            # unrelated tiles over the screen while the player sits frozen at
-            # the spawn point. Reported off a live seed 2026-09-08, in Zero
-            # Space; the byte is per-character, which is why swapping to the
-            # other character was a working save and this one was not.
+            # front of the artwork; on a disc carrying the sub-32 floor hook
+            # it lands on 0x88 instead and simply draws the shortest bar.
+            # Either way the spawn full heal (FUN_80039bf0,
+            # `P+0x5C = [0x800D1C00 + charIdx + 0x47]`) copies the byte in
+            # VERBATIM, and bit 7 of that byte is the damage flag - so 0x81
+            # arrives as "1 HP, and hurt" and the player cannot act.
+            # Per-character, which is why the first reporter could swap to
+            # Zero and keep playing.
             #
             # Repaired HERE, ahead of the residency test, and that ordering is
             # the point rather than tidiness: an overflowed byte fails that
@@ -1526,10 +1597,24 @@ class MMX5Client(BizHawkClient):
             # window to prevent, arrived at from the other end. It is also why
             # the client could not repair this after the fact: everything that
             # writes runs behind the gate the bad byte had already closed.
+            #
+            # AND NOT GATED ON MODE, which 0.7.1 got wrong and a second
+            # report proved (BizHawkClient_2026_09_11_01_57_56.txt): the byte
+            # went to 0x81 within 0.6s of a ZERO SPACE 1 clear, and endgame
+            # stages do not route through the 0x0C results screen at all
+            # (ram-notes, Game modes). From there the game walks cutscene ->
+            # hub 0x04 -> stage-entry 0x07-0x09 -> frozen at the spawn, so
+            # `mode in (0x0A, 0x0C)` was never true once between the overflow
+            # and the freeze. The repair had been gated on a state the bug
+            # stops the game from ever reaching. The guards that carry the
+            # weight are the seed stamp and the training test, and neither
+            # needs a mode - so the only thing the mode still decides is
+            # whether the LIVE HP byte is worth touching (below), because
+            # outside gameplay there is no player object to touch.
             overflowed = [off for off in (OFF_MAX_HP_X, OFF_MAX_HP_Z)
-                          if LIFE_HARD_MAX < save[off]
-                          <= LIFE_HARD_MAX + MAX_ENGINE_LIFE_GRANT]
-            if overflowed and not training and mode[0] in (0x0A, 0x0C)                     and save[OFF_STAMP] == self._seed_stamp(ctx):
+                          if LIFE_HARD_MAX < save[off] < LIFE_UNINITIALISED]
+            if overflowed and not training \
+                    and save[OFF_STAMP] == self._seed_stamp(ctx):
                 repaired = bytearray(save)
                 for off in overflowed:
                     repaired[off] = LIFE_HARD_MAX
@@ -1544,7 +1629,8 @@ class MMX5Client(BizHawkClient):
                 # has changed since is the engine's own business, and blanket
                 # clearing bit 7 would erase a real hit.
                 char = 1 if save[OFF_CHAR] else 0
-                if player_hp[0] == save[OFF_MAX_HP_X + char]:
+                if mode[0] in (0x0A, 0x0C) \
+                        and player_hp[0] == save[OFF_MAX_HP_X + char]:
                     writes.append((PLAYER_HP_ADDR,
                                    [repaired[OFF_MAX_HP_X + char]], "MainRAM"))
                 await bizhawk.write(ctx.bizhawk_ctx, writes)
@@ -2534,6 +2620,41 @@ class MMX5Client(BizHawkClient):
                 armor_withhold = 0
                 if stage_name:
                     armor_withhold = self._armor_bit_to_withhold(ctx, stage_name)
+                # PUT IT BACK the moment the withhold stops applying - the
+                # capsule check landed, or the player left for another stage.
+                #
+                # Nothing used to do this. The only other write to OFF_ARMOR
+                # is the grant merge, which sits under `processed < total`, so
+                # a withheld bit stayed clear until the player's NEXT item
+                # arrived - and an in-game save inside that window persisted a
+                # card without the part. Self-healing, but unbounded, and it
+                # is why standing down on the checked record looked like the
+                # risky half of the trade when it is the safe one.
+                #
+                # Narrow on purpose: only the bit THIS client cleared, only
+                # while it is actually missing, so a rewound or foreign save
+                # can never be granted armor here. Ordinary grants stay the
+                # grant block's job.
+                if self.armor_withheld and self.armor_withheld != armor_withhold:
+                    if not save[OFF_ARMOR] & self.armor_withheld:
+                        restored = save[OFF_ARMOR] | self.armor_withheld
+                        await bizhawk.write(ctx.bizhawk_ctx, [(
+                            SAVE_BASE + OFF_ARMOR, [restored], "MainRAM")])
+                        # Keep this poll's snapshot honest: the grant merge
+                        # below computes `merged_armor` from it, and that is
+                        # the value the grants line logs.
+                        patched = bytearray(save)
+                        patched[OFF_ARMOR] = restored
+                        save = bytes(patched)
+                        logger.debug("MMX5: armor part %02X restored - the "
+                                     "capsule route no longer needs it held",
+                                     self.armor_withheld)
+                    self.armor_withheld = 0
+                    # Re-pin from the CURRENT flags on the next visit. Pinning
+                    # once per client run meant a later visit forced 0x1C4A
+                    # back to a value captured before the player had finished
+                    # another armor set.
+                    self.armor_setflags_pin = None
                 if armor_withhold and (save[OFF_ARMOR] & armor_withhold):
                     # Pin the set-completion flags (0x1C4A) while the part
                     # bit is withheld.
@@ -2569,6 +2690,10 @@ class MMX5Client(BizHawkClient):
                         writes.append((SAVE_BASE + OFF_SETFLAGS,
                                        [self.armor_setflags_pin], "MainRAM"))
                     await bizhawk.write(ctx.bizhawk_ctx, writes)
+                    # Remember it so the restore above can put exactly this
+                    # bit back, without re-deriving ownership from the item
+                    # list on a save that may have been rewound.
+                    self.armor_withheld = armor_withhold
                     if not self.armor_workaround_warned:
                         self.armor_workaround_warned = True
                         logger.info(

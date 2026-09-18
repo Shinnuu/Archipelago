@@ -51,6 +51,7 @@ import worlds._bizhawk as bizhawk
 from worlds._bizhawk.client import BizHawkClient
 
 from . import names, pickups
+from .items import item_table
 from .locations import location_table
 
 if TYPE_CHECKING:
@@ -198,6 +199,13 @@ HUB_STATE_LEN = 0x0C
 HUB_STATE_STAGE_ID = 0x0B       # index of 0x800D1C0C within that read
 STAGE_SELECT_SCREEN = 0x04
 STAGE_SELECT_PHASE = 0x00
+# The game-mode byte while the hub is up, whichever of its screens is live
+# - stage select, the Parts menu, the launch menu. Enumerated with the rest
+# of the mode table in ram-notes ("Game modes", writers found
+# base-agnostically 2026-08-08): 0x04 is the hub and nothing else, which is
+# what makes it a safe edge to report on. Distinct from STAGE_SELECT_SCREEN
+# above, which is the hub's own screen selector one byte higher.
+HUB_MODE = 0x04
 
 # Story ACT value Training mode stamps into the save struct (live-captured
 # 2026-08-03). The campaign uses a small range - 1 at intro victory, 5 at
@@ -247,6 +255,10 @@ PART_TO_BIT = {
 PARTS_MASK = 0x0003FFFC                 # bits 2..17
 OFF_TANKS = 0x0D1C7F - SAVE_BASE
 OFF_HEARTS = 0x0D1C80 - SAVE_BASE
+# Bits 8-15 of that same reward u32: Alia's Life Up rewards, reward ids
+# 0-7, one bit each (overlay-findings 1.3, confirmed in code). Read as its
+# own byte because all we ever want from it is a popcount.
+OFF_LIFE_UPS = 0x0D1C81 - SAVE_BASE
 OFF_ARMOR = 0x0D1CA1 - SAVE_BASE       # armor parts byte (Falcon 0-3, Gaea 4-7)
 # Character/armor SELECTOR (community cheat archive: "Character & Armor
 # Modifier", 300D1C49 00??). The stage-load weapon repopulation branches on
@@ -771,6 +783,35 @@ LIFE_HARD_MAX = 0x7F
 # stamped for this seed is illegal, full stop. Only 0xFF is reserved, as the
 # uninitialised-RAM sentinel the residency test has always rejected.
 LIFE_UNINITIALISED = 0xFF
+# ...and repairing the overflow after the fact is not the same as not
+# having it. The repair is a POLL behind (watcher_timeout is 0.5s), and a
+# run parked on the clamp re-enters that window on EVERY stage clear that
+# hands out a Life Up - which is what a playtester hit repeatedly on
+# 0.7.2, unfreezing each time by having a Heart Tank sent, i.e. by forcing
+# the grant path's own `min` to do what the repair should have.
+#
+# So the ceiling this client WRITES is not the hardware's. It is the
+# hardware's minus what the engine can still add behind our back: two
+# points per Life Up this save has not collected yet. Each one that lands
+# sets its bit, releases its own reserve, and raises the ceiling by exactly
+# the 2 it added - so a run that collects all eight still finishes on 0x7F.
+# The life is deferred, never lost, and the illegal value is unreachable
+# rather than corrected.
+#
+# Eight is the engine's own number, not a vanilla-shaped guess of the kind
+# 0.7.1 got wrong: the reward record is eight BITS wide, ids 0-7. The
+# vanilla Heart Tank +2 at 0x800540EC is not counted because it cannot run
+# on an AP disc - kind 0 is retargeted to the record stub (disc.py,
+# RANDOMIZED_KINDS). If the applier ever turns out to re-grant an id whose
+# bit is already set, this under-reserves and the repair below is still the
+# net underneath it.
+# Polls for which an overflowed maximum stays worth matching against the
+# LIVE HP byte. ~0.5s each (worlds/_bizhawk/context.py watcher_timeout),
+# so this is about ten seconds - long enough to cover a stage load, short
+# enough that it cannot collide with ordinary low-and-damaged play.
+LIFE_OVERFLOW_GRACE_POLLS = 20
+LIFE_ENGINE_STEP = 2
+LIFE_ENGINE_GRANTS = 8
 
 
 def _clamp_setting(value: object, lo: int, hi: int, default: int) -> int:
@@ -787,6 +828,34 @@ def _clamp_setting(value: object, lo: int, hi: int, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return max(lo, min(hi, number))
+
+
+def life_ceiling(save: bytes) -> int:
+    """The highest maximum this client may write into `save`.
+
+    `LIFE_HARD_MAX` is where the READER stops; this is where the WRITER has to,
+    so that the engine's own unclamped grants land inside the byte instead of
+    off the end of it. See the LIFE_ENGINE_GRANTS note above for why the
+    reserve shrinks as the rewards arrive.
+
+    Counting what has already landed, rather than assuming none of it has, is
+    what keeps a high `starting_hp` honest for a save late in its run.
+    """
+    outstanding = max(0, LIFE_ENGINE_GRANTS
+                      - bin(save[OFF_LIFE_UPS]).count("1"))
+    return LIFE_HARD_MAX - LIFE_ENGINE_STEP * outstanding
+
+
+def raise_max_life(current: int, add: int, ceiling: int) -> int:
+    """Add to a maximum without crossing the ceiling - or ever lowering it.
+
+    `max(ceiling, current)` rather than a plain `ceiling`: a save written
+    before the reserve existed sits legitimately above it, and a Heart Tank
+    arriving is not a reason to take life away from a player. Bringing a legacy
+    save down is a separate, deliberate, once-per-connect act - see the
+    migration in the poll.
+    """
+    return min(current + add, max(ceiling, current))
 
 
 def life_settings(ctx: "BizHawkClientContext") -> tuple[int, int]:
@@ -921,6 +990,16 @@ class MMX5Client(BizHawkClient):
         # have announced as unlocked.
         self.slot_table_written = None
         self.stages_unlocked_logged = set()
+        # Hub status line: armed while the player is anywhere but the hub,
+        # spent by the one report that visit. See _hub_status_report.
+        self.hub_report_armed = True
+        # Life Up reserve: whether this connect has already brought a
+        # legacy save down to the ceiling, and the overflowed maximums
+        # seen recently (so the LIVE copy can still be rescued once the
+        # save byte itself is clean). See the poll's repair block.
+        self.life_ceiling_migrated = False
+        self.life_overflow_values: set[int] = set()
+        self.life_overflow_grace = 0
         # Highest story ACT seen while the save read SANE. A high-water mark
         # rather than a live read, for two reasons: the all_mavericks goal
         # WRITES this byte (it holds the endgame shut by pushing ACT back below
@@ -1222,6 +1301,55 @@ class MMX5Client(BizHawkClient):
                 logger.info(f"MMX5: stages unlocked ({len(unlocked)}/8): "
                             + ", ".join(sorted(
                                 n.removesuffix(" Access Codes") for n in unlocked)))
+
+    async def _hub_status_report(self, ctx, mode: bytes) -> None:
+        """One status line each time the player comes back to the hub.
+
+        Launcher parts have no in-game display of ANY kind: they are AP-only
+        items with no vanilla storage (names.py, "Launcher parts"), and the
+        game's own launch menu shows a success percentage rather than a part
+        count. So without this the only way to know how many you hold is to
+        scroll the client log back through every item message of the run.
+        Stage access codes are in the same position - the hub draws a locked
+        icon, never a tally.
+
+        Edge-triggered on the MODE byte rather than the hub's screen/phase
+        pair. The hub holds mode 0x04 across all of its screens, so this fires
+        once per visit instead of again every time the player steps between
+        stage select and the Parts menu. Re-armed the moment the mode leaves
+        the hub, so the next stage exit reports afresh.
+
+        Read staleness does not matter here the way it does in
+        `_stage_unlocks_apply`: that method DECIDES A WRITE from these bytes
+        and had to re-read them for it. This one only logs, so the poll's own
+        opening read is fine.
+        """
+        if mode[0] != HUB_MODE:
+            self.hub_report_armed = True
+            return
+        if not self.hub_report_armed:
+            return
+        self.hub_report_armed = False
+
+        lookup = ctx.item_names.lookup_in_game
+        held = [lookup(item.item) for item in ctx.items_received]
+        # Totals come from the item table, not literals, so they cannot drift
+        # from the pool if the counts ever change.
+        logger.info(
+            "MMX5: at stage select - Enigma Parts %d/%d, Shuttle Parts %d/%d",
+            held.count(names.ENIGMA_PART), item_table[names.ENIGMA_PART].count,
+            held.count(names.SHUTTLE_PART), item_table[names.SHUTTLE_PART].count)
+
+        # Only when the option is on: with stage_unlocks off every stage is
+        # open from the start and a tally would be noise. The set is the same
+        # one _stage_unlocks_apply writes the table from; that method announces
+        # each stage as it ARRIVES, this one restates where you stand.
+        if (ctx.slot_data or {}).get("stage_unlocks", 0):
+            unlocked = sorted(name.removesuffix(" Access Codes")
+                              for name in set(held) & set(names.ACCESS_ITEMS))
+            logger.info("MMX5: stages unlocked (%d/%d): %s",
+                        len(unlocked), len(names.ACCESS_ITEMS),
+                        ", ".join(unlocked) if unlocked else "none yet")
 
     async def _live_weapons_apply(self, ctx, save: bytes, in_gameplay: bool) -> None:
         """Mirror granted weapons into the LIVE bitfield so they work now.
@@ -1618,6 +1746,10 @@ class MMX5Client(BizHawkClient):
                 repaired = bytearray(save)
                 for off in overflowed:
                     repaired[off] = LIFE_HARD_MAX
+                # Remembered for the rescue below, which is the half of
+                # this that 0.7.2 could not reach.
+                self.life_overflow_values = {save[off] for off in overflowed}
+                self.life_overflow_grace = LIFE_OVERFLOW_GRACE_POLLS
                 writes = [(SAVE_BASE + OFF_MAX_HP_X,
                            [repaired[OFF_MAX_HP_X], repaired[OFF_MAX_HP_Z]],
                            "MainRAM")]
@@ -1648,6 +1780,91 @@ class MMX5Client(BizHawkClient):
                         "stuck, leave the stage and re-enter.", LIFE_HARD_MAX)
             elif not overflowed:
                 self.life_overflow_warned = False
+            # ---- The live copy, once the save byte is already clean --------
+            # The spawn full heal copies the maximum into P+0x5C verbatim, and
+            # it can do that BEFORE the poll that repairs the maximum lands. By
+            # the next poll `overflowed` is empty - permanently - so the rescue
+            # nested inside it above can never fire again, and the player is
+            # left frozen on "1 HP, and hurt" behind a maximum that now reads
+            # perfectly sane. Nothing in 0.7.2 puts that byte back.
+            #
+            # Keyed on the exact value that overflowed, and only for a short
+            # grace after seeing it: an illegal maximum in P+0x5C is
+            # indistinguishable from a legitimate "N HP, just hit" once you
+            # stop caring WHICH value it is, so an unbounded rule here would
+            # eventually heal a player who was simply low and damaged.
+            # `not overflowed`: on the poll the repair itself runs, its own
+            # nested rescue has already put the live byte back. This block is
+            # for the poll AFTER, when the maximum reads clean and that rescue
+            # can no longer fire.
+            if self.life_overflow_grace and not overflowed:
+                self.life_overflow_grace -= 1
+                char = 1 if save[OFF_CHAR] else 0
+                if mode[0] in (0x0A, 0x0C) \
+                        and player_hp[0] in self.life_overflow_values:
+                    await bizhawk.write(ctx.bizhawk_ctx, [
+                        (PLAYER_HP_ADDR, [save[OFF_MAX_HP_X + char]],
+                         "MainRAM")])
+                    self.life_overflow_values = set()
+                    self.life_overflow_grace = 0
+                    logger.info("MMX5: live HP still carried the overflowed "
+                                "maximum - put back")
+            # ---- Legacy saves parked on the old 0x7F clamp -----------------
+            # A save written before the reserve existed sits above the ceiling
+            # and would keep meeting the engine's +2 head-on. Brought down
+            # ONCE per connect rather than every poll, and that bound is the
+            # point: the Life Up applier sets its bit and adds its 2 together
+            # (ram-notes, pending DNA-reward buffer), but a per-poll clamp that
+            # ever sampled between the two halves would pocket the 2 as
+            # "excess" and erase a reward the player earned. Once, at connect,
+            # the player is not mid-results.
+            #
+            # Nothing is taken away for good: the ceiling rises by 2 with each
+            # Life Up that lands, so the byte ends the run exactly where it
+            # would have.
+            # `not overflowed`: the repair above has just written a known
+            # good value into this same byte, so there is nothing legacy to
+            # read yet. Let the next poll decide from a settled byte rather
+            # than stack two corrections into one.
+            #
+            # And the upper bound is not decoration. 0xFF is the
+            # uninitialised sentinel the residency test rejects, and without
+            # `<= LIFE_HARD_MAX` this block would read it as a legacy
+            # maximum and dutifully write the reserve over uninitialised
+            # RAM - caught by test_uninitialised_bytes_are_still_garbage,
+            # which is the assertion 0.7.2 wrote for exactly this mistake.
+            if not overflowed and not self.life_ceiling_migrated \
+                    and not training \
+                    and save[OFF_STAMP] == self._seed_stamp(ctx):
+                self.life_ceiling_migrated = True
+                ceiling = life_ceiling(save)
+                legacy = [off for off in (OFF_MAX_HP_X, OFF_MAX_HP_Z)
+                          if ceiling < save[off] <= LIFE_HARD_MAX]
+                if legacy:
+                    migrated = bytearray(save)
+                    for off in legacy:
+                        migrated[off] = ceiling
+                    writes = [(SAVE_BASE + OFF_MAX_HP_X,
+                               [migrated[OFF_MAX_HP_X], migrated[OFF_MAX_HP_Z]],
+                               "MainRAM")]
+                    # Live HP follows the maximum down, or the bar draws past
+                    # its own end. Bit 7 is the damage flag, so it is carried
+                    # across rather than cleared.
+                    char = 1 if save[OFF_CHAR] else 0
+                    if mode[0] in (0x0A, 0x0C) \
+                            and (player_hp[0] & 0x7F) > migrated[OFF_MAX_HP_X + char]:
+                        writes.append(
+                            (PLAYER_HP_ADDR,
+                             [migrated[OFF_MAX_HP_X + char] | (player_hp[0] & 0x80)],
+                             "MainRAM"))
+                    await bizhawk.write(ctx.bizhawk_ctx, writes)
+                    save = bytes(migrated)
+                    logger.info(
+                        "MMX5: holding %d point(s) of maximum life in reserve "
+                        "for the Life Up rewards still outstanding - the "
+                        "engine adds those without checking the ceiling, and "
+                        "you get every one of them back as they land.",
+                        LIFE_HARD_MAX - ceiling)
             # ---- The residency test, and why its bounds move with the seed --
             # Max HP is the byte we use to decide the save struct is
             # initialized at all. `starting_hp` moves it, so a fixed
@@ -1837,6 +2054,13 @@ class MMX5Client(BizHawkClient):
             if save_sane:
                 await self._stage_unlocks_apply(ctx)
 
+            # ---- Hub status line. Deliberately NOT under save_sane: it
+            # reads nothing out of the save struct, only the mode byte and
+            # the server's item list, so the struct's residency has no
+            # bearing on whether the numbers are right. The stamp gate
+            # above already holds a save belonging to another seed. ----
+            await self._hub_status_report(ctx, mode)
+
             # ---- Live weapon mirror, and handing cleared stages their
             # capsules back. Both are conveniences layered on state that is
             # already decided elsewhere: the first only re-states weapon bits
@@ -2011,8 +2235,14 @@ class MMX5Client(BizHawkClient):
                 # permanently crippled maximum. A character can never hold
                 # LESS than vanilla's base, so a negative difference means the
                 # byte is not meaningful yet - read it as "nothing earned".
+                #
+                # Capped at the RESERVE, not the hardware ceiling: a fresh
+                # save has collected no Life Ups, so all eight are still
+                # coming and all sixteen points are still spoken for. A
+                # `starting_hp` of 127 therefore starts at 111 and reaches
+                # 127 as the rewards land - which the option docstring says.
                 baseline = [
-                    min(LIFE_HARD_MAX,
+                    min(life_ceiling(save),
                         life_start + max(0, save[off] - BASE_MAX_HP))
                     for off in (OFF_MAX_HP_X, OFF_MAX_HP_Z)]
                 if baseline != [save[OFF_MAX_HP_X], save[OFF_MAX_HP_Z]]:
@@ -2870,10 +3100,18 @@ class MMX5Client(BizHawkClient):
                         # the old cap every Heart Tank past 64 was worth
                         # nothing, which `heart_tank_value` would have made
                         # trivial to hit.
-                        new_max_x = min(LIFE_HARD_MAX,
-                                        save[OFF_MAX_HP_X] + life_step * new_hearts)
-                        new_max_z = min(LIFE_HARD_MAX,
-                                        save[OFF_MAX_HP_Z] + life_step * new_hearts)
+                        # Cap is the LIFE UP RESERVE, not the engine's
+                        # 0x7F and certainly not vanilla's 0x40 (under
+                        # which every Heart Tank past 64 was worth
+                        # nothing). This is also the one write site proven
+                        # to run on the affected playtest - the player's
+                        # own workaround for the freeze was to have a Heart
+                        # Tank sent, which is this `min` and nothing else.
+                        ceiling = life_ceiling(save)
+                        new_max_x = raise_max_life(
+                            save[OFF_MAX_HP_X], life_step * new_hearts, ceiling)
+                        new_max_z = raise_max_life(
+                            save[OFF_MAX_HP_Z], life_step * new_hearts, ceiling)
                         writes.append((SAVE_BASE + OFF_MAX_HP_X, [new_max_x, new_max_z], "MainRAM"))
 
                     if new_energy:

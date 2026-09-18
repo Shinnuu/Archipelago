@@ -5,6 +5,7 @@ written to FAIL against v0.1.0 and pass after the fixes.
 """
 import hashlib
 import json
+import logging
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -634,6 +635,96 @@ class TestConnectBanner(unittest.IsolatedAsyncioTestCase):
             with self.assertLogs("Client", level="INFO") as captured:
                 await run_watcher(make_save(max_hp=0x20), client=client, ctx=ctx)
         self.assertIn("apworld unknown", "\n".join(captured.output))
+
+
+class TestHubStatusReport(unittest.IsolatedAsyncioTestCase):
+    """Launcher parts have no in-game display at all - they are AP-only items
+    with no vanilla storage, and the game's launch menu shows a percentage
+    rather than a count - so the only way to know how many you hold was to
+    scroll the client log back through the whole run's item messages."""
+
+    @staticmethod
+    def _ctx(enigma: int = 0, shuttle: int = 0, stages: int = 0,
+             stage_unlocks: int = 0) -> FakeContext:
+        from ..items import item_table
+        code_of = {n: d.code for n, d in item_table.items()}
+        id_to_name = {d.code: n for n, d in item_table.items()}
+        ctx = FakeContext()
+        ctx.slot_data = {"goal": 0, "boss_difficulty": 1,
+                         "stage_unlocks": stage_unlocks}
+        ctx.items_received = (
+            [SimpleNamespace(item=code_of[names.ENIGMA_PART])] * enigma
+            + [SimpleNamespace(item=code_of[names.SHUTTLE_PART])] * shuttle
+            + [SimpleNamespace(item=code_of[names.access_item(s)])
+               for s in names.STAGES[:stages]])
+        ctx.item_names = SimpleNamespace(lookup_in_game=lambda c: id_to_name[c])
+        return ctx
+
+    @staticmethod
+    def _client() -> MMX5Client:
+        client = MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        client.tank_fix_present = True
+        return client
+
+    async def _hub(self, client, ctx, mode: int = mmx5_client.HUB_MODE) -> str:
+        with self.assertLogs("Client", level="INFO") as captured:
+            # A no-op INFO line so assertLogs never fails for want of records
+            # on the cases that are SUPPOSED to stay quiet.
+            logging.getLogger("Client").info("marker")
+            await run_watcher(make_save(max_hp=0x20), mode=mode,
+                              client=client, ctx=ctx)
+        return "\n".join(captured.output)
+
+    async def test_the_line_names_both_part_counts(self) -> None:
+        log = await self._hub(self._client(), self._ctx(enigma=2, shuttle=1))
+        self.assertIn("Enigma Parts 2/4", log)
+        self.assertIn("Shuttle Parts 1/4", log)
+
+    async def test_the_totals_come_from_the_item_pool(self) -> None:
+        # Literals here would drift silently if the pool counts ever changed.
+        from ..items import item_table
+        log = await self._hub(self._client(), self._ctx())
+        self.assertIn(f"Enigma Parts 0/{item_table[names.ENIGMA_PART].count}", log)
+        self.assertIn(f"Shuttle Parts 0/{item_table[names.SHUTTLE_PART].count}", log)
+
+    async def test_it_does_not_fire_inside_a_stage(self) -> None:
+        log = await self._hub(self._client(), self._ctx(enigma=1), mode=0x0A)
+        self.assertNotIn("stage select", log)
+
+    async def test_one_line_per_hub_visit_not_per_poll(self) -> None:
+        client, ctx = self._client(), self._ctx(enigma=1)
+        log = await self._hub(client, ctx)
+        log += await self._hub(client, ctx)
+        self.assertEqual(log.count("at stage select"), 1,
+                         "the hub report repeated while the player stood still")
+
+    async def test_leaving_the_hub_re_arms_it(self) -> None:
+        client, ctx = self._client(), self._ctx(enigma=1)
+        await self._hub(client, ctx)
+        await self._hub(client, ctx, mode=0x0A)     # into a stage
+        log = await self._hub(client, ctx)          # and back out
+        self.assertIn("at stage select", log,
+                      "coming back from a stage did not report again")
+
+    async def test_the_stage_tally_is_only_printed_when_the_option_is_on(self) -> None:
+        off = await self._hub(self._client(), self._ctx(stages=3))
+        self.assertNotIn("stages unlocked", off)
+        on = await self._hub(self._client(),
+                             self._ctx(stages=3, stage_unlocks=1))
+        self.assertIn("stages unlocked (3/8)", on)
+
+    async def test_the_stage_tally_names_the_stages_held(self) -> None:
+        log = await self._hub(self._client(),
+                              self._ctx(stages=2, stage_unlocks=1))
+        for stage in names.STAGES[:2]:
+            self.assertIn(stage, log)
+        self.assertNotIn(names.STAGES[7], log)
+
+    async def test_the_tally_says_so_when_nothing_is_open_yet(self) -> None:
+        log = await self._hub(self._client(), self._ctx(stage_unlocks=1))
+        self.assertIn("stages unlocked (0/8): none yet", log)
 
 
 class TestLaunchGoal(unittest.IsolatedAsyncioTestCase):

@@ -1,5 +1,45 @@
 # Mega Man X5 apworld changelog
 
+## 0.7.3 — unreleased
+
+**No re-patch.** Client-side only — update the apworld and carry on with the
+disc you have.
+
+**Fixed: the life overflow is now unreachable rather than repaired.** A
+playtester on 0.7.2 hit the freeze repeatedly: every stage clear that handed
+out one of Alia's Life Up rewards broke the game again, and the only way out
+was to have a Heart Tank sent, which forced the maximum back under the
+ceiling.
+
+0.7.1 and 0.7.2 both treated this as something to correct after the fact. A
+correction is a poll behind, so a run parked on the 127 cap re-enters the
+broken window on *every* stage clear that grants life. The client now stops
+short of the cap instead: 2 points are held back for each of the eight Life Up
+rewards you have not collected, and each one is released as it lands. A full
+run still finishes on 127 — the life is deferred, never lost. A save already
+sitting at the old cap is brought down once, when you connect.
+
+The after-the-fact repair stays as the net underneath, unchanged.
+
+**Fixed: a frozen player could stay frozen after the maximum was corrected.**
+The stage spawn copies your maximum into your live health, and it can do that
+before the correction lands. Once the maximum read sane again, nothing was
+left to put the live copy back — so the player stayed stuck behind a health
+bar that now looked perfectly normal. The client now remembers what overflowed
+and restores the live copy on the next poll it sees it.
+
+**New: a status line every time you return to stage select.** Launcher parts
+have no in-game display of any kind — the launch menu shows a percentage, not
+a count — so the only way to know where you stood was to scroll the client log
+back through the whole run:
+
+```
+MMX5: at stage select - Enigma Parts 2/4, Shuttle Parts 1/4
+MMX5: stages unlocked (3/8): Crescent Grizzly, Duff McWhalen, Volt Kraken
+```
+
+The second line appears only with `stage_unlocks` on.
+
 ## 0.7.2 — 2026-09-11
 
 **No re-patch.** Client-side only, like 0.7.1 — update the apworld and carry

@@ -19,10 +19,12 @@ import unittest
 from types import SimpleNamespace
 
 from .. import Rom, client as mmx5_client, disc
-from ..client import (BASE_MAX_HP, HP_PER_HEART, LIFE_HARD_MAX,
+from ..client import (BASE_MAX_HP, HP_PER_HEART, LIFE_ENGINE_GRANTS,
+                      LIFE_ENGINE_STEP, LIFE_HARD_MAX,
                       LIFE_UNINITIALISED, MMX5Client, OFF_CHAR,
-                      OFF_MAX_HP_X, OFF_MAX_HP_Z, OFF_STAMP, PLAYER_HP_ADDR,
-                      SAVE_BASE, TRAINING_ACT, life_settings)
+                      OFF_LIFE_UPS, OFF_MAX_HP_X, OFF_MAX_HP_Z, OFF_STAMP,
+                      PLAYER_HP_ADDR, SAVE_BASE, TRAINING_ACT,
+                      life_ceiling, life_settings, raise_max_life)
 from .. import names
 from .test_client import (FakeContext, TEST_SEED_STAMP, make_save, run_watcher,
                           seed_edits_for)
@@ -343,7 +345,8 @@ class TestStartingHpIsAppliedOnce(unittest.IsolatedAsyncioTestCase):
 
 
 class TestHeartTankValue(unittest.IsolatedAsyncioTestCase):
-    async def _grant(self, hearts, max_hp=BASE_MAX_HP, **slot_data):
+    async def _grant(self, hearts, max_hp=BASE_MAX_HP, life_ups=0,
+                     **slot_data):
         client = MMX5Client()
         client.ap_patched = True
         client.stub_present = True
@@ -354,6 +357,7 @@ class TestHeartTankValue(unittest.IsolatedAsyncioTestCase):
             lookup_in_game=lambda code: names.HEART_TANK)
         save = bytearray(make_save(max_hp, intro=1))
         save[OFF_MAX_HP_Z] = max_hp
+        save[OFF_LIFE_UPS] = life_ups
         ctx = await run_watcher(bytes(save), client=client, ctx=ctx)
         addr = SAVE_BASE + OFF_MAX_HP_X
         writes = [list(w[1]) for w in ctx.writes if w[0] == addr]
@@ -389,9 +393,226 @@ class TestHeartTankValue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(written, [0x48, 0x48])
 
     async def test_nothing_can_exceed_the_signed_byte_ceiling(self):
-        # Past 0x7F the game's `lb` would read the maximum as negative.
+        # Past 0x7F the game's `lb` would read the maximum as negative -
+        # and the client stops short of it by the Life Up reserve, so that
+        # the engine's own unclamped +2 grants land inside the byte.
+        reserved = LIFE_HARD_MAX - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS
         written = await self._grant(4, max_hp=0x70, heart_tank_value=64)
+        self.assertEqual(written, [reserved, reserved])
+
+    async def test_the_reserve_is_released_as_the_life_ups_land(self):
+        # The life is deferred, never lost: with all eight collected the
+        # engine has nothing left to add and the full 0x7F is available.
+        written = await self._grant(4, max_hp=0x70, life_ups=0xFF,
+                                    heart_tank_value=64)
         self.assertEqual(written, [LIFE_HARD_MAX, LIFE_HARD_MAX])
+
+
+class TestLifeUpReserve(unittest.IsolatedAsyncioTestCase):
+    """Why the client stops short of the byte it can legally write.
+
+    0.7.1 and 0.7.2 both treated the overflow as something to REPAIR. Repair is
+    a poll behind, and a run parked on the clamp re-enters that window on every
+    stage clear that hands out a Life Up - which a playtester hit repeatedly on
+    0.7.2, unfreezing each time by having a Heart Tank sent, i.e. by forcing
+    the grant path's own `min` to do what the repair should have.
+
+    So the client holds two points back per Life Up the save has not collected
+    yet. The illegal value stops being reachable instead of being corrected,
+    and because each reward releases its own reserve as it lands, a full run
+    still finishes on 0x7F.
+    """
+
+    # ---- the arithmetic ---------------------------------------------------
+
+    def _save(self, life_ups: int, max_hp: int = BASE_MAX_HP) -> bytes:
+        save = bytearray(make_save(max_hp, intro=1))
+        save[OFF_MAX_HP_Z] = max_hp
+        save[OFF_LIFE_UPS] = life_ups
+        return bytes(save)
+
+    def test_a_fresh_save_reserves_every_life_up(self):
+        self.assertEqual(life_ceiling(self._save(0x00)),
+                         LIFE_HARD_MAX - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS)
+
+    def test_the_reserve_shrinks_by_two_per_reward(self):
+        for taken in range(LIFE_ENGINE_GRANTS + 1):
+            bits = (1 << taken) - 1
+            with self.subTest(life_ups=taken):
+                self.assertEqual(
+                    life_ceiling(self._save(bits)),
+                    LIFE_HARD_MAX - LIFE_ENGINE_STEP * (LIFE_ENGINE_GRANTS - taken))
+
+    def test_nothing_is_lost_only_deferred(self):
+        # The whole justification for capping below the hardware ceiling: the
+        # points held back are exactly the points the engine will add.
+        fresh = life_ceiling(self._save(0x00))
+        self.assertEqual(fresh + LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS,
+                         LIFE_HARD_MAX)
+
+    def test_the_ceiling_is_read_from_the_life_up_bits_not_the_hearts(self):
+        # 0x800D1C80 bits 0-7 are Heart Tanks and bits 8-15 are Life Ups. They
+        # are adjacent bytes in the same u32, so reading the wrong one is a
+        # one-character mistake that would silently mis-size the reserve.
+        hearts_only = bytearray(self._save(0x00))
+        hearts_only[OFF_LIFE_UPS - 1] = 0xFF        # every Heart Tank collected
+        self.assertEqual(life_ceiling(bytes(hearts_only)),
+                         life_ceiling(self._save(0x00)))
+
+    def test_a_grant_never_lowers_a_maximum(self):
+        # A legacy save sits above the reserve. A Heart Tank arriving is not a
+        # reason to take life off a player - bringing it down is a separate,
+        # deliberate, once-per-connect act.
+        self.assertEqual(raise_max_life(LIFE_HARD_MAX, 8, 0x6F), LIFE_HARD_MAX)
+        self.assertEqual(raise_max_life(0x60, 8, 0x6F), 0x68)
+        self.assertEqual(raise_max_life(0x68, 8, 0x6F), 0x6F)
+
+    # ---- the legacy migration ---------------------------------------------
+
+    async def _poll(self, x_max, z_max=None, *, life_ups=0, stamp=None,
+                    intro=1, mode=0x0A, player_hp=BASE_MAX_HP, char=0,
+                    client=None):
+        client = client or MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        ctx = FakeContext()
+        save = bytearray(make_save(x_max, intro=intro, stamp=stamp))
+        save[OFF_MAX_HP_Z] = x_max if z_max is None else z_max
+        save[OFF_LIFE_UPS] = life_ups
+        save[OFF_CHAR] = char
+        ctx = await run_watcher(bytes(save), client=client, ctx=ctx, mode=mode,
+                                player_hp=player_hp)
+        return client, ctx
+
+    @staticmethod
+    def _life_writes(ctx):
+        return [list(w[1]) for w in ctx.writes
+                if w[0] == SAVE_BASE + OFF_MAX_HP_X]
+
+    @staticmethod
+    def _hp_writes(ctx):
+        return [list(w[1]) for w in ctx.writes if w[0] == PLAYER_HP_ADDR]
+
+    async def test_a_save_parked_on_the_old_clamp_is_brought_down(self):
+        _client, ctx = await self._poll(LIFE_HARD_MAX)
+        reserved = LIFE_HARD_MAX - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS
+        self.assertEqual(self._life_writes(ctx), [[reserved, reserved]])
+
+    async def test_it_happens_once_per_connect_not_once_per_poll(self):
+        # Bounded on purpose: the Life Up applier sets its bit and adds its 2
+        # together, but a per-poll clamp that ever sampled between the two
+        # halves would pocket the 2 as excess and erase a reward the player
+        # earned.
+        client, ctx = await self._poll(LIFE_HARD_MAX)
+        self.assertEqual(len(self._life_writes(ctx)), 1)
+        _client, ctx2 = await self._poll(LIFE_HARD_MAX, client=client)
+        self.assertEqual(self._life_writes(ctx2), [],
+                         "the migration ran a second time")
+
+    async def test_uninitialised_ram_is_not_a_legacy_maximum(self):
+        # 0xFF is the sentinel the residency test rejects. Without the upper
+        # bound the migration would read it as a very large maximum and write
+        # the reserve over uninitialised RAM.
+        _client, ctx = await self._poll(LIFE_UNINITIALISED,
+                                        z_max=LIFE_UNINITIALISED)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_a_save_belonging_to_another_seed_is_left_alone(self):
+        _client, ctx = await self._poll(LIFE_HARD_MAX,
+                                        stamp=TEST_SEED_STAMP ^ 0xFF)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_training_is_left_alone(self):
+        _client, ctx = await self._poll(LIFE_HARD_MAX, intro=TRAINING_ACT)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_a_save_already_under_the_reserve_is_untouched(self):
+        _client, ctx = await self._poll(0x40)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_a_full_set_of_life_ups_leaves_the_hardware_ceiling_alone(self):
+        _client, ctx = await self._poll(LIFE_HARD_MAX, life_ups=0xFF)
+        self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_live_hp_follows_the_maximum_down(self):
+        # Otherwise the bar draws past the end of its own frame.
+        reserved = LIFE_HARD_MAX - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS
+        _client, ctx = await self._poll(LIFE_HARD_MAX, player_hp=LIFE_HARD_MAX)
+        self.assertEqual(self._hp_writes(ctx), [[reserved]])
+
+    async def test_the_damage_flag_survives_that(self):
+        # Bit 7 of P+0x5C is the just-damaged flag, not part of the value.
+        # Clearing it wholesale would erase a real hit.
+        reserved = LIFE_HARD_MAX - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS
+        _client, ctx = await self._poll(LIFE_HARD_MAX,
+                                        player_hp=LIFE_HARD_MAX | 0x80)
+        self.assertEqual(self._hp_writes(ctx), [[reserved | 0x80]])
+
+    async def test_live_hp_is_left_alone_outside_gameplay(self):
+        # There is no player object behind that address in the menus.
+        _client, ctx = await self._poll(LIFE_HARD_MAX, mode=0x04,
+                                        player_hp=LIFE_HARD_MAX)
+        self.assertEqual(self._hp_writes(ctx), [])
+
+
+class TestTheLiveCopyOutlivesTheRepair(unittest.IsolatedAsyncioTestCase):
+    """The half of the 0.7.2 repair that could never fire.
+
+    The spawn full heal copies the maximum into P+0x5C verbatim, and it can do
+    that BEFORE the poll that repairs the maximum lands. From the next poll on,
+    `overflowed` is empty - permanently - so the rescue nested inside it can
+    never run again, and the player is left frozen on "N HP, and hurt" behind a
+    maximum that now reads perfectly sane.
+    """
+
+    async def _poll(self, x_max, *, player_hp, mode=0x0A, client=None):
+        client = client or MMX5Client()
+        client.ap_patched = True
+        client.stub_present = True
+        ctx = FakeContext()
+        save = bytearray(make_save(x_max, intro=1))
+        save[OFF_MAX_HP_Z] = x_max
+        # Every Life Up already collected, so the legacy migration has nothing
+        # to say and these tests are about the live byte alone.
+        save[OFF_LIFE_UPS] = 0xFF
+        ctx = await run_watcher(bytes(save), client=client, ctx=ctx, mode=mode,
+                                player_hp=player_hp)
+        return client, ctx
+
+    @staticmethod
+    def _hp_writes(ctx):
+        return [list(w[1]) for w in ctx.writes if w[0] == PLAYER_HP_ADDR]
+
+    async def test_the_live_byte_is_put_back_on_a_later_poll(self):
+        # Poll 1: the maximum overflows while the player is not in a stage, so
+        # the nested rescue cannot fire. Poll 2: the maximum reads clean and
+        # the live byte still carries the bad value.
+        client, _ctx = await self._poll(LIFE_HARD_MAX + 2, mode=0x09,
+                                        player_hp=BASE_MAX_HP)
+        _client, ctx2 = await self._poll(LIFE_HARD_MAX, mode=0x0A,
+                                         player_hp=LIFE_HARD_MAX + 2,
+                                         client=client)
+        self.assertEqual(self._hp_writes(ctx2), [[LIFE_HARD_MAX]])
+
+    async def test_it_does_not_fire_without_an_overflow_to_remember(self):
+        # A player who is simply low and damaged reads the same as a poisoned
+        # live byte. Only an overflow actually seen this run arms this.
+        _client, ctx = await self._poll(LIFE_HARD_MAX, mode=0x0A,
+                                        player_hp=LIFE_HARD_MAX + 2)
+        self.assertEqual(self._hp_writes(ctx), [])
+
+    async def test_the_memory_does_not_last_forever(self):
+        # ...which is why it is bounded: past the grace an illegal-looking live
+        # byte is indistinguishable from ordinary low-and-hurt play.
+        client, _ctx = await self._poll(LIFE_HARD_MAX + 2, mode=0x09,
+                                        player_hp=BASE_MAX_HP)
+        for _ in range(mmx5_client.LIFE_OVERFLOW_GRACE_POLLS):
+            await self._poll(LIFE_HARD_MAX, mode=0x09,
+                             player_hp=BASE_MAX_HP, client=client)
+        _client, ctx = await self._poll(LIFE_HARD_MAX, mode=0x0A,
+                                        player_hp=LIFE_HARD_MAX + 2,
+                                        client=client)
+        self.assertEqual(self._hp_writes(ctx), [])
 
 
 class TestGrantsStayIncremental(unittest.IsolatedAsyncioTestCase):
@@ -533,8 +754,8 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
 
     async def _poll(self, x_max, z_max=LIFE_HARD_MAX, *, stamp=None,
                     player_hp=BASE_MAX_HP, char=0, intro=1, mode=0x0A,
-                    **slot_data):
-        client = MMX5Client()
+                    life_ups=0, client=None, **slot_data):
+        client = client or MMX5Client()
         client.ap_patched = True
         client.stub_present = True
         ctx = FakeContext()
@@ -542,6 +763,7 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
         save = bytearray(make_save(x_max, intro=intro, stamp=stamp))
         save[OFF_MAX_HP_Z] = z_max
         save[OFF_CHAR] = char
+        save[OFF_LIFE_UPS] = life_ups
         return await run_watcher(bytes(save), client=client, ctx=ctx,
                                  mode=mode, player_hp=player_hp)
 
@@ -573,10 +795,22 @@ class TestTheEngineCanOverflowTheMaximum(unittest.IsolatedAsyncioTestCase):
                          [[LIFE_HARD_MAX, LIFE_HARD_MAX]])
 
     async def test_a_legal_maximum_is_never_written(self):
-        for legal in (BASE_MAX_HP, 64, LIFE_HARD_MAX):
+        # "Legal" now means at or below the LIFE UP RESERVE, not the
+        # hardware ceiling: 0x7F is reachable only once the engine has no
+        # ungranted Life Ups left to push it past itself, and a save still
+        # sitting there from before the reserve existed is brought down on
+        # purpose (see TestLifeUpReserve).
+        for legal in (BASE_MAX_HP, 64, LIFE_HARD_MAX
+                      - LIFE_ENGINE_STEP * LIFE_ENGINE_GRANTS):
             with self.subTest(max_hp=legal):
                 ctx = await self._poll(legal, z_max=legal)
                 self.assertEqual(self._life_writes(ctx), [])
+
+    async def test_the_hardware_ceiling_is_legal_once_every_life_up_landed(self):
+        # ...and then 0x7F is left alone, because nothing can add to it.
+        ctx = await self._poll(LIFE_HARD_MAX, z_max=LIFE_HARD_MAX,
+                               life_ups=0xFF)
+        self.assertEqual(self._life_writes(ctx), [])
 
     async def test_every_illegal_maximum_is_repaired_not_just_a_plausible_one(self):
         # 0.7.1 stopped at 0x7F + 32 - "eight Life Ups and eight Heart Tanks"

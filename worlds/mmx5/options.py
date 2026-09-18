@@ -457,6 +457,15 @@ class StartingHp(Range):
     Heart Tanks add on top (see `heart_tank_value`), as do the Life Up rewards
     Alia offers after a boss, and the total is capped at 127.
 
+    THE LAST 16 POINTS ARE HELD BACK until you have earned them. Alia's
+    eight Life Up rewards are worth 2 each, and the game hands them out
+    without checking the ceiling - a run already sitting at 127 when one
+    lands would push the maximum past what the game can read, which breaks
+    the life bar and freezes the player. So the client stops 2 short for
+    every Life Up you have not collected yet, and gives each one back as it
+    arrives. A 127 start therefore shows 111 on a new save and reaches 127
+    once all eight rewards are in. Nothing is lost - only deferred.
+
     APPLIED TO A NEW SAVE, once, when the client first adopts it. A save that
     is already part of this seed is left alone, so changing this mid-run does
     nothing until you start a new game.
@@ -479,7 +488,9 @@ class HeartTankValue(Range):
     not move.
 
     The total is capped at 127, the most the game can hold, so a large value
-    reaches the top sooner rather than going past it.
+    reaches the top sooner rather than going past it - and short of that
+    while Alia still owes you Life Up rewards, which the game grants without
+    checking the ceiling. See `starting_hp`.
 
     Above 2 you will pass 64 part-way through the run, and from there the bar
     draws longer than its own frame. See `starting_hp`: that is accepted, not

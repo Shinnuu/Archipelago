@@ -228,6 +228,32 @@ AMMO_SLOTS = 16
 PLAYER_HP_ADDR = PLAYER_BASE + OFF_P_HP
 PLAYER_HP_MASK = 0x7F
 
+# ---- DeathLink (verified by disassembly of SLUS_013.95, 2026-09-19) --------
+#
+# KILLING. X6's death check is X5's instruction for instruction, shifted
+# ~+0xA00:
+#     8003944C  lb    $v1, 0x5c($s0)
+#     80039450  addiu $v0, $zero, -0x80
+#     80039454  bne   $v1, $v0, ...     ; ONLY -0x80 falls through to death
+# which is exactly why mmx6-external-findings 12.3 saw writing 0 produce a
+# permanent soft-lock rather than a death: 0 fails that branch, the top-level
+# state never leaves 1, and +0x05 stays pinned at 0x11 Hurt forever. That
+# finding disproved 0; it never tested the sentinel. Write 0x80 and the engine
+# runs its own commit at 0x8003945C - HP = 0, death flag 0x800CCEEC = 1,
+# +0x04 = 2, +0x05 and +0x06 cleared.
+PLAYER_HP_DEATH_SENTINEL = 0x80
+#
+# DETECTING. Not the HP byte: the sentinel survives one frame (the damage tick
+# that reads it zeroes it in the same breath) and the poll is ~0.5s. +0x04 is
+# the TOP-LEVEL player state, dispatched at 0x80034F8C through jump table
+# 0x80073ABC, whose entry [1] is the normal per-frame tick and whose entry [2]
+# IS the death state machine - so it holds for the whole death animation.
+# The 0x11 -> 00 -> 01 -> 03 sequence in the research notes is +0x05, the
+# SUB-state re-dispatched by whichever top-level state is active.
+# Already inside the PLAYER_BASE read, so this costs no extra round trip.
+OFF_P_STATE = 0x04
+PLAYER_STATE_DEAD = 2
+
 # Live ammo max = weapon gauge x 6, MEASURED (15 slots at 300 against a gauge
 # of 50) and matching X5 exactly (288 = 48 x 6). But the live max is LATCHED AT
 # STAGE START and does not follow a mid-stage write, so an Energy Up granted
@@ -404,6 +430,74 @@ class MMX6Client(BizHawkClient):
         # have given up doing so. See ENDGAME_GATE_MAX_CORRECTIONS.
         self.endgame_gate_corrections = 0
         self.endgame_gate_conceded = False
+        # ---- DeathLink ----
+        # `sending_death_link` starts True, and that default is load-bearing:
+        # it means "a death is already accounted for, do not send". A client
+        # that attaches while the player is mid-death - or before the player
+        # block is initialised - must not fire on its first poll. It re-arms
+        # only when the player is observed NOT dead, which is the one thing
+        # that can honestly mean "the next death is a new one".
+        self.pending_death_link = False
+        self.sending_death_link = True
+
+    def on_package(self, ctx: "BizHawkClientContext", cmd: str, args: dict) -> None:
+        if cmd != "Bounced" or "DeathLink" not in args.get("tags", []):
+            return
+        # Our own bounce comes back to us. Core filters ITS on_deathlink
+        # dispatch by timestamp (CommonClient.py: last_death_link != time) but
+        # that does not cover this hook - core calls on_deathlink first, then
+        # forwards the raw packet here - so match on source. The
+        # sending_death_link latch is the second layer: even a bounce that
+        # slipped through cannot make the client re-send, because applying a
+        # kill sets the latch before the engine can show the death state.
+        if (args.get("data") or {}).get("source") == ctx.player_names.get(ctx.slot):
+            return
+        self.pending_death_link = True
+
+    async def _handle_death_link(self, ctx: "BizHawkClientContext", screen: int,
+                                 save: bytes, player: bytes) -> None:
+        """One death out per death, one death in per DeathLink.
+
+        Detection is `player +0x04 == 2`, the kill is the HP sentinel. See the
+        constants block for why it is neither the other way round nor the HP
+        byte for both.
+        """
+        # SCREEN_INGAME specifically, not TRUSTED_SCREENS: the Mission Report
+        # (0x0C) is trusted for checks but has no live player object, so +0x04
+        # means nothing there. An empty player block means the same.
+        if screen != SCREEN_INGAME or not player:
+            # DROPPED, not queued - X1-X3's rule, and deliberate. A kill that
+            # lands during a stage transition or a report screen is how a
+            # client desyncs. A dropped DeathLink costs the player nothing; a
+            # mistimed one can cost a session.
+            if self.pending_death_link:
+                self.pending_death_link = False
+                logger.info("MMX6: DeathLink arrived outside gameplay - "
+                            "dropped rather than held for the next stage")
+            return
+
+        dead = player[OFF_P_STATE] == PLAYER_STATE_DEAD
+
+        if self.pending_death_link:
+            self.pending_death_link = False
+            # Already dying: the DeathLink's intent is satisfied, and writing
+            # the sentinel mid-death would re-enter the commit block.
+            if not dead:
+                await bizhawk.write(ctx.bizhawk_ctx, [
+                    (PLAYER_HP_ADDR, [PLAYER_HP_DEATH_SENTINEL], "MainRAM")])
+                # Latch BEFORE the engine has had a frame to reach state 2, so
+                # the death we just caused cannot bounce straight back out.
+                self.sending_death_link = True
+                logger.info("MMX6: DeathLink received - killed the player")
+            return
+
+        if dead:
+            if not self.sending_death_link:
+                self.sending_death_link = True
+                who = "Zero" if save[OFF_CHAR] == CHAR_ZERO else "X"
+                await ctx.send_death(f"{who} was destroyed.")
+        else:
+            self.sending_death_link = False
 
     # ---- identification ----------------------------------------------------
 
@@ -1255,6 +1349,19 @@ class MMX6Client(BizHawkClient):
         trusted = on_trusted_screen and stable and self.last_poll_trusted
         self.last_check_sig = signature
         self.last_poll_trusted = on_trusted_screen
+
+        # ---- DeathLink --------------------------------------------------------
+        # Outside every grant/check gate below, on purpose: DeathLink depends
+        # only on there being a live player, not on the disc being AP-patched
+        # or the save being trusted. Keyed on the TAG rather than a local
+        # "have I registered" flag so a reconnect that rebuilt the tag set
+        # re-registers us automatically instead of going silently dead.
+        if (ctx.slot_data or {}).get("death_link"):
+            if "DeathLink" not in ctx.tags:
+                await ctx.update_death_link(True)
+            await self._handle_death_link(ctx, screen, save, player)
+        elif self.pending_death_link:
+            self.pending_death_link = False
 
         # ---- goal ------------------------------------------------------------
         # BEFORE the trust gate, deliberately. The ending screen is neither

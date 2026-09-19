@@ -1,6 +1,6 @@
 # Mega Man X5 apworld changelog
 
-## 0.7.4 — unreleased
+## 0.7.4 — 2026-09-19
 
 **No re-patch.** Client-side only.
 
@@ -13,7 +13,7 @@ A DeathLink that arrives while you are not actually in a stage is discarded
 rather than saved for later, so one can never land on you during a loading
 screen, a results screen or the stage select.
 
-## 0.7.3 — unreleased
+## 0.7.3 — 2026-09-18
 
 **No re-patch.** Client-side only — update the apworld and carry on with the
 disc you have.

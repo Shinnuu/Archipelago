@@ -1,7 +1,7 @@
 # Mega Man X6 apworld — changelog
 
 
-## 0.4.1 — unreleased
+## 0.4.1 — 2026-09-19
 
 **No re-patch.** Client-side only.
 

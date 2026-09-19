@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from Options import (Choice, DefaultOnToggle, PerGameCommonOptions, Range,
-                     StartInventoryPool, Toggle)
+from Options import (Choice, DeathLink, DefaultOnToggle, PerGameCommonOptions,
+                     Range, StartInventoryPool, Toggle)
 
 from . import palettes
 
@@ -668,6 +668,7 @@ RANDOMIZED_OPTIONS = (
 @dataclass
 class MMX5Options(PerGameCommonOptions):
     start_inventory_from_pool: StartInventoryPool
+    death_link: DeathLink
     exit_stage_anytime: ExitStageAnytime
     water_stage_speed: WaterStageSpeed
     randomize_options: RandomizeOptions

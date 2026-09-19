@@ -535,6 +535,7 @@ class MMX5World(World):
 
     def fill_slot_data(self) -> dict[str, Any]:
         return {
+            "death_link": self.options.death_link.value,
             "goal": self.options.goal.value,
             "boss_difficulty": self.options.boss_difficulty.value,
             "launch_odds": self.options.launch_odds.value,

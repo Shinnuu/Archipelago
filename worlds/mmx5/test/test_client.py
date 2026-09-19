@@ -6,6 +6,7 @@ written to FAIL against v0.1.0 and pass after the fixes.
 import hashlib
 import json
 import logging
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -40,9 +41,26 @@ class FakeContext:
         # moving underneath it, so "did this batch guard on X" is a real
         # assertion, not plumbing.
         self.write_guards = []
+        # ---- DeathLink surface ----
+        # The client calls these on ctx directly; CommonContext provides
+        # them in the real thing.
+        self.player_names = {1: 'Player1'}
+        self.tags = set()
+        self.last_death_link = 0.0
+        self.deaths_sent = []
 
     async def send_msgs(self, msgs) -> None:
         self.sent_msgs.extend(msgs)
+
+    async def update_death_link(self, enabled: bool) -> None:
+        if enabled:
+            self.tags.add('DeathLink')
+        else:
+            self.tags.discard('DeathLink')
+
+    async def send_death(self, death_text: str = '') -> None:
+        self.last_death_link = time.time()
+        self.deaths_sent.append(death_text)
 
     def tank_writes(self):
         """Values written to the tank-ownership byte, in order."""
@@ -175,6 +193,8 @@ async def run_watcher(save: bytes, mode: int = 0x0A, stage_id: int = 0,
                       rush_table: int | None = None,
                       rush_fp: bytes | None = None,
                       player_hp: int = 0x20,
+                      player_state: int = 1,
+                      player_sub_state: int = 0x02,
                       player_x: int = 0,
                       player_y: int = 0,
                       hub_screen: int = mmx5_client.STAGE_SELECT_SCREEN,
@@ -287,7 +307,11 @@ async def run_watcher(save: bytes, mode: int = 0x0A, stage_id: int = 0,
                     bytes([player_hp]),
                     # player x/y block (0x09A0AA..): x s16 at +0, y at +4
                     (player_x.to_bytes(2, "little", signed=True) + b"\x00\x00"
-                     + player_y.to_bytes(2, "little", signed=True) + b"\x00\x00")]
+                     + player_y.to_bytes(2, "little", signed=True) + b"\x00\x00"),
+                    # player +0x04/+0x05: top-level state then sub-state.
+                    # Default 1 = the normal alive tick, so every test
+                    # written before DeathLink models a living player.
+                    bytes([player_state, player_sub_state])]
         return [PROBE_REPLY.get(r[0], b"\x00\x00\x00\x00") for r in requests]
 
     async def fake_write(_ctx, writes, *args, **_kwargs):

@@ -1,5 +1,18 @@
 # Mega Man X5 apworld changelog
 
+## 0.7.4 — unreleased
+
+**No re-patch.** Client-side only.
+
+**Added: DeathLink.** Turn on `death_link` in your YAML and your deaths are
+shared with everyone else in the multiworld who has it on. Every way of dying
+counts — running out of health, spikes, being crushed, the Zero Virus, and
+falling down a pit.
+
+A DeathLink that arrives while you are not actually in a stage is discarded
+rather than saved for later, so one can never land on you during a loading
+screen, a results screen or the stage select.
+
 ## 0.7.3 — unreleased
 
 **No re-patch.** Client-side only — update the apworld and carry on with the

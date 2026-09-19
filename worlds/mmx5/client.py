@@ -83,6 +83,7 @@ OFF_PROCESSED = 0x0D1C4E - SAVE_BASE
 OFF_STAMP = 0x0D1C50 - SAVE_BASE
 OFF_INTRO = 0x0D1C79 - SAVE_BASE
 OFF_CHAR = 0x0D1C44 - SAVE_BASE         # 0 = X, 1 = Zero
+CHAR_NAMES = ("X", "Zero")              # indexed by the byte above
 # SUB-TANK FILL BYTES - Sub-Tank 1 at 0x1C76, Sub-Tank 2 at 0x1C77.
 #
 # These were taken for per-character queued-refill counters (X / Zero) until
@@ -500,6 +501,33 @@ RUSH_FP_TO_STAGE = {
 # documented stale value.
 RUSH_MIN_PEAK = 24
 PLAYER_HP_ADDR = 0x09A0FC       # live player HP; bit7 = just-damaged flag
+
+# ---- DeathLink (all four addresses/values verified by disassembly off the
+# disc 2026-09-19; full route enumeration in mmx5-ghidra-findings.md 4.1) ----
+#
+# KILLING. The engine's death check is `lb $v1,0x5c($s0)` / `bne $v1,-0x80`
+# at 0x80038A88, so 0x80 is the ONLY value that triggers a death. Writing 0
+# does not kill - it strands the player alive at zero HP and the damage
+# handler re-runs against it every frame, which is the "hit-loop" the old
+# ram-notes warning described. 0x80 is exactly what the engine's own pit kill
+# writes, hardcoded, at 0x800292CC, so this is the game's own route in.
+#
+# Preferred over writing PLAYER_STATE_ADDR = 2 directly: the sentinel lets the
+# engine run its own commit (zero HP, set the death flag, clear virus state
+# and the spike-immunity flag). A direct state write skips all of that.
+PLAYER_HP_DEATH_SENTINEL = 0x80
+#
+# DETECTING. NOT the HP byte: the sentinel survives at most one frame (the
+# damage tick that reads it zeroes it in the same breath), and watcher_timeout
+# is ~0.5s, so a poll would essentially never see it. +0x04 is the TOP-LEVEL
+# player state - dispatched at 0x80035274 through jump table 0x800745E0, whose
+# entry [1] is the normal per-frame tick and whose entry [2] IS the death state
+# machine. So state 2 does not merely correlate with death; it is the thing
+# that executes it, and it holds for the whole explosion/fade/respawn.
+# +0x05 (read here for logging only) is the SUB-state within it.
+PLAYER_STATE_ADDR = 0x09A0A4    # +0x04 top-level state, +0x05 sub-state
+PLAYER_STATE_LEN = 2
+PLAYER_STATE_DEAD = 2
 
 # ---- Reploid rescue checks (live session 2026-08-08) -----------------------
 # A rescue's only footprint is lives (0x0D1C45) += 1, clamped to 9 - no
@@ -985,6 +1013,15 @@ class MMX5Client(BizHawkClient):
         self.armor_setflags_pin = None
         self.armor_withheld = 0         # armor bit this client cleared, to put back
         self.banner_logged = False
+        # ---- DeathLink ----
+        # `sending_death_link` starts True, and that default is load-bearing:
+        # it means "a death is already accounted for, do not send". A client
+        # that attaches while the player is mid-death - or before the player
+        # block is initialised - must not fire on its first poll. It re-arms
+        # the moment the player is observed NOT dead, which is the only thing
+        # that can honestly mean "the next death is a new one".
+        self.pending_death_link = False
+        self.sending_death_link = True
         self.tanks_withheld = 0         # bits held back this stage visit
         # Stage unlocks: last slot table we wrote, and the set of stages we
         # have announced as unlocked.
@@ -1038,6 +1075,70 @@ class MMX5Client(BizHawkClient):
         self.items_processed = 0
         self.hearts_applied = 0
         return True
+
+    def on_package(self, ctx: "BizHawkClientContext", cmd: str, args: dict) -> None:
+        if cmd != "Bounced" or "DeathLink" not in args.get("tags", []):
+            return
+        # Our own bounce comes back to us. Core filters ITS on_deathlink
+        # dispatch by timestamp (CommonClient.py: last_death_link != time),
+        # but that filter does not cover this hook - core calls on_deathlink
+        # first and then forwards the raw packet here - so match on source,
+        # the way mm3 does. The sending_death_link latch is the second layer:
+        # even a bounce that slipped through cannot make the client re-send,
+        # because applying a kill sets the latch before the engine can show
+        # the death state.
+        if (args.get("data") or {}).get("source") == ctx.player_names.get(ctx.slot):
+            return
+        self.pending_death_link = True
+
+    async def _handle_death_link(self, ctx: "BizHawkClientContext", mode: bytes,
+                                 save: bytes, save_sane: bool,
+                                 player_state: bytes) -> None:
+        """One death out per death, one death in per DeathLink.
+
+        Detection is `player +0x04 == 2` and the kill is the HP sentinel; see
+        the constants block for why it is neither the other way round nor the
+        HP byte for both.
+        """
+        # 0x0C (results) is "in gameplay" for the save-struct gate but has no
+        # live player object, so DeathLink wants 0x0A specifically. save_sane
+        # keeps it out of training mode and off a non-resident save.
+        if mode[0] != GAMEPLAY_MODE or not save_sane:
+            # DROPPED, not queued - this follows X1-X3 and it is deliberate.
+            # A kill that lands during a stage transition, a results screen or
+            # mid-grant is how a client desyncs. A dropped DeathLink costs the
+            # player nothing; a mistimed one can cost a session.
+            if self.pending_death_link:
+                self.pending_death_link = False
+                logger.info("MMX5: DeathLink arrived outside gameplay - "
+                            "dropped rather than held for the next stage")
+            return
+
+        dead = player_state[0] == PLAYER_STATE_DEAD
+
+        if self.pending_death_link:
+            self.pending_death_link = False
+            # Already dying: the DeathLink's intent is satisfied, and writing
+            # the sentinel mid-death would re-enter the commit block.
+            if not dead:
+                await bizhawk.write(ctx.bizhawk_ctx, [
+                    (PLAYER_HP_ADDR, [PLAYER_HP_DEATH_SENTINEL], "MainRAM")])
+                # Latch BEFORE the engine has had a frame to reach state 2, so
+                # the death we just caused cannot bounce straight back out.
+                self.sending_death_link = True
+                logger.info("MMX5: DeathLink received - killed the player")
+            return
+
+        if dead:
+            if not self.sending_death_link:
+                self.sending_death_link = True
+                who = CHAR_NAMES[1 if save[OFF_CHAR] else 0]
+                await ctx.send_death(f"{who} was destroyed.")
+        else:
+            # The only honest place to re-arm: the player is demonstrably
+            # alive, so the next state 2 is a new death and not the tail of
+            # the one already sent.
+            self.sending_death_link = False
 
     @staticmethod
     def _classify_probe(probe: bytes):
@@ -1630,7 +1731,8 @@ class MMX5Client(BizHawkClient):
             # engine's stage id at +0x0C (below SAVE_BASE, so it is not in the
             # save block). The tank protection needs to know which stage the
             # player is standing in.
-            mode, save, ring, ring2, rush_obj, rush_fp, player_hp, player_xy = \
+            mode, save, ring, ring2, rush_obj, rush_fp, player_hp, player_xy, \
+                player_state = \
                 await bizhawk.read(ctx.bizhawk_ctx, [
                     (0x0D1C00, 0x10, "MainRAM"),  # game-mode controller: 0x0A gameplay / 0x0C results
                     (SAVE_BASE, SAVE_LEN, "MainRAM"),
@@ -1641,6 +1743,8 @@ class MMX5Client(BizHawkClient):
                     (RUSH_FP_ADDR, RUSH_FP_LEN, "MainRAM"),  # boss-module fingerprint
                     (PLAYER_HP_ADDR, 1, "MainRAM"),       # player HP (rush kill gate)
                     (PLAYER_XY_ADDR, 8, "MainRAM"),       # player x/y (reploid watcher)
+                    (PLAYER_STATE_ADDR, PLAYER_STATE_LEN,
+                     "MainRAM"),                          # +0x04/+0x05 (DeathLink)
                 ])
             # NOT `stage_id`: the mailbox-ring loop below unpacks each record
             # into a local of that name, which would clobber this before the
@@ -1920,6 +2024,27 @@ class MMX5Client(BizHawkClient):
                 # A reload also restores the disc's own (all-zero) CHECKED
                 # TABLE, so what we think we wrote there is gone too.
                 self.checked_table_written = None
+
+            # ---- DeathLink ------------------------------------------------
+            # Deliberately outside every grant/check gate below: DeathLink is
+            # independent of whether the disc is AP-patched, whether the save
+            # is trusted for checks, or whether anything is pending. It needs
+            # only a live player, which is what _handle_death_link tests.
+            if (ctx.slot_data or {}).get("death_link"):
+                # Keyed on the TAG, not on a client-side "have I done this"
+                # flag. update_death_link is a no-op once the tag is present
+                # (it only sends a ConnectUpdate when the set changes), and
+                # testing the real thing means a reconnect that rebuilt the
+                # tag set re-registers us automatically. A local flag would
+                # instead make DeathLink stop working silently.
+                if "DeathLink" not in ctx.tags:
+                    await ctx.update_death_link(True)
+                await self._handle_death_link(ctx, mode, save, save_sane,
+                                              player_state)
+            elif self.pending_death_link:
+                # Tag off but a bounce arrived anyway (a stale ConnectUpdate,
+                # or the option flipped between sessions). Discard it.
+                self.pending_death_link = False
 
             # Resolve the probes whenever unresolved - NOT just in-stage.
             # Launches happen at the HUB (modes 0x13-0x15); the old
@@ -3185,10 +3310,29 @@ class MMX5Client(BizHawkClient):
             # Sigma victory detection now lives at the top of this method
             # (ending modes 0x10/0x11) - it must run outside the save-struct
             # gate, which is False during the credits.
-            # TODO: DeathLink via damage/death flag 0x800D1C1C - CAUTION, that
-            # byte went 00 -> 01 across BOTH the X-vs-Zero duel and the Sigma
-            # fight, so it is not obviously "player died"; disambiguate before
-            # wiring it up.
+            # TODO: DeathLink. The old caution here - that 0x800D1C1C moved
+            # 00 -> 01 across both the X-vs-Zero duel and the Sigma fight, so
+            # it might not mean "player died" - is RESOLVED (disassembly
+            # 2026-09-19, ghidra-findings 4.1): it does mean exactly that. The
+            # death commit at 0x80038C08 sets it, as do both lethal-damage
+            # paths. It moved in those dumps because the player died in those
+            # fights. But it is a LATCH, not an edge - nothing clears it on the
+            # death path - so it is the wrong signal to poll.
+            #
+            # Use instead:
+            #   kill    write 0x80 to PLAYER_HP_ADDR. 0x80 is the engine's own
+            #           death sentinel and the only value the check accepts
+            #           (0x80038A88: lb; bne -0x80). It is literally what the
+            #           pit kill writes, hardcoded, at 0x800292CC. Writing 0
+            #           does nothing but strand the player at zero HP.
+            #   detect  player +0x04 (0x8009A0A4) == 2. That is the top-level
+            #           state selector; table 0x800745E0 entry [2] IS the death
+            #           state machine, so it holds for the whole animation.
+            #           The sentinel itself survives one frame and is invisible
+            #           to a 0.5s poll.
+            # Design, incl. why X4's lives-based amnesty must NOT be copied
+            # (it forges the Reploid watcher's signal):
+            # ai-docs/plans/2026-09-19_deathlink-x5-x6.md
 
         except bizhawk.RequestFailedError:
             pass

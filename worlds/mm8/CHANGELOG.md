@@ -21,6 +21,10 @@ game client yet, so a seed produces no patch file.
 - The Lab is repriced to 40 bolts in all (was 89), the game's own bolt count:
   each vanilla price scaled by 40/89 and rounded, 2 or 3 bolts a part. The
   first disc edits - 17 bytes of the EXE's shop table at 0x801505F0.
+- Full-Lab guard: with every part 2-3 bolts a ninth purchase became
+  possible, and vanilla stores it to address 0 when all eight slots are full.
+  One instruction (0x8011EF1C) now answers "You already have the part"
+  instead, until the shop patch takes purchases off the equip path.
 - Capacity is checked in `generate_early`.
 - A seed writes an `.apmm8`. Patching builds ONE merged `.bin` (patched Track 1
   + Tracks 2 and 3, found beside Track 1 by size and md5) and a single-FILE

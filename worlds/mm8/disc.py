@@ -359,10 +359,25 @@ def lab_text_edits(track1: bytes, entries: dict[int, tuple[str, str | None, str 
     ]
 
 
+# ---- The full-Lab guard --------------------------------------------------------
+# The free-slot search 0x8011EED8 returns a slot pointer, -1 if the part is
+# already held, or 0 when all eight slots are full. The selection check
+# (0x8011E844) only screens out -1, so with the slots full the purchase at
+# 0x8011EBDC stores the part id to ADDRESS 0. Vanilla can never get there -
+# 40 bolts do not buy nine parts at vanilla prices - but the repriced Lab can.
+# Returning -1 for "full" routes it to "You already have the part" instead.
+# Its only callers are those two (checked 2026-09-24). An interim guard: the
+# shop patch (v1-design P5) takes purchases off the equip path entirely.
+LAB_FULL_RETURN = 0x8011EF1C
+LAB_FULL_GUARD = ("Lab full-slots guard", LAB_FULL_RETURN, REGION_EXE,
+                  (0x00001021).to_bytes(4, "little"),     # addu  v0, zero, zero
+                  (0x2402FFFF).to_bytes(4, "little"))     # addiu v0, zero, -1
+
+
 # ---- Edits -------------------------------------------------------------------
 # (label, where, region, expected vanilla, payload). Grows as the patch design
 # lands (v1-design section 5); every edit goes through apply_edits.
-BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = price_edits(LAB_PRICE)
+BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = price_edits(LAB_PRICE) + [LAB_FULL_GUARD]
 
 
 def apply_edits(track1: bytes, edits: Iterable[tuple[str, int, str, bytes, bytes]]) -> bytes:

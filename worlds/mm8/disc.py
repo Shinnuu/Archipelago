@@ -177,6 +177,188 @@ def price_edits(prices: dict[int, int]) -> list[tuple[str, int, str, bytes, byte
     return edits
 
 
+# ---- The Lab's text: each entry names the AP item it holds -------------------
+# LABO.PAC chunk 0x12 at pack offset 0xF000: 25 u16 offsets (relative to the
+# chunk), then the strings - 8 of Dr. Light's lines, then the 17 part
+# descriptions in part-id order. The game lays text into a 20x10 grid: 0x00
+# ends a row, a row also ends at 20 characters, and the box always takes 10
+# rows, reading on into whatever follows. The chunk is declared 0x650 bytes and
+# padded to 0x800 on disc, so a rebuilt chunk may grow to 0x800 without moving
+# any other chunk; its size field is the u32 at pack offset 0x5C (entry 10 of
+# the PAC header). ram-notes 4a.
+LAB_TEXT_OFFSET = 0xF000
+LAB_TEXT_ROOM = 0x800
+LAB_TEXT_SIZE_FIELD = 0x5C
+LAB_TEXT_VANILLA_SIZE = 0x650
+LAB_STRINGS = 25
+LAB_FIRST_DESCRIPTION = 8
+LAB_COLUMNS = 19          # the originals never use the 20th; a full row would
+LAB_LINES = 6             # swallow its own 0x00 as a blank row
+LAB_ROWS = 10
+
+# The small font (char - 0x41, 32 per row). Everything a Lab line can show.
+LAB_CHARSET: dict[str, int] = {
+    **{chr(c): c for c in range(ord("A"), ord("Z") + 1)},
+    **{chr(c): c for c in range(ord("a"), ord("z") + 1)},
+    **{str(d): 0x81 + d for d in range(5)},
+    **{str(d): 0xA1 + d - 5 for d in range(5, 10)},
+    "?": 0x5E, "!": 0x5F, ",": 0x60, "+": 0x7C, "-": 0x7D, " ": 0x7E,
+    ".": 0x7F, "'": 0x86, "(": 0x89, ")": 0x8A, "“": 0x5C, "”": 0x5D,
+}
+# What the font lacks, onto the nearest thing it has.
+_LAB_SUBSTITUTES = {
+    ":": "-", ";": ",", "/": "-", "\\": "-", "|": "-", "_": " ", "=": "-",
+    "&": "+", "[": "(", "{": "(", "<": "(", "]": ")", "}": ")", ">": ")",
+    "’": "'", "‘": "'", "`": "'", "´": "'",
+    "\"": "“", "–": "-", "—": "-", "…": "...",
+}
+
+
+def lab_sanitize(text: str) -> str:
+    """Anything onto the Lab font: accents stripped, near-equivalents
+    substituted, the rest dropped, runs of spaces collapsed."""
+    import unicodedata
+    out = []
+    for ch in unicodedata.normalize("NFKD", text):
+        if unicodedata.combining(ch):
+            continue
+        ch = _LAB_SUBSTITUTES.get(ch, ch)
+        out.append("".join(c for c in ch if c in LAB_CHARSET))
+    return " ".join("".join(out).split())
+
+
+def lab_wrap(text: str, width: int = LAB_COLUMNS) -> list[str]:
+    """Word-wrap onto `width` columns, splitting a word only if it is longer
+    than a whole line."""
+    lines: list[str] = []
+    line = ""
+    for word in lab_sanitize(text).split(" "):
+        while len(word) > width:
+            if line:
+                lines.append(line)
+                line = ""
+            lines.append(word[:width])
+            word = word[width:]
+        if not word:
+            continue
+        if line and len(line) + 1 + len(word) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _cut(lines: list[str], n: int) -> list[str]:
+    """At most `n` lines, the last marked "..." when anything was cut."""
+    if len(lines) <= n:
+        return lines
+    lines = lines[:n]
+    lines[-1] = lines[-1][:LAB_COLUMNS - 3].rstrip() + "..."
+    return lines
+
+
+def lab_description(item: str, owner: str | None = None, game: str | None = None,
+                    brevity: int = 0) -> list[str]:
+    """The lines a Lab entry shows for the item it holds: the item alone when
+    it is the player's own, else whose it is, the item, and the game.
+
+    `brevity` trades detail for room: 0 as much as six lines allow, 1 no game,
+    2 the item on at most two lines, 3 one line each for owner and item."""
+    item_lines = lab_wrap(item) or ["Nothing"]
+    if owner is None:
+        return _cut(item_lines, (LAB_LINES, LAB_LINES, 2, 1)[brevity])
+    head = lab_wrap(f"{owner}'s") or ["Someone's"]
+    if brevity >= 3:
+        return _cut(head, 1) + _cut(item_lines, 1)
+    if brevity >= 2:
+        item_lines = _cut(item_lines, 2)
+    tail = lab_wrap(f"({game})") if game and brevity == 0 else []
+    if len(head + item_lines + tail) > LAB_LINES:
+        tail = []
+    return _cut(head + item_lines, LAB_LINES - len(tail)) + tail
+
+
+def lab_fit(entries: dict[int, tuple[str, str | None, str | None]],
+            vanilla_chunk: bytes) -> dict[int, list[str]]:
+    """Descriptions for `entries` ({part id: (item, owner or None, game)}) at
+    the most detail that still fits the chunk - every entry shortened
+    together, so the Lab reads consistently."""
+    for brevity in range(4):
+        lines = {p: lab_description(*e, brevity=brevity) for p, e in entries.items()}
+        try:
+            lab_text_chunk(vanilla_chunk, lines)
+            return lines
+        except ValueError:
+            continue
+    raise ValueError("Lab text cannot fit even at its shortest")
+
+
+def _lab_string(lines: list[str]) -> bytes:
+    """One description as the game reads it: a blank row or two to sit it in
+    the box the way the originals do, a row per line, then blank rows to make
+    ten, so it never runs on into the next string."""
+    if not 1 <= len(lines) <= LAB_LINES:
+        raise ValueError(f"a Lab description takes 1-{LAB_LINES} lines, got {len(lines)}")
+    lead = 1 if len(lines) == LAB_LINES else 2
+    out = b"\x00" * lead
+    for line in lines:
+        if len(line) > LAB_COLUMNS:
+            raise ValueError(f"Lab line longer than {LAB_COLUMNS}: {line!r}")
+        out += bytes(LAB_CHARSET[c] for c in line) + b"\x00"
+    return out + b"\x00" * (LAB_ROWS - lead - len(lines))
+
+
+def lab_text_chunk(vanilla_chunk: bytes, descriptions: dict[int, list[str]]) -> bytes:
+    """The rebuilt text chunk: Dr. Light's eight lines byte for byte, then a
+    new description for every part id in `descriptions` (the rest keep their
+    vanilla text). Refuses rather than overflow the chunk's 0x800 bytes."""
+    import struct
+    offsets = list(struct.unpack_from(f"<{LAB_STRINGS}H", vanilla_chunk, 0))
+    strings: list[bytes] = []
+    for i in range(LAB_STRINGS):
+        end = offsets[i + 1] if i + 1 < LAB_STRINGS else len(vanilla_chunk)
+        strings.append(vanilla_chunk[offsets[i]:end])
+    for part, lines in descriptions.items():
+        strings[LAB_FIRST_DESCRIPTION + part - 1] = _lab_string(lines)
+    body = bytearray(2 * LAB_STRINGS)
+    for i, s in enumerate(strings):
+        struct.pack_into("<H", body, 2 * i, len(body))
+        body += s
+    if len(body) > LAB_TEXT_ROOM:
+        raise ValueError(f"Lab text is {len(body)} bytes; the chunk holds {LAB_TEXT_ROOM}")
+    return bytes(body)
+
+
+def lab_vanilla_chunk(track1: bytes) -> bytes:
+    """The vanilla text chunk, read out of Track 1."""
+    return bytes(track1[addr_to_disc(LAB_TEXT_OFFSET + i, "pack:LABO.PAC")]
+                 for i in range(LAB_TEXT_VANILLA_SIZE))
+
+
+def lab_text_edits(track1: bytes, entries: dict[int, tuple[str, str | None, str | None]]) -> list[tuple[str, int, str, bytes, bytes]]:
+    """Edits writing the rebuilt text chunk and its size into LABO.PAC, for
+    `entries` ({part id: (item, owner or None, game)}). The vanilla bytes are
+    read from `track1`, whose md5 is checked before any patch runs;
+    everything past the new chunk up to 0x800 is zeroed."""
+    def read(where: int, n: int) -> bytes:
+        return bytes(track1[addr_to_disc(where + i, "pack:LABO.PAC")] for i in range(n))
+    vanilla = read(LAB_TEXT_OFFSET, LAB_TEXT_ROOM)
+    descriptions = lab_fit(entries, vanilla[:LAB_TEXT_VANILLA_SIZE])
+    chunk = lab_text_chunk(vanilla[:LAB_TEXT_VANILLA_SIZE], descriptions)
+    payload = chunk + bytes(LAB_TEXT_ROOM - len(chunk))
+    size_vanilla = read(LAB_TEXT_SIZE_FIELD, 4)
+    if int.from_bytes(size_vanilla, "little") != LAB_TEXT_VANILLA_SIZE:
+        raise ValueError("LABO.PAC's text chunk is not where it should be")
+    return [
+        ("Lab text", LAB_TEXT_OFFSET, "pack:LABO.PAC", vanilla, payload),
+        ("Lab text size", LAB_TEXT_SIZE_FIELD, "pack:LABO.PAC", size_vanilla,
+         len(chunk).to_bytes(4, "little")),
+    ]
+
+
 # ---- Edits -------------------------------------------------------------------
 # (label, where, region, expected vanilla, payload). Grows as the patch design
 # lands (v1-design section 5); every edit goes through apply_edits.

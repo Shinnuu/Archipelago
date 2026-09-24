@@ -1,8 +1,8 @@
 # Mega Man 8 Setup Guide
 
-> **Not playable yet.** The disc patch and the game client are not written, so
-> there is nothing to install and nothing to connect. This page exists so the
-> world passes Archipelago's documentation checks and so the eventual
+> **Not playable yet.** A seed's `.apmm8` builds a patched disc, but the game
+> client is not written, so there is nothing to connect. This page exists so
+> the world passes Archipelago's documentation checks and so the eventual
 > instructions have a home.
 
 ## What will be required
@@ -20,5 +20,7 @@
 ## Generating a seed today
 
 Generation works. Add `Mega Man 8` to your YAML with the options described on
-the game info page and generate as normal. The seed contains no patch file, so
-treat the result as a logic test rather than something to play.
+the game info page and generate as normal. Your `.apmm8` builds a disc from
+Track 1 of your dump - set `mm8_options: rom_file` in `host.yaml` to the
+`(Track 1).bin`, with Tracks 2 and 3 beside it. The result is ONE `.bin` and a
+`.cue`; load the `.cue` in BizHawk.

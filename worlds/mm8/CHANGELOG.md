@@ -22,3 +22,13 @@ game client yet, so a seed produces no patch file.
   each vanilla price scaled by 40/89 and rounded, 2 or 3 bolts a part. The
   first disc edits - 17 bytes of the EXE's shop table at 0x801505F0.
 - Capacity is checked in `generate_early`.
+- A seed writes an `.apmm8`. Patching builds ONE merged `.bin` (patched Track 1
+  + Tracks 2 and 3, found beside Track 1 by size and md5) and a single-FILE
+  `.cue` that reproduces the Redump TOC exactly - BizHawk hashes it the same as
+  the original set. The .bin is assembled under a temporary name, so an
+  interrupted patch never leaves a half-disc behind.
+- The Lab's text names each entry's item: just the item when it is yours,
+  else whose it is, the item and the game. Mapped onto the game's own font
+  (letters, digits, `? ! , . - + ' ( )`), wrapped to its 19-column, six-line
+  box, and shortened together when a seed's names are too long for the
+  text chunk's 2 KB.

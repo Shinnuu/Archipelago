@@ -1,7 +1,9 @@
 # Mega Man 8
 
-> **Not playable yet.** Generation and logic work; the disc patch and the game
-> client do not exist yet, so a seed produces no patch file.
+> **Not playable yet.** Generation works and a seed produces a patch file that
+> builds the disc - with the repriced Lab and each Lab entry naming what it
+> holds - but there is no game client yet, and the patches that hand weapons,
+> bolts and the rest to Archipelago are still being written.
 
 ## What does randomization do to this game?
 

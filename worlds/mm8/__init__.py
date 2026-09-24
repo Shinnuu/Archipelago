@@ -1,9 +1,10 @@
 """Archipelago world for Mega Man 8 (PS1, NTSC-U, SLUS-00453).
 
-Scaffold stage: generation and reachability rules only. The disc patch and the
-BizHawkClient are not written yet, so a generated seed has no patch output and
-cannot be played - `generate_output` is deliberately absent rather than
-half-implemented, the way the X6 world was built. Research notes live in the
+Generation, logic and the disc patch file. A seed writes an .apmm8 that
+builds a merged three-track disc with the repriced Lab and each Lab entry's
+text naming the item it holds. Not yet playable as a multiworld: there is no
+BizHawkClient, and the patches that hand every reward to Archipelago (A1 and
+the rest, v1-design section 5) are not written. Research notes live in the
 private `mm8-ap-research` repo; the design is
 `ai-docs/plans/2026-09-24_mm8-v1-design.md` there.
 
@@ -11,7 +12,7 @@ The shape follows the Mega Man X5 and X6 worlds, which share this game's
 platform, client architecture and most of its problems.
 """
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from BaseClasses import Region, Tutorial
 from Options import OptionError
@@ -21,6 +22,7 @@ from . import bolts, names
 from .items import MM8Item, event_table, item_groups, item_table
 from .locations import MM8Location, location_groups, location_table
 from .options import MM8Options
+from .Rom import MM8Settings, write_patch
 
 # What the Lab asks for before logic expects a player to shop. Bolts are not
 # renewable - the pool is the only source - so a "the k-th purchase needs the
@@ -60,6 +62,9 @@ class MM8World(World):
 
     options_dataclass = MM8Options
     options: MM8Options
+
+    settings: ClassVar[MM8Settings]
+    settings_key = "mm8_options"
 
     item_name_to_id = {name: data.code for name, data in item_table.items()
                        if data.code is not None}
@@ -220,6 +225,9 @@ class MM8World(World):
         else:
             self.multiworld.completion_condition[player] = \
                 lambda state: state.has(names.VICTORY, player)
+
+    def generate_output(self, output_directory: str) -> None:
+        write_patch(self, output_directory)
 
     def get_filler_item_name(self) -> str:
         filler, weights = zip(*names.FILLER_WEIGHTS)

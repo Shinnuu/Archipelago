@@ -51,22 +51,22 @@ class TestLab(MM8TestBase):
     options = {"bolt_bundle_size": 5, "bolt_surplus": 40}
 
     def test_bundle_count(self):
-        # 89 * 1.4 = 124.6 -> 25 bundles of 5
-        self.assertEqual(len(self.get_items_by_name(names.BOLTS)), 25)
+        # 40 * 1.4 = 56 -> 12 bundles of 5
+        self.assertEqual(len(self.get_items_by_name(names.BOLTS)), 12)
 
-    def test_start_stock_needs_47(self):
+    def test_start_stock_needs_21(self):
         entry = names.shop_location(names.EXIT)
         bundles = self.get_items_by_name(names.BOLTS)
-        need = -(-START_STOCK_COST // 5)                       # 10 bundles
+        need = -(-START_STOCK_COST // 5)                       # 5 bundles
         self.collect(bundles[:need - 1])
         self.assertFalse(self.can_reach_location(entry))
         self.collect(bundles[need - 1])
         self.assertTrue(self.can_reach_location(entry))
 
-    def test_post_duo_stock_needs_duo_and_89(self):
+    def test_post_duo_stock_needs_duo_and_40(self):
         entry = names.shop_location(names.HYPER_SLIDER)
         bundles = self.get_items_by_name(names.BOLTS)
-        need = -(-FULL_STOCK_COST // 5)                        # 18 bundles
+        need = -(-FULL_STOCK_COST // 5)                        # 8 bundles
         self.collect(bundles[:need])
         self.assertFalse(self.can_reach_location(entry))       # no Duo yet
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
@@ -114,17 +114,17 @@ class TestRobotMastersGoal(MM8TestBase):
 
 class TestCapacity(MM8TestBase):
     def test_overfull_pool_is_refused(self):
-        """89 one-bolt bundles + 30 fixed items cannot fit 74 locations. The
+        """80 one-bolt bundles + 30 fixed items cannot fit 74 locations. The
         world must refuse in generate_early, naming a fix, rather than let
         Archipelago drop items silently."""
         world = self.multiworld.worlds[self.player]
         size, surplus = world.options.bolt_bundle_size.value, world.options.bolt_surplus.value
         world.options.bolt_bundle_size.value = 1
-        world.options.bolt_surplus.value = 0
+        world.options.bolt_surplus.value = 100
         try:
             with self.assertRaises(OptionError) as caught:
                 world.generate_early()
-            self.assertIn("89 bolt bundles", str(caught.exception))
+            self.assertIn("80 bolt bundles", str(caught.exception))
             self.assertIn("room for 44", str(caught.exception))
             self.assertIn("bolt_bundle_size", str(caught.exception))
         finally:
@@ -134,7 +134,7 @@ class TestCapacity(MM8TestBase):
     def test_largest_surplus_at_default_size_fits(self):
         world = self.multiworld.worlds[self.player]
         surplus = world.options.bolt_surplus.value
-        world.options.bolt_surplus.value = 100      # 178 bolts = 36 bundles of 5
+        world.options.bolt_surplus.value = 100      # 80 bolts = 16 bundles of 5
         try:
             world.generate_early()
         finally:

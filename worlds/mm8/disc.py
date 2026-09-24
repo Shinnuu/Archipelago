@@ -148,11 +148,39 @@ def regenerate_sector(image: bytearray, sector: int) -> None:
     image[base:base + SECTOR_RAW] = sec
 
 
+# ---- The Lab's shop table ------------------------------------------------------
+# 0x801505F0 in the EXE: 18 two-byte records {part index (0-based), price} in
+# SHOP order - records 0-9 the start stock (5 is a blank grid cell, FF FF),
+# 10-17 the post-Duo stock. Read off the disc 2026-09-24. [D]
+SHOP_TABLE = 0x801505F0
+# Record -> part id (1-based, the name-table order); None is the blank cell.
+SHOP_RECORDS = (2, 8, 7, 3, 4, None, 11, 12, 13, 17, 1, 5, 14, 15, 6, 10, 9, 16)
+# Vanilla price by part id: 89 bolts in all, for a game holding 40.
+VANILLA_PRICE = {1: 6, 2: 6, 3: 5, 4: 4, 5: 5, 6: 7, 7: 6, 8: 6, 9: 5,
+                 10: 6, 11: 5, 12: 5, 13: 5, 14: 4, 15: 5, 16: 4, 17: 5}
+# What the patched Lab charges: each vanilla price scaled by 40/89 and rounded,
+# which lands on EXACTLY 40 - every part buyable with every bolt (Ivor,
+# 2026-09-24). Start stock 21, post-Duo stock 19. Order and relative expense
+# are kept: the vanilla 6s and the 7 cost 3, everything else 2.
+LAB_PRICE = {1: 3, 2: 3, 3: 2, 4: 2, 5: 2, 6: 3, 7: 3, 8: 3, 9: 2,
+             10: 3, 11: 2, 12: 2, 13: 2, 14: 2, 15: 2, 16: 2, 17: 2}
+
+
+def price_edits(prices: dict[int, int]) -> list[tuple[str, int, str, bytes, bytes]]:
+    """One edit per price byte whose value changes."""
+    edits = []
+    for record, part in enumerate(SHOP_RECORDS):
+        if part is None or prices[part] == VANILLA_PRICE[part]:
+            continue
+        edits.append((f"Lab price, part {part}", SHOP_TABLE + 2 * record + 1,
+                      REGION_EXE, bytes([VANILLA_PRICE[part]]), bytes([prices[part]])))
+    return edits
+
+
 # ---- Edits -------------------------------------------------------------------
-# (label, where, region, expected vanilla, payload). Empty until the patch
-# design lands (v1-design section 5); the funnel below is what every edit will
-# go through.
-BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = []
+# (label, where, region, expected vanilla, payload). Grows as the patch design
+# lands (v1-design section 5); every edit goes through apply_edits.
+BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = price_edits(LAB_PRICE)
 
 
 def apply_edits(track1: bytes, edits: Iterable[tuple[str, int, str, bytes, bytes]]) -> bytes:

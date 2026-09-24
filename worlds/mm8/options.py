@@ -34,12 +34,13 @@ class BoltSurplus(Range):
     """How many bolts the item pool holds beyond what the Lab costs, as a
     percentage.
 
-    Every one of the Lab's 17 entries is a check, and together they cost 89
-    bolts. Logic only expects you to shop once you could buy EVERYTHING in
-    stock - 47 bolts for the nine entries on sale from the start, 89 once Duo
+    Every one of the Lab's 17 entries is a check, and the randomizer prices
+    them so that together they cost 40 bolts - the number of bolts in the
+    game. Logic only expects you to shop once you could buy EVERYTHING in
+    stock - 21 bolts for the nine entries on sale from the start, 40 once Duo
     is beaten - so buying in any order can never strand you. The surplus is
-    how much slack you get on top: at 40 the pool holds about 125 bolts, so
-    the Lab opens up in logic after roughly 38% and 71% of them.
+    how much slack you get on top: at 40 the pool holds 60 bolts (twelve
+    bundles of 5), so the Lab opens up in logic after 35% and 67% of them.
 
     The pool has limited room. If the bundles would not fit, generation stops
     and says so rather than silently dropping items - raise the bundle size.

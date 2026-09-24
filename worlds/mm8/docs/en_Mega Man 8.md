@@ -46,10 +46,13 @@ energy).
 | Option | Effect |
 |---|---|
 | `bolt_bundle_size` (default **5**) | how many bolts one Bolts item is worth |
-| `bolt_surplus` (default **40**) | how many bolts the pool holds beyond the Lab's 89, as a percentage |
+| `bolt_surplus` (default **40**) | how many bolts the pool holds beyond the Lab's 40, as a percentage |
+
+The Lab is repriced: each part costs 2 or 3 bolts, 40 in all — the number of
+bolts in the game, where the original prices added up to 89.
 
 Logic only expects you to shop once you could afford everything the Lab has in
-stock — 47 bolts for the nine entries on sale from the start, 89 once Duo is
+stock — 21 bolts for the nine entries on sale from the start, 40 once Duo is
 beaten — so no order of purchases can ever leave you stuck.
 
 ## Known limits

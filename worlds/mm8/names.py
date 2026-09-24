@@ -14,6 +14,7 @@ Stage indices are the game's own (`0x801C336E`, the stage table at
 the per-stage bolt counts in bolts.py match the web guide's exactly, which
 independently confirms the mapping. [D]
 """
+from . import disc
 
 # ---- Stages ----------------------------------------------------------------
 INTRO = "Intro Stage"
@@ -120,9 +121,10 @@ PARTS = [
 ]
 PART_ID = {name: i + 1 for i, name in enumerate(PARTS)}
 
-# Price in bolts and when the Lab stocks it. [D]: the shop table in the EXE at
-# 0x801505F0 holds {part index, price} in shop order - records 0-9 the start
-# stock (one blank), 10-17 the post-Duo stock. test_disc pins these to it.
+# VANILLA price in bolts and when the Lab stocks it. [D]: the shop table in the
+# EXE at 0x801505F0 holds {part index, price} in shop order - records 0-9 the
+# start stock (one blank), 10-17 the post-Duo stock. test_disc pins these to it.
+# The patched Lab charges LAB_PRICE instead; logic uses that.
 PART_COST = {
     ENERGY_SAVER: 6, POWER_SHIELD: 6, ENERGY_BALANCER: 5, EXIT: 4,
     SUPER_RECOVER: 5, HIGH_SPEED_CHARGE: 7, SHOOTING_PART: 6, SPARE_EXTRA: 6,
@@ -130,6 +132,10 @@ PART_COST = {
     AUTO_SHOOT: 5, SPARE_CHARGER: 4, HYPER_SLIDER: 5, EXCHANGER: 4,
     STEP_BOOSTER: 5,
 }
+# What the PATCHED Lab charges - disc.LAB_PRICE, the vanilla prices scaled to
+# total exactly 40, the game's own bolt count.
+LAB_PRICE = {name: disc.LAB_PRICE[PART_ID[name]] for name in PARTS}
+
 # The nine the Lab sells from the start; the other eight appear after Duo.
 START_STOCK = [
     POWER_SHIELD, SPARE_EXTRA, SHOOTING_PART, ENERGY_BALANCER, EXIT,

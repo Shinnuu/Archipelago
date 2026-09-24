@@ -28,8 +28,9 @@ from .options import MM8Options
 # strand a cheap one holding progression. Instead an entry is in logic only
 # once the bolts received cover EVERYTHING in stock at that point, which no
 # purchase order can break. v1-design 4.
-START_STOCK_COST = sum(names.PART_COST[p] for p in names.START_STOCK)   # 47
-FULL_STOCK_COST = sum(names.PART_COST.values())                         # 89
+# The patched prices (names.LAB_PRICE), not the vanilla ones.
+START_STOCK_COST = sum(names.LAB_PRICE[p] for p in names.START_STOCK)   # 21
+FULL_STOCK_COST = sum(names.LAB_PRICE.values())                         # 40
 
 
 class MM8Web(WebWorld):

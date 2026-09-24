@@ -131,6 +131,33 @@ class TestAgainstTheDump(unittest.TestCase):
         self.assertEqual({names.PARTS[p] for p, _ in records[10:]},
                          set(names.POST_DUO_STOCK))
 
+    def test_base_edits_reprice_the_lab_and_touch_nothing_else(self):
+        """After the base patch the shop table holds LAB_PRICE, the part
+        column and the blank record are unchanged, and only the price bytes
+        of the shop table's own sector differ outside EDC/ECC."""
+        patched = disc.apply_edits(self.track1, disc.BASE_EDITS)
+        off = disc.addr_to_disc(disc.SHOP_TABLE, disc.REGION_EXE)
+        for record, part in enumerate(disc.SHOP_RECORDS):
+            got_part, got_price = patched[off + 2 * record], patched[off + 2 * record + 1]
+            if part is None:
+                self.assertEqual((got_part, got_price), (0xFF, 0xFF))
+                continue
+            self.assertEqual(got_part, part - 1, record)
+            self.assertEqual(got_price, disc.LAB_PRICE[part], record)
+        sector = off // disc.SECTOR_RAW
+        user = slice(disc.USER_OFF, disc.USER_OFF + disc.USER_LEN)
+        for s in range(disc.TRACK_SECTORS[0]):
+            a = self.track1[s * disc.SECTOR_RAW:(s + 1) * disc.SECTOR_RAW]
+            b = patched[s * disc.SECTOR_RAW:(s + 1) * disc.SECTOR_RAW]
+            if a == b:
+                continue
+            self.assertEqual(s, sector, "an edit leaked outside the shop table's sector")
+            diffs = [i for i in range(disc.USER_LEN) if a[user][i] != b[user][i]]
+            price_bytes = {(off % disc.SECTOR_RAW) - disc.USER_OFF + 2 * r + 1
+                           for r, p in enumerate(disc.SHOP_RECORDS)
+                           if p is not None and disc.LAB_PRICE[p] != disc.VANILLA_PRICE[p]}
+            self.assertEqual(set(diffs), price_bytes)
+
     def test_audio_tracks_are_found_beside_track1(self):
         t2, t3 = disc.find_audio_tracks(TRACK1)
         self.assertTrue(t2.endswith("(Track 2).bin"))

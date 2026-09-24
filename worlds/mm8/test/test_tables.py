@@ -57,6 +57,15 @@ class TestParts(unittest.TestCase):
         self.assertEqual(len(names.POST_DUO_STOCK), 8)
         self.assertEqual(sum(names.PART_COST[p] for p in names.START_STOCK), 47)
 
+    def test_lab_prices_total_the_games_bolts(self):
+        """Every part buyable with every bolt: the repriced Lab totals 40,
+        the bolts in the game."""
+        self.assertEqual(sum(names.LAB_PRICE.values()), len(bolts.BOLT_STAGE))
+        self.assertEqual(sum(names.LAB_PRICE[p] for p in names.START_STOCK), 21)
+        for part in names.PARTS:
+            self.assertGreaterEqual(names.LAB_PRICE[part], 1, part)
+            self.assertLessEqual(names.LAB_PRICE[part], names.PART_COST[part], part)
+
 
 class TestBolts(unittest.TestCase):
     def test_forty_distinct(self):

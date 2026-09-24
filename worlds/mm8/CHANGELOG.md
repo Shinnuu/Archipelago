@@ -18,4 +18,7 @@ game client yet, so a seed produces no patch file.
   panel).
 - The Lab is gated on holding enough bolts for everything in stock, so no
   purchase order can strand a player.
+- The Lab is repriced to 40 bolts in all (was 89), the game's own bolt count:
+  each vanilla price scaled by 40/89 and rounded, 2 or 3 bolts a part. The
+  first disc edits - 17 bytes of the EXE's shop table at 0x801505F0.
 - Capacity is checked in `generate_early`.

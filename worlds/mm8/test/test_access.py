@@ -114,7 +114,7 @@ class TestRobotMastersGoal(MM8TestBase):
 
 class TestCapacity(MM8TestBase):
     def test_overfull_pool_is_refused(self):
-        """80 one-bolt bundles + 30 fixed items cannot fit 74 locations. The
+        """80 one-bolt bundles + 30 fixed items cannot fit 75 locations. The
         world must refuse in generate_early, naming a fix, rather than let
         Archipelago drop items silently."""
         world = self.multiworld.worlds[self.player]
@@ -125,7 +125,7 @@ class TestCapacity(MM8TestBase):
             with self.assertRaises(OptionError) as caught:
                 world.generate_early()
             self.assertIn("80 bolt bundles", str(caught.exception))
-            self.assertIn("room for 44", str(caught.exception))
+            self.assertIn("room for 45", str(caught.exception))
             self.assertIn("bolt_bundle_size", str(caught.exception))
         finally:
             world.options.bolt_bundle_size.value = size

@@ -1,9 +1,7 @@
 # Mega Man 8
 
-> **Not playable yet.** Generation works and a seed produces a patch file that
-> builds the disc - with the repriced Lab and each Lab entry naming what it
-> holds - but there is no game client yet, and the patches that hand weapons,
-> bolts and the rest to Archipelago are still being written.
+> **In development.** A seed builds a patched disc and the BizHawk client
+> plays it; not yet released.
 
 ## What does randomization do to this game?
 
@@ -37,18 +35,33 @@ randomizer, the weapon a boss would award is somebody else's item.
 
 ## Items and locations
 
-**74 locations:** 40 bolts, the Lab's 17 entries, the 8 Robot Masters, the 4
+**75 locations:** 40 bolts, the Lab's 17 entries, the 8 Robot Masters, the 4
 mid-bosses that award Rush adapters, the Mega Ball in the intro stage, Duo's
-stage, and the first three Wily stages.
+stage, the first three Wily stages and Bass in the third. `pickupsanity` adds
+42 and `rematch_checks` 8.
 
 **Items:** 8 weapons, the Mega Ball, 4 Rush adapters, 17 Lab parts, enough
 Bolts for the whole Lab plus a surplus, and filler (1-Ups, life energy, weapon
-energy).
+energy). `stage_unlocks` adds seven Access Codes.
 
 | Option | Effect |
 |---|---|
 | `bolt_bundle_size` (default **5**) | how many bolts one Bolts item is worth |
 | `bolt_surplus` (default **40**) | how many bolts the pool holds beyond the Lab's 40, as a percentage |
+| `text_skip` (default **on**) | story dialogue appears at once and advances by itself |
+| `skip_intro_videos` (default **on**) | boot straight to the title, no attract demos, no movie after GAME START |
+| `exit_stage_anytime` (default **on**) | Exit from the pause menu in every stage but the intro, without the Exit part - and it never counts as clearing the stage |
+| `weapon_damage` | off / weak / regular / strong / chaotic - each of your weapons rolls a damage multiplier |
+| `boss_hp_randomization` | off / weak / regular / strong / chaotic - each Robot Master (and his rematch and Rush mini-boss) rolls his HP |
+| `boss_damage` | off / weak / regular / strong / chaotic - each Robot Master rolls how hard his whole move set hits you |
+| `max_life` (default **40**) | Mega Man's maximum life, 1-127. **The life bar does not grow**: it stays its normal size and shows at most 40, so life above 40 is real but invisible on the bar |
+| `stage_unlocks` | one of the first four Robot Master stages open; each other needs its "Access Codes" item |
+| `pickupsanity` | the 42 capsules placed in the stages (energy and 1-UPs) become checks |
+| `rematch_checks` | the eight rematches in Wily Stage 4 become checks |
+| `death_link` | die when someone else dies, and they die when you do |
+| `mega_man_palette` | recolour Mega Man - 18 presets |
+| `stage_music` | shuffle the stage themes between stages; everything else keeps its music |
+| `randomize_options` | the seed picks the gameplay options for you |
 
 The Lab is repriced: each part costs 2 or 3 bolts, 40 in all — the number of
 bolts in the game, where the original prices added up to 89.

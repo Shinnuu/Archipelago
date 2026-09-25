@@ -25,6 +25,7 @@ class ItemData(NamedTuple):
 #   +31..+47  Lab part, BASE + 30 + the game's part id (1..17)
 #   +50       bolts (one bundle; its size is a slot_data option)
 #   +60..     filler
+#   +80..+87  Access Codes (stage_unlocks), in names.ROBOT_MASTERS order
 item_table: dict[str, ItemData] = {
     # Mega Ball and the eight weapons are progression: the bolt guide gates
     # bolts on seven of them (every one but Ice Wave and Water Balloon), and
@@ -50,6 +51,11 @@ item_table: dict[str, ItemData] = {
 
     **{name: ItemData(BASE_ID + 60 + i, ItemClassification.filler, 0)
        for i, name in enumerate(names.FILLER)},
+
+    # stage_unlocks: one per Robot Master stage, in names.ROBOT_MASTERS order.
+    # Count 0: only that option adds them (one precollected).
+    **{name: ItemData(BASE_ID + 80 + i, ItemClassification.progression, 0)
+       for i, name in enumerate(names.ACCESS_ITEMS)},
 }
 
 event_table: dict[str, ItemData] = {
@@ -64,4 +70,5 @@ item_groups = {
     "Rush": set(names.RUSH),
     "Parts": set(names.PARTS),
     "Filler": set(names.FILLER),
+    "Access Codes": set(names.ACCESS_ITEMS),
 }

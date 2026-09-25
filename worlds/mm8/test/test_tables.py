@@ -10,7 +10,21 @@ from ..locations import location_table
 class TestIds(unittest.TestCase):
     def test_location_count(self):
         # 40 bolts + 17 Lab + 8 bosses + 4 mid-bosses + Mega Ball + Duo + Wily 1-3
-        self.assertEqual(len(location_table), 74)
+        # + Wily 3's Bass = 75 in every seed, + 8 Wily 4 rematches
+        # (rematch_checks) + 42 placed pickups (pickupsanity), which only their
+        # options add.
+        self.assertEqual(len(location_table), 75 + 8 + 42)
+
+    def test_the_select_positions_are_the_games(self):
+        """0x801379A8 read off the disc: Tengu 0, Frost 1, Clown 4, Grenade 5,
+        Astro 6, Sword 7, Search 10, Aqua 11."""
+        self.assertEqual(names.SELECT_POSITION, {
+            names.TENGU: 0, names.FROST: 1, names.CLOWN: 4, names.GRENADE: 5,
+            names.ASTRO: 6, names.SWORD: 7, names.SEARCH: 10, names.AQUA: 11})
+
+    def test_rematch_bits_follow_the_refight_table(self):
+        """0x801387EC = 1F 40 27 35 4C 3A 56 48: the boss ids of stages 1-8."""
+        self.assertEqual([names.REMATCH_BIT[b] for b in names.ROBOT_MASTERS], list(range(8)))
 
     def test_ids_unique(self):
         self.assertEqual(len(set(location_table.values())), len(location_table))

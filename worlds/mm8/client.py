@@ -25,7 +25,8 @@ Policies, each with its reason. Read these before changing anything.
 3. GRANTS ARE ABSOLUTE wherever the state allows (X6's policy 2): weapon
    capability (+1 of each entry), Rush, parts and the bolt counter are
    computed from the items received and written whole, so a reconnect or a
-   savestate is a no-op. Bolts = bundles received x bundle size - the price
+   savestate is a no-op. A weapon's capability arriving also fills its energy
+   (the game fills only at a spawn). Bolts = bundles received x bundle size - the price
    of every Lab entry the player BOUGHT (AP_LAB, set by the purchase itself),
    which needs no counter at all.
 
@@ -38,6 +39,22 @@ Policies, each with its reason. Read these before changing anything.
    the AP block, so the mini-boss does not drop it again - exactly what a
    vanilla revisit does. A Lab entry is NOT: AP_LAB is what the player paid
    for, and the bolt account depends on it.
+
+6. OPTIONS THAT LIVE HERE (parity plan). stage_unlocks writes 0xFF over a
+   locked Robot Master's slot in the select's position table (0x801379A8,
+   EXE data) - never 0, which is stage 0 and is accepted - and only over a
+   table it recognises. rematch_checks reads the game's own Wily 4 refight
+   record 0x801C3378, only in Wily 4 with the player alive (the byte is
+   other stages' scratch, and the game revokes a win if the player dies
+   before the warp). death_link is X5's shape with MM8's kill: HP 0, which
+   is what every death route in the game writes; a received death waits
+   through pause, teleport-in and script holds, and is dropped outside a
+   stage.
+
+7. WILY 3'S BASS leaves no record: he is never killed, and nothing is
+   written when he gives up. His check is his defeat STATE (top state 8 or
+   10, several seconds of retreat and dialogue), read from the object array only while STAGE0C is
+   resident. A win the client misses is replayed by playing Wily 3 again.
 """
 import logging
 import time
@@ -51,6 +68,7 @@ from worlds._bizhawk.client import BizHawkClient
 from . import disc, names
 from .bolts import BOLT_LOCATIONS
 from .locations import location_table
+from .pickups import PICKUPS
 
 if TYPE_CHECKING:
     from worlds._bizhawk.context import BizHawkClientContext
@@ -70,20 +88,61 @@ def _u32(data: bytes, off: int = 0) -> int:
 GAME_SIG_ADDR = _ram(0x80150848)        # the save file name, in the EXE's data
 GAME_SIG = b"BASLUS-00453"
 AP_ADDR = _ram(disc.AP_BLOCK)
-AP_LEN = 0x20
+AP_LEN = 0x30                           # through pickupsanity's FOUND / CONFIRMED
 WEAPONS_ADDR = _ram(disc.WEAPONS)       # 16 entries x 4: +0 kill record, +1 capability,
 WEAPONS_LEN = 10 * 4                    # +2..+3 energy (8.8); slots 0-9 matter
 LIVE_ADDR = _ram(0x8016D2F0)            # bolts u16, 8 part slots, +0x0A, 40-bit bolt
 LIVE_LEN = 0x14                         # field at +0x0B, live Rush at +0x10
 PERSIST_RUSH_ADDR = _ram(0x801C3352)    # what the Rush menu reads
 MIRROR_ADDR = _ram(0x801C3340)          # part id i's effect flag at +i
-PROGRESS_ADDR = _ram(0x801C336C)        # phase, Wily count, stage index, loaded flag, lives
-PROGRESS_LEN = 5
+PROGRESS_ADDR = _ram(0x801C336C)        # phase, Wily count, stage index, loaded flag, lives,
+PROGRESS_LEN = 0x0D                     # ... and at +0x0C the Wily 4 refight record 0x801C3378
+OFF_REFIGHTS = 0x0C
 DEMO_TIMER_ADDR = _ram(0x801B2944)
 OVERLAY_ADDR = _ram(disc.OVL_BASE)      # the resident overlay's id; stages are 6..0x13
 HP_ADDR = _ram(0x8015E283)
 CUR_WEAPON_ADDR = _ram(0x8016DC08)      # the weapon slot in hand; firing reads only this
 REFUSAL_GRACE = 10.0                    # seconds a missing AP block may last before we say so
+
+# Game state (ram-notes 9f, 9i) [D]. gameMode indexes the game loop (3 = in a
+# stage); gameMode2 the stage's sub-modes (0 section start, 1 play, 2 the
+# death sequence, 3 section end).
+GAMEMODE_ADDR = _ram(0x801CF840)        # + 4 = gameMode2
+GAMEMODE_LEN = 5
+GAMEMODE_STAGE = 3
+MODE2_PLAY, MODE2_DEATH = 1, 2
+# The player object's first two bytes: +0 alive, +1 the top state - 0 spawn,
+# 1 teleport-in (HP refills to 40: a kill there is undone), 2 play, 3 dying,
+# 4 held by a script (boss intro, after a boss dies).
+PLAYER_ADDR = _ram(0x8015E23C)
+TOP_PLAY, TOP_DYING = 2, 3
+# 0x801B2993: the game's own "not in control" (section start, death, a boss's
+# setup, Wily 4's warps); 0x801B2995: a section end, clear or Exit is pending.
+CONTROL_ADDR = _ram(0x801B2993)         # + 2 = 0x801B2995
+CONTROL_LEN = 3
+PAUSED_ADDR = _ram(0x80170338)          # non-zero while the pause menu is open
+
+# stage_unlocks: the select's position -> stage table, EXE data with a single
+# reader. 0xFF at a position makes its confirm do nothing (0 would load stage 0).
+SELECT_TABLE_ADDR = _ram(0x801379A8)
+SELECT_LOCKED = 0xFF
+
+# rematch_checks: 0x801C3378 is also scratch in Sword Man's and Wily 3's
+# stages, so it is read only in Wily 4 with its overlay resident.
+WILY_4_STAGE, WILY_4_OVERLAY = 13, 0x13
+
+# Wily Stage 3's Bass (names.WILY_3_BASS). No record survives his fight, so
+# the check is the game's own defeat STATE: his dispatcher (STAGE0C
+# 0x801E5BC4, table 0x801EAFD8 by top state obj+1) moves him to 8 when his hit
+# handler reports "defeated" (0x801E5C1C) - a retreat - and 8 hands over to 10
+# (0x801E65C0): the parting dialogue, the bar cleared, the object deleted.
+# Several seconds in all (state 10's dialogue alone ran ~170 frames live,
+# 2026-09-25), read only with STAGE0C resident.
+MAIN_ARRAY_ADDR = _ram(0x8015B174)      # 64 objects x 0x60: +0 alive, +1 top state, +6 id
+MAIN_ARRAY_LEN = 64 * 0x60
+WILY_3_STAGE, WILY_3_OVERLAY = 12, 0x12
+BASS_ID = 0x5D
+BASS_DEFEATED_STATES = (8, 10)
 
 OFF_BOLTS, OFF_SHOT_SELECT, OFF_BOLT_FIELD, OFF_LIVE_RUSH = 0x00, 0x0A, 0x0B, 0x10
 # 0x8016D2FA, the buster mode the pause screen picks: 0 normal, then Laser,
@@ -93,8 +152,11 @@ MIRROR_LEN = 0x12                       # part ids 1-17's effect flags
 AP_OFF_STAMP, AP_OFF_PARTS, AP_OFF_LAB, AP_OFF_RUSH, AP_OFF_PROCESSED = (
     a - disc.AP_BLOCK for a in (disc.AP_STAMP, disc.AP_PARTS, disc.AP_LAB,
                                 disc.AP_RUSH, disc.AP_PROCESSED))
+AP_OFF_FOUND = disc.AP_PICKUP_FOUND - disc.AP_BLOCK
+AP_OFF_CONFIRMED = disc.AP_PICKUP_CONFIRMED - disc.AP_BLOCK
+PICKUP_NAMES = [name for _s, _r, _k, name in PICKUPS]      # bit i = PICKUPS[i]
 STAGE_OVERLAYS = range(6, 0x14)
-HP_MAX = 40                             # [L]
+HP_MAX = 40                             # [L] vanilla; a seed's max_life (slot data) replaces it
 LIVES_CAP = 9                           # inference: the lives counter is one digit
 ENERGY_FULL = 0x2800                    # 40.0 in the 8.8 energy halfword
 WILY_CLEARS_FOR_GOAL = 4                # +1 per Wily stage cleared (0x80101418..24)
@@ -126,6 +188,12 @@ class MM8Client(BizHawkClient):
         self.refusal_logged = False
         self.capability_written: bytes | None = None
         self.victory_sent = False
+        # DeathLink (X5's latches). `sending_death_link` STARTS True - "a
+        # death is already accounted for" - so a client attaching mid-death
+        # does not send one; it re-arms only once the player is seen alive.
+        self.pending_death_link = False
+        self.sending_death_link = True
+        self.unlocked_logged: frozenset[str] = frozenset()
 
     def _refuse(self, reason: str, grace: float = 0.0) -> None:
         """Do nothing this poll; say why once the reason has lasted `grace`
@@ -160,6 +228,24 @@ class MM8Client(BizHawkClient):
         ctx.want_slot_data = True
         self._reset()
         return True
+
+    def on_package(self, ctx: "BizHawkClientContext", cmd: str, args: dict) -> None:
+        if cmd != "Bounced" or "DeathLink" not in args.get("tags", []):
+            return
+        # Our own bounce comes back to us; core's timestamp filter does not
+        # cover this hook, so match on source (X5, after mm3).
+        if (args.get("data") or {}).get("source") == ctx.player_names.get(ctx.slot):
+            return
+        self.pending_death_link = True
+
+    def _drop_death_link(self, why: str) -> None:
+        """A received death that can no longer land where it was meant to -
+        outside a stage, in a demo, on another disc - is dropped, never
+        carried into the next stage (X5: a mistimed kill costs more than a
+        dropped one)."""
+        if self.pending_death_link:
+            self.pending_death_link = False
+            logger.info(f"Mega Man 8: DeathLink arrived {why} - dropped")
 
     # ---- item accounting ---------------------------------------------------
 
@@ -199,9 +285,58 @@ class MM8Client(BizHawkClient):
     # ---- detection ---------------------------------------------------------
 
     @staticmethod
-    def detect(weapons: bytes, live: bytes, progress: bytes, ap: bytes) -> set[str]:
+    def select_table(received: dict[str, int]) -> bytes:
+        """The stage select's position -> stage table for stage_unlocks: a
+        Robot Master whose codes have not arrived confirms to nothing.
+        Everything else (stage 0, the Lab, Duo, Wily) stays vanilla."""
+        table = bytearray(names.SELECT_TABLE_VANILLA)
+        for boss, position in names.SELECT_POSITION.items():
+            if not received.get(names.access_item(boss)):
+                table[position] = SELECT_LOCKED
+        return bytes(table)
+
+    @staticmethod
+    def rematches(progress: bytes, overlay: bytes, mode: bytes, player: bytes) -> int:
+        """The Wily 4 refight record, or 0 when it cannot be trusted: outside
+        Wily 4 (the byte is other stages' scratch) or with the player not
+        alive in play (the game revokes a bit when the player dies before
+        the warp back)."""
+        if (progress[2] == WILY_4_STAGE and _u32(overlay) == WILY_4_OVERLAY
+                and mode[0] == GAMEMODE_STAGE and mode[4] == MODE2_PLAY and player[0]):
+            return progress[OFF_REFIGHTS]
+        return 0
+
+    @staticmethod
+    def in_wily_3(progress: bytes, overlay: bytes, mode: bytes) -> bool:
+        return (progress[2] == WILY_3_STAGE and _u32(overlay) == WILY_3_OVERLAY
+                and mode[0] == GAMEMODE_STAGE)
+
+    @staticmethod
+    def bass_defeated(objects: bytes) -> bool:
+        """Bass in his defeat states anywhere in the main object array (the
+        array read only in Wily 3: ids are global, but only STAGE0C spawns him)."""
+        return any(objects[o] and objects[o + 6] == BASS_ID and objects[o + 1] in BASS_DEFEATED_STATES
+                   for o in range(0, len(objects), 0x60))
+
+    @staticmethod
+    def pickups_confirmed(checked: set[int]) -> int:
+        """The CONFIRMED word: pickups the server already has, which the stub
+        then lets heal as vanilla."""
+        return sum(1 << bit for bit, name in enumerate(PICKUP_NAMES) if location_table[name] in checked)
+
+    @staticmethod
+    def detect(weapons: bytes, live: bytes, progress: bytes, ap: bytes,
+               rematches: int = 0, pickups: bool = False, bass: bool = False) -> set[str]:
         """Location names the game's records (and the AP block's) say are done."""
         found: set[str] = set()
+        if bass:
+            found.add(names.WILY_3_BASS)
+        for boss, bit in names.REMATCH_BIT.items():
+            if rematches & (1 << bit):
+                found.add(names.rematch_location(boss))
+        if pickups:
+            found_bits = int.from_bytes(ap[AP_OFF_FOUND:AP_OFF_FOUND + 8], "little")
+            found.update(name for bit, name in enumerate(PICKUP_NAMES) if found_bits & (1 << bit))
         for slot, boss in SLOT_TO_BOSS.items():
             if weapons[4 * slot]:
                 found.add(names.boss_location(boss))
@@ -232,13 +367,66 @@ class MM8Client(BizHawkClient):
             return all(weapons[4 * slot] for slot in SLOT_TO_BOSS)
         return progress[1] >= WILY_CLEARS_FOR_GOAL
 
+    # ---- DeathLink ---------------------------------------------------------------
+
+    async def _death_link(self, ctx: "BizHawkClientContext", mode: bytes, player: bytes,
+                          hp: int, control: bytes, paused: int, ap: bytes) -> None:
+        """One death out per death, one death in per DeathLink (X5's shape).
+
+        DETECT by the stage's death sequence (gameMode2 2, ~184 frames, so a
+        poll cannot miss it) or the player's top state 3. KILL by writing HP 0:
+        unlike X5, that IS the engine's own kill - every death route in the
+        game (enemy contact, pits, grabs, the instant kills) writes HP 0 and
+        leaves the one check at 0x8010C1E4 to do the rest, and a player at HP 0
+        cannot be re-hit (ContactMega returns first).
+
+        A received death waits through the moments a kill cannot land - the
+        pause menu, the teleport-in (which refills HP), a boss intro's hold, a
+        section end - and is dropped only when the player leaves the stage.
+        """
+        if mode[0] != GAMEMODE_STAGE:
+            self._drop_death_link("outside a stage")
+            return
+        dying = mode[4] == MODE2_DEATH or player[1] == TOP_DYING
+        in_play = (mode[4] == MODE2_PLAY and player[0] and player[1] == TOP_PLAY and hp > 0)
+
+        if self.pending_death_link:
+            if dying:
+                self.pending_death_link = False      # its intent is already met
+                return
+            if in_play and not control[0] and not control[2] and not paused:
+                guards = [(DEMO_TIMER_ADDR, bytes(4), "MainRAM"),
+                          (GAMEMODE_ADDR, bytes([GAMEMODE_STAGE]), "MainRAM"),
+                          (GAMEMODE_ADDR + 4, bytes([MODE2_PLAY]), "MainRAM"),
+                          (PLAYER_ADDR + 1, bytes([TOP_PLAY]), "MainRAM"),
+                          (CONTROL_ADDR, bytes(1), "MainRAM"),
+                          (CONTROL_ADDR + 2, bytes(1), "MainRAM"),
+                          (PAUSED_ADDR, bytes(1), "MainRAM"),
+                          (AP_ADDR + AP_OFF_STAMP, ap[AP_OFF_STAMP:AP_OFF_STAMP + 4], "MainRAM")]
+                if await bizhawk.guarded_write(ctx.bizhawk_ctx, [(HP_ADDR, bytes(1), "MainRAM")], guards):
+                    # Latch BEFORE the game can show the death, so the death
+                    # we caused cannot go straight back out.
+                    self.sending_death_link = True
+                    self.pending_death_link = False
+                    logger.info("Mega Man 8: DeathLink received - killed the player")
+            return                                   # otherwise hold it
+
+        if dying:
+            if not self.sending_death_link:
+                self.sending_death_link = True
+                await ctx.send_death("Mega Man was destroyed.")
+        elif in_play:
+            # The only honest re-arm: seen alive, so the next death is new.
+            self.sending_death_link = False
+
     # ---- the poll ------------------------------------------------------------
 
     async def game_watcher(self, ctx: "BizHawkClientContext") -> None:
         if ctx.slot_data is None or ctx.server is None:
             return
         try:
-            ap, weapons, live, persist_rush, progress, demo, overlay, hp, mirror, cur_weapon, sig = await bizhawk.read(
+            (ap, weapons, live, persist_rush, progress, demo, overlay, hp, mirror, cur_weapon, sig,
+             mode, player, control, paused, select) = await bizhawk.read(
                 ctx.bizhawk_ctx, [
                     (AP_ADDR, AP_LEN, "MainRAM"),
                     (WEAPONS_ADDR, WEAPONS_LEN, "MainRAM"),
@@ -251,6 +439,11 @@ class MM8Client(BizHawkClient):
                     (MIRROR_ADDR, MIRROR_LEN, "MainRAM"),
                     (CUR_WEAPON_ADDR, 1, "MainRAM"),
                     (GAME_SIG_ADDR, len(GAME_SIG), "MainRAM"),
+                    (GAMEMODE_ADDR, GAMEMODE_LEN, "MainRAM"),
+                    (PLAYER_ADDR, 2, "MainRAM"),
+                    (CONTROL_ADDR, CONTROL_LEN, "MainRAM"),
+                    (PAUSED_ADDR, 1, "MainRAM"),
+                    (SELECT_TABLE_ADDR, len(names.SELECT_TABLE_VANILLA), "MainRAM"),
                 ])
         except bizhawk.RequestFailedError:
             return
@@ -259,21 +452,25 @@ class MM8Client(BizHawkClient):
         # back in. Nothing here is the game's yet - say nothing, do nothing.
         if sig != GAME_SIG:
             self.last_signature = None
+            self._drop_death_link("during a reset")
             return
         # Policy 1.
         if ap[:4] != disc.AP_SIGNATURE or _u32(ap, 4) != disc.AP_VERSION:
             self._refuse("this is not a disc patched for this Archipelago version "
                          "(open your .apmm8 to build it)", grace=REFUSAL_GRACE)
+            self._drop_death_link("with no patched disc running")
             return
         want_stamp = ctx.slot_data.get("seed_stamp")
         if want_stamp is not None and _u32(ap, AP_OFF_STAMP) != want_stamp:
             self._refuse("this disc was patched for a different seed or slot")
+            self._drop_death_link("with another seed's disc running")
             return
         self._accept()
 
         # Policy 2: the demo.
         if _u32(demo):
             self.last_signature = None
+            self._drop_death_link("during the attract demo")
             return
         received = self._received(ctx)
         capability = self.capability(received)
@@ -281,12 +478,24 @@ class MM8Client(BizHawkClient):
         trusted = self.capability_written is None or readback == self.capability_written
 
         # ---- checks ----
+        rematches = (self.rematches(progress, overlay, mode, player)
+                     if ctx.slot_data.get("rematch_checks") else 0)
+        pickupsanity = bool(ctx.slot_data.get("pickupsanity"))
+        bass = False
+        if self.in_wily_3(progress, overlay, mode):
+            try:
+                (objects,) = await bizhawk.read(ctx.bizhawk_ctx, [(MAIN_ARRAY_ADDR, MAIN_ARRAY_LEN, "MainRAM")])
+            except bizhawk.RequestFailedError:
+                return
+            bass = self.bass_defeated(objects)
         signature = (bytes(weapons[4 * s] for s in range(10)) + live[OFF_BOLT_FIELD:OFF_BOLT_FIELD + 5]
-                     + progress[:2] + ap[AP_OFF_LAB:AP_OFF_RUSH + 4])
+                     + progress[:2] + ap[AP_OFF_LAB:AP_OFF_RUSH + 4] + bytes([rematches, bass])
+                     + ap[AP_OFF_FOUND:AP_OFF_FOUND + 8])
         stable = trusted and signature == self.last_signature
         self.last_signature = signature if trusted else None
         if stable:
-            found = {location_table[name] for name in self.detect(weapons, live, progress, ap)}
+            found = {location_table[name]
+                     for name in self.detect(weapons, live, progress, ap, rematches, pickupsanity, bass)}
             new = found - set(ctx.checked_locations) - self.sent
             if new:
                 self.sent |= new
@@ -301,6 +510,12 @@ class MM8Client(BizHawkClient):
         for slot in range(10):
             if weapons[4 * slot + 1] != capability[slot]:
                 writes.append((WEAPONS_ADDR + 4 * slot + 1, bytes([capability[slot]]), "MainRAM"))
+                # A weapon arrives FULL, as vanilla's does: the game fills
+                # energy only at the spawn refill (0x8010BE50, usable weapons
+                # only), so one granted mid-stage stayed empty until the next
+                # death or section start (playtest record 9, Wily 3).
+                if capability[slot]:
+                    writes.append((WEAPONS_ADDR + 4 * slot + 2, ENERGY_FULL.to_bytes(2, "little"), "MainRAM"))
         # Firing reads only the current weapon, never capability. Anything that
         # selects a weapon the player was not sent - the boss "weapon get"
         # demo (0x8010F160), an older disc's intro pickup, a savestate - goes
@@ -339,6 +554,25 @@ class MM8Client(BizHawkClient):
                                 ctx.slot_data.get("bolt_bundle_size", 5), _u32(ap, AP_OFF_LAB))
         if int.from_bytes(live[OFF_BOLTS:OFF_BOLTS + 2], "little") != bolts:
             writes.append((LIVE_ADDR + OFF_BOLTS, bolts.to_bytes(2, "little"), "MainRAM"))
+        # pickupsanity: tell the stub which pickups the server already has
+        # (checked here, a collect, or a previous session).
+        if pickupsanity:
+            confirmed = self.pickups_confirmed(checked)
+            if int.from_bytes(ap[AP_OFF_CONFIRMED:AP_OFF_CONFIRMED + 8], "little") != confirmed:
+                writes.append((AP_ADDR + AP_OFF_CONFIRMED, confirmed.to_bytes(8, "little"), "MainRAM"))
+        # stage_unlocks: re-asserted every poll (a savestate can carry another
+        # table), and only over bytes that are vanilla or locked - anything
+        # else means this is not the table we think it is.
+        if ctx.slot_data.get("stage_unlocks"):
+            table = self.select_table(received)
+            if select != table and all(b in (v, SELECT_LOCKED)
+                                       for b, v in zip(select, names.SELECT_TABLE_VANILLA)):
+                writes.append((SELECT_TABLE_ADDR, table, "MainRAM"))
+            unlocked = frozenset(b for b in names.ROBOT_MASTERS if received.get(names.access_item(b)))
+            if unlocked != self.unlocked_logged:
+                self.unlocked_logged = unlocked
+                logger.info(f"Mega Man 8: stages unlocked ({len(unlocked)}/8): "
+                            + ", ".join(b for b in names.ROBOT_MASTERS if b in unlocked))
 
         # ---- consumables (policy 4), only in a stage ----
         in_stage = _u32(overlay) in STAGE_OVERLAYS
@@ -351,9 +585,14 @@ class MM8Client(BizHawkClient):
                 if name == names.EXTRA_LIFE:
                     lives = min(LIVES_CAP, lives + 1)
                 elif name == names.LIFE_ENERGY:
-                    if not cur_hp:
-                        break            # mid-death: never revive; wait for the respawn
-                    cur_hp = HP_MAX
+                    if not cur_hp or player[1] != TOP_PLAY:
+                        # Mid-death: never revive. Teleporting in: the fill is
+                        # still counting, and the flying sections' fill adds
+                        # BEFORE it compares with the max (0x8010C138), so a
+                        # write of the max there runs it past and round
+                        # through 0 (research 2026-09-25, 6). Wait for play.
+                        break
+                    cur_hp = ctx.slot_data.get("max_life", HP_MAX)
                 elif name == names.WEAPON_ENERGY:
                     energy_refill = True
                 processed += 1
@@ -374,3 +613,13 @@ class MM8Client(BizHawkClient):
                       (AP_ADDR + AP_OFF_STAMP, ap[AP_OFF_STAMP:AP_OFF_STAMP + 4], "MainRAM")]
             if await bizhawk.guarded_write(ctx.bizhawk_ctx, writes, guards):
                 self.capability_written = capability
+
+        # ---- DeathLink ----
+        if ctx.slot_data.get("death_link"):
+            # Keyed on the TAG (X5): update_death_link is a no-op once it is
+            # present, and a reconnect that rebuilt the tags re-registers us.
+            if "DeathLink" not in ctx.tags:
+                await ctx.update_death_link(True)
+            await self._death_link(ctx, mode, player, hp[0], control, paused[0], ap)
+        else:
+            self.pending_death_link = False

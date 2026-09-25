@@ -543,6 +543,311 @@ def rush_edits() -> list[tuple[str, int, str, bytes, bytes]]:
 BOLT_GRANT = ("P4 bolt pickup: no +1", 0x80129788, REGION_EXE, _w(0x24420001), _w(0x24420000))
 
 
+# ---- The intro can never be exited ------------------------------------------------
+# The pause Exit handler (0x80113550) ALLOWS the intro - `beqz stage` at
+# 0x8011358C jumps straight to the exit - whenever the Exit part is in
+# effect. Vanilla cannot hold the part during the intro. An AP disc can: the
+# client sets a received part's effect flag at once, so an Exit part arriving
+# during the intro (or in starting inventory) would let the player leave it -
+# and an Exit IS a stage clear (0x801B2995 = 1 -> 0x8010123C), which sets
+# phase 1: the intro skipped unplayed, its Mega Ball and bolts 0, 1 and 33
+# left behind until the player thinks to replay it. (It CAN be replayed: the
+# select's position 2, the slot below Tengu Man, maps to stage 0 and the
+# confirm accepts it - 0x801379A8, 0x800FFC50 - seen live 2026-09-25.) Stage 0
+# goes to the buzzer instead (0x80113628, the handler's own "denied"); the
+# delay slot `sltiu v0, v1, 9` is harmless. X5 keeps its intro out of Exit too.
+INTRO_EXIT_DENIED = ("the intro can never be exited", 0x8011358C, REGION_EXE,
+                     _w(0x10600017), _w(0x10600026))   # beqz v1 -> 0x801135EC ; -> 0x80113628
+
+
+# ---- QoL disc options (X5/X6's, ported) ------------------------------------------
+# Each is a list of (label, where, region, vanilla, payload), emitted only when
+# its option is on - so a seed without it runs vanilla code there. Research
+# and the rejected alternatives: the parity plan
+# (ai-docs/plans/2026-09-24_mm8-x5-feature-parity.md) and ram-notes 9.
+#
+# text_skip - typed dialogue (task 0x80103830; the Lab/pause text is a
+# separate instant box with nothing to skip). X5's two sites, in the message
+# STATE MACHINE, not the renderer:
+#   0x8010395C `beqz v0, 0x801039F0` - "no face button held -> yield a frame".
+#       NOPped, the task always takes the held path: it keeps typing without
+#       yielding, so the whole page appears the frame it opens - exactly what
+#       holding a button does in vanilla. (Delay slot `andi v0, s1, 0xff` is
+#       what the held path runs anyway.)
+#   0x801039A0 `beqz v0, 0x801039C0` - at a page break, "not pressed -> wait".
+#       NOPped, every page advances by itself.
+# and a third X5 did not need: the typer plays each character's blip only
+# when NO button is held (0x80103C70 `bnez v0` skips it), so with site 1 a
+# whole page's blips would fire in one frame. `b` makes it always skip - the
+# held behaviour again. The engine has no choice code at all (control codes,
+# ram-notes 9a) and every choice in the game is its own menu, so nothing can
+# be answered for the player; it reads no audio state, so no voice can gate it.
+#
+# skip_intro_videos - X6's option. The movie players (0x800FD30C the Capcom
+# logo, 0x800FD444 ROCK8_n) have exactly six call sites, all direct `jal`s in
+# the EXE; the four on the boot -> title -> new game path go. Each `jal`'s
+# delay slot is its argument load - harmless without the call. The movie code
+# writes nothing but its own state, and every progression write is in the
+# caller after the call, so skipping leaves the game where playing would.
+# The story movies (pre-Duo 0x80100AA4, post-Duo 0x801013D8, ending
+# 0x80101468) are NOT skipped: each is one button press in vanilla.
+QOL_EDITS: dict[str, list[tuple[str, int, str, bytes, bytes]]] = {
+    "text_skip": [
+        ("text skip: whole page at once", 0x8010395C, REGION_EXE, _w(0x10400024), _w(0)),
+        ("text skip: pages advance themselves", 0x801039A0, REGION_EXE, _w(0x10400007), _w(0)),
+        ("text skip: no per-character blip", 0x80103C70, REGION_EXE, _w(0x14400007), _w(0x10000007)),
+    ],
+    "skip_intro_videos": [
+        ("skip the Capcom logo", 0x800F7C14, REGION_EXE, _w(0x0C03F4C3), _w(0)),
+        # Title-loop mode 0: cold boot AND after every attract demo that times out.
+        ("skip the opening movie", 0x800FEB18, REGION_EXE, _w(0x0C03F511), _w(0)),
+        # 0x801B2938 counts 0x708 frames down on PRESS START; at 0 an attract demo starts.
+        ("no attract demos", 0x800FEE9C, REGION_EXE, _w(0x2442FFFF), _w(0)),
+        # The new-game reset 0x80100954 plays ROCK8_1 first (X6 missed its equivalent).
+        ("skip the movie after GAME START", 0x80100974, REGION_EXE, _w(0x0C03F511), _w(0)),
+    ],
+}
+
+# exit_stage_anytime - NOT X5's two-word edit, because MM8 has no separate
+# result byte: a pause Exit writes 0x801B2995 = 1, the same value as the
+# victory beam-up, and the stage-end handler sends both to the stage-clear
+# routine 0x8010123C, which never asks how the stage ended (ram-notes 3a, 5).
+# Opening the gate alone would make Exit a free boss kill, a free Duo clear
+# and a Wily stage skip. So an Exit is marked with 2 - a value no writer in
+# the game stores - and EXIT_GUARD, hooked on the clear routine's first call,
+# sends a 2 straight to the routine's own tail: the save prompt (vanilla's
+# Exit shows it too) and the phase router. Nothing in between runs: no grant,
+# no weapon-get demo, no phase, no Wily counter, no ending. Every other reader
+# of the byte tests `!= 0` or `& 0x80`, so 2 behaves as 1 everywhere else.
+EXIT_GUARD = """
+    lui   v0, 0x801B
+    lbu   v0, 0x2995(v0)          ; how the stage ended
+    ori   at, zero, 2
+    bne   v0, at, clear           ; a real clear (1): exactly as vanilla
+    nop
+    lui   ra, 0x8010
+    addiu ra, ra, 0x1438          ; an Exit: return into the clear's tail -
+clear:                            ;   the save prompt, then the router
+    j     0x8010BBB8              ; the call the hook displaced (a leaf)
+    nop
+"""
+EXIT_HOOK = 0x80101244            # stage clear's `jal 0x8010BBB8`; delay slot `sw s0, 16(sp)` stays
+
+
+def exit_edits() -> list[tuple[str, int, str, bytes, bytes]]:
+    """exit_stage_anytime: the pause Exit offered in every stage but the
+    intro (INTRO_EXIT_DENIED, always on), without the Exit part, marked as an
+    exit rather than a clear. Needs EXIT_GUARD, which is always in the cave."""
+    from . import mips
+    guard = routine_addresses()["exit guard"]
+    return [
+        # The Exit PART gate: pause +0x0B (the part's effect flag) -> buzzer.
+        # The option supersedes the part; with it on, the part does nothing.
+        ("exit anytime: no Exit part needed", 0x80113560, REGION_EXE, _w(0x1040002B), _w(0)),
+        # `beqz v0(stage < 9)` -> `b 0x801135EC`: every stage from 1 reaches the
+        # store (the delay slot's `ori v0, zero, 9` is overwritten there). The
+        # intro was already turned away above it.
+        ("exit anytime: every stage", 0x80113594, REGION_EXE, _w(0x1040000D), _w(0x10000015)),
+        ("exit anytime: mark it an exit (2)", 0x801135EC, REGION_EXE, _w(0x34020001), _w(0x34020002)),
+        # The pause close recognises the Exit by value: 1 -> 2, so it closes the
+        # way vanilla's Exit does (gameMode2 3, no fade step, music stopped).
+        ("exit anytime: pause close knows it", 0x80113AA4, REGION_EXE, _w(0x34020001), _w(0x34020002)),
+        ("exit anytime: hook the stage clear", EXIT_HOOK, REGION_EXE, _w(0x0C042EEE),
+         _w(mips.word(f"jal {guard:#x}", EXIT_HOOK))),
+    ]
+
+
+# ---- pickupsanity (X5's design, MM8's facts; ram-notes 9g) ---------------------
+# Every consumable kind's state function asks one routine, 0x801291E8, "has
+# Mega Man touched me?" - seven calls, nothing else calls it. The hooks point
+# those seven calls at PICKUP_STUB, which asks the same question and then:
+#   * an enemy DROP (obj+8 == 0: the spawner alone stores the record pointer
+#     there, and the game itself branches on it) -> vanilla;
+#   * the attract demo -> vanilla (its pickups must not set bits);
+#   * a record that is not an item-array id 0 (a stale +8) -> vanilla;
+#   * a placed pickup that is not a location, or whose location the server
+#     has CONFIRMED (the client mirrors checked locations) -> vanilla;
+#   * otherwise: set its FOUND bit, delete it, and report "not touched" so
+#     its state function grants nothing. Its spawn record stays marked until
+#     the next section start, so it keeps coming back until confirmed.
+# The stub is always in the cave (inert without the hooks); the hooks and the
+# key table go on only with the option, so other seeds run vanilla code.
+AP_PICKUP_FOUND = AP_BLOCK + 0x20        # u64, set by the stub, read by the client
+AP_PICKUP_CONFIRMED = AP_BLOCK + 0x28    # u64, written by the client
+PICKUP_KEYS = AP_BLOCK + 0x40            # u16 stage << 8 | record, 0xFFFF-terminated;
+                                         # on disc beside the block, in the same
+                                         # unreferenced image padding (R11)
+PICKUP_KEYS_ROOM = 0x100
+PICKUP_CONTACT = 0x801291E8
+PICKUP_HOOKS = (0x80128B28, 0x80128B90, 0x80128BF8, 0x80128C70, 0x80128CE0, 0x80128D58, 0x80128DE4)
+PICKUP_STUB = f"""
+    addiu sp, sp, -24
+    sw    ra, 16(sp)
+    jal   {PICKUP_CONTACT:#x}          ; the vanilla contact test, a0 = the pickup
+    sw    a0, 20(sp)
+    beqz  v0, out                 ; not touched: return 0
+    lw    a0, 20(sp)
+    nop
+    lw    t0, 8(a0)               ; the spawn-record pointer; 0 = an enemy drop
+    nop
+    beqz  t0, out                 ; a drop: vanilla
+    lui   t9, 0x801B
+    lw    t9, 0x2944(t9)          ; the attract-demo timer
+    nop
+    bnez  t9, out                 ; the demo's pickups stay vanilla
+    nop
+    lbu   t1, 1(t0)               ; the record's id - 0, the consumable
+    lbu   t2, 3(t0)               ; the record's type - 2, the item array
+    bnez  t1, out
+    addiu t2, t2, -2
+    bnez  t2, out
+    lui   t3, 0x801C
+    addiu t3, t3, 0x2B3C          ; the spawn list
+    subu  t3, t0, t3
+    srl   t3, t3, 3               ; record index
+    lui   t4, 0x801C
+    lbu   t4, 0x336E(t4)          ; stage index
+    lui   t5, 0x801D
+    sll   t4, t4, 8
+    or    t3, t3, t4              ; key = stage << 8 | record
+    addiu t5, t5, {PICKUP_KEYS & 0xFFFF:#x}
+    or    t6, zero, zero          ; its bit
+scan:
+    lhu   t7, 0(t5)
+    ori   t8, zero, 0xFFFF
+    beq   t7, t8, out             ; not a location: vanilla
+    nop
+    beq   t7, t3, found
+    nop
+    addiu t5, t5, 2
+    b     scan
+    addiu t6, t6, 1
+found:
+    lui   t0, 0x801D
+    addiu t0, t0, 0x2A00          ; the AP block
+    srl   t1, t6, 5
+    sll   t1, t1, 2
+    addu  t0, t0, t1              ; this bit's word
+    andi  t2, t6, 31
+    ori   t3, zero, 1
+    sllv  t3, t3, t2
+    lw    t4, {AP_PICKUP_CONFIRMED - AP_BLOCK:#x}(t0)
+    lw    t5, {AP_PICKUP_FOUND - AP_BLOCK:#x}(t0)
+    and   t4, t4, t3
+    bnez  t4, out                 ; confirmed: vanilla
+    or    t5, t5, t3
+    sw    t5, {AP_PICKUP_FOUND - AP_BLOCK:#x}(t0)          ; FOUND
+    jal   0x80105864              ; DeleteObject - what a vanilla collection does
+    nop
+    or    v0, zero, zero          ; "not touched": the caller grants nothing
+out:
+    lw    ra, 16(sp)
+    nop
+    jr    ra
+    addiu sp, sp, 24
+"""
+
+
+def pickup_key_table(keys: list[int]) -> bytes:
+    table = b"".join(k.to_bytes(2, "little") for k in keys) + b"\xff\xff"
+    if len(keys) > 64 or len(table) > PICKUP_KEYS_ROOM:
+        raise ValueError(f"{len(keys)} pickup keys do not fit")
+    if any(not 0 <= k < 0xFFFF for k in keys):
+        raise ValueError("a pickup key collides with the terminator")
+    return table
+
+
+def pickup_edits(keys: list[int]) -> list[tuple[str, int, str, bytes, bytes]]:
+    """pickupsanity: the key table and the seven hooks. Needs PICKUP_STUB,
+    which is always in the cave."""
+    from . import mips
+    stub = routine_addresses()["pickupsanity"]
+    table = pickup_key_table(keys)
+    edits = [("pickupsanity key table", PICKUP_KEYS, REGION_EXE, bytes(len(table)), table)]
+    for site in PICKUP_HOOKS:
+        edits.append((f"pickupsanity hook {site:#x}", site, REGION_EXE,
+                      _w(mips.word(f"jal {PICKUP_CONTACT:#x}", site)),
+                      _w(mips.word(f"jal {stub:#x}", site))))
+    return edits
+
+
+# ---- max_life (X5's starting_hp; research 2026-09-25_max-life-research.md) ------
+# X5 keeps the maximum in a save byte the client writes. MM8 has none: 40 is
+# an immediate in the code that fills or caps the player's HP, so this is
+# X6's disc discipline - whole instructions, register fields kept, the vanilla
+# word asserted. Every life starts at HP 0 (the object clear 0x801058F0) and
+# is filled by the teleport-in; every writer of the player's HP was
+# enumerated, and these are all the places 40 is its MAXIMUM (all in the EXE):
+PLAYER_MAX_HP = 40
+MAX_LIFE_RANGE = (1, 127)      # 0 kills every life on its first frame; above
+                               # 127 the game's 127-damage instant kills stop killing
+MAX_LIFE_SITES: list[tuple[str, int, int, int, int]] = [
+    # (what, where, vanilla word, word with the immediate cleared, N + this)
+    ("teleport-in (flying sections): exits at HP == max", 0x8010C144, 0x34020028, 0x34020000, 0),
+    ("full recovery: HP = max", 0x80128DF0, 0x34020028, 0x34020000, 0),
+    ("life pickup: heals only below max", 0x80128FC0, 0x2C420028, 0x2C420000, 0),
+    ("life pickup: over max? (sltiu max+1)", 0x80128FE4, 0x2C420029, 0x2C420000, 1),
+    ("life pickup: clamp to max", 0x80128FEC, 0x34020028, 0x34020000, 0),
+]
+# The normal teleport-in (top state 1, sub 2, 0x8010C0A0) adds 1 HP a frame
+# while HP < 40, but hands over control when its ANIMATION ends (+0x2E &
+# 0x8000, 0x8010C0DC) - 60 frames - so the immediate alone tops out at 60.
+# Rewritten in place, same 9 words: HP = min(HP + k, max), k = ceil(max/60),
+# so every life still starts full. k = 1 is vanilla's own curve.
+MAX_LIFE_FILL = 0x8010C0B0
+MAX_LIFE_FILL_VANILLA = (0x92020047, 0x00000000, 0x2C420028, 0x10400005, 0x00000000,
+                         0x92020047, 0x00000000, 0x24420001, 0xA2020047)
+MAX_LIFE_FILL_FRAMES = 60
+
+
+def max_life_fill(max_life: int) -> str:
+    step = -(-max_life // MAX_LIFE_FILL_FRAMES)
+    return f"""
+    lbu   v0, 0x47(s0)            ; the player's HP
+    nop
+    addiu v0, v0, {step}
+    sltiu at, v0, {max_life + 1}
+    bnez  at, store               ; not past the max: keep the sum
+    nop
+    ori   v0, zero, {max_life}    ; past it: the max
+store:
+    sb    v0, 0x47(s0)
+    nop                           ; falls through to 0x8010C0D4, as vanilla
+"""
+
+
+def max_life_edits(max_life: int) -> list[tuple[str, int, str, bytes, bytes]]:
+    """max_life: nothing at vanilla's 40; otherwise the fill and the five
+    immediates. The life bar's clamps (0x800FA6EC/F8, pause 0x800FA30C/18)
+    stay at 40, as the boss bar does: above 40 it reads full until HP falls
+    to 40."""
+    from . import mips
+    lo, hi = MAX_LIFE_RANGE
+    if not lo <= max_life <= hi:
+        raise ValueError(f"max life {max_life} outside {lo}..{hi}")
+    if max_life == PLAYER_MAX_HP:
+        return []
+    fill = mips.assemble(max_life_fill(max_life), MAX_LIFE_FILL)
+    assert len(fill) == len(MAX_LIFE_FILL_VANILLA)
+    edits = [("max life: the teleport-in fill", MAX_LIFE_FILL, REGION_EXE,
+              mips.to_bytes(list(MAX_LIFE_FILL_VANILLA)), mips.to_bytes(fill))]
+    for what, where, vanilla, cleared, plus in MAX_LIFE_SITES:
+        edits.append((f"max life: {what}", where, REGION_EXE, _w(vanilla), _w(cleared | (max_life + plus))))
+    return edits
+
+
+def qol_edits(features: Iterable[str]) -> list[tuple[str, int, str, bytes, bytes]]:
+    """The edits for the named QoL options, in a stable order."""
+    features = set(features)
+    unknown = features - set(QOL_EDITS) - {"exit_stage_anytime"}
+    if unknown:
+        raise ValueError(f"unknown QoL features: {sorted(unknown)}")
+    out = [edit for name, edits in QOL_EDITS.items() if name in features for edit in edits]
+    if "exit_stage_anytime" in features:
+        out += exit_edits()
+    return out
+
+
 # ---- Routines: hand-written code in the dead debug menu -----------------------
 # 0x80134E7C..0x80136DAC (7,984 bytes) is the unused debug menu (MAINMENU,
 # FLAGCHANGE, ...): nothing calls it - no jal, j or data word points at it, in
@@ -670,6 +975,10 @@ ROUTINES: list[tuple[str, str]] = [
     ("P11 save extension: write", P11_WRITE),
     ("P11 save extension: load", P11_LOAD),
     ("P5 Lab purchase", P5_BUY),
+    # Unreachable unless exit_stage_anytime hooks it; kept on every disc so
+    # the cave layout never depends on the options.
+    ("exit guard", EXIT_GUARD),
+    ("pickupsanity", PICKUP_STUB),    # inert unless pickup_edits hooks it
 ]
 
 # ---- In-place rewrites: whole instruction runs replaced where they stand --------
@@ -800,7 +1109,8 @@ def ext_check(stamp: int, lab: int, rush: int, processed: int, spare: int = 0) -
 # seed's own edits (the AP block header, the Lab text) are added at patch time.
 # (LAB_FULL_GUARD is gone: P5's search never returns a slot to store through.)
 BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = (
-    price_edits(LAB_PRICE) + a1_edits() + rush_edits() + [BOLT_GRANT] + in_place_edits())
+    price_edits(LAB_PRICE) + a1_edits() + rush_edits() + [BOLT_GRANT, INTRO_EXIT_DENIED]
+    + in_place_edits())
 
 
 def apply_edits(track1: bytes, edits: Iterable[tuple[str, int, str, bytes, bytes]]) -> bytes:

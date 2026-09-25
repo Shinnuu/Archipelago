@@ -1,27 +1,28 @@
 """Archipelago world for Mega Man 8 (PS1, NTSC-U, SLUS-00453).
 
-Generation, logic and the disc patch file. A seed writes an .apmm8 that
-builds a merged three-track disc with the repriced Lab and each Lab entry's
-text naming the item it holds. Not yet playable as a multiworld: there is no
-BizHawkClient, and the patches that hand every reward to Archipelago (A1 and
-the rest, v1-design section 5) are not written. Research notes live in the
-private `mm8-ap-research` repo; the design is
+Generation, logic, the disc patch and the BizHawk client. A seed writes an
+.apmm8 that builds a merged three-track disc (disc.py: every reward handed to
+Archipelago, Mega Man X5's decoupled design, plus the options' edits) and
+client.py plays it. Playtested to the goal; not yet released. Research notes
+live in the private `mm8-ap-research` repo; the design is
 `ai-docs/plans/2026-09-24_mm8-v1-design.md` there.
 
 The shape follows the Mega Man X5 and X6 worlds, which share this game's
 platform, client architecture and most of its problems.
 """
+import logging
 import math
 from typing import Any, ClassVar
 
-from BaseClasses import Region, Tutorial
+from BaseClasses import ItemClassification, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
+from worlds.generic.Rules import add_rule
 
-from . import bolts, names
+from . import bolts, damage, music, names, pickups
 from .items import MM8Item, event_table, item_groups, item_table
 from .locations import MM8Location, location_groups, location_table
-from .options import MM8Options
+from .options import RANDOMIZED_OPTIONS, MM8Options
 from .client import MM8Client  # noqa: F401  (import registers the client)
 from .disc import seed_stamp
 from .Rom import MM8Settings, write_patch
@@ -89,22 +90,87 @@ class MM8World(World):
         wanted = FULL_STOCK_COST * (100 + self.options.bolt_surplus.value) / 100
         return math.ceil(wanted / self.options.bolt_bundle_size.value)
 
+    def item_count(self) -> int:
+        """Items the pool must hold before filler."""
+        items = self.FIXED_ITEMS + self.bolt_bundles()
+        if self.options.stage_unlocks:
+            items += len(names.ACCESS_ITEMS) - 1          # one is precollected
+        return items
+
+    def location_count(self) -> int:
+        """Locations this seed actually has (the table lists every possible one)."""
+        count = len(location_table) - len(names.ROBOT_MASTERS) - len(pickups.PICKUPS)
+        if self.options.rematch_checks:
+            count += len(names.ROBOT_MASTERS)
+        if self.options.pickupsanity:
+            count += len(pickups.PICKUPS)
+        return count
+
+    def _roll_options(self) -> None:
+        """randomize_options: pick the gameplay options for the player (X5)."""
+        for name in RANDOMIZED_OPTIONS:
+            option = getattr(self.options, name)
+            # Choice exposes its valid values; Toggle is just 0/1.
+            values = sorted(set(type(option).options.values())) \
+                if getattr(type(option), "options", None) else [0, 1]
+            option.value = self.random.choice(values)
+        # Make room rather than refuse: pickupsanity adds 42 locations.
+        if self.item_count() > self.location_count() and not self.options.pickupsanity:
+            self.options.pickupsanity.value = 1
+        logging.info("Mega Man 8 (%s): randomize_options rolled %s", self.player_name,
+                     ", ".join(f"{n}={getattr(self.options, n).value}" for n in RANDOMIZED_OPTIONS))
+
     def generate_early(self) -> None:
+        if self.options.randomize_options:
+            self._roll_options()
         # Checked HERE because Generate.py retries a world that raises later,
         # and overshooting the location count passes silently otherwise and
         # just drops items. Both learned the hard way on X5.
-        items = self.FIXED_ITEMS + self.bolt_bundles()
-        if items > len(location_table):
-            room = len(location_table) - self.FIXED_ITEMS
+        items, locations = self.item_count(), self.location_count()
+        if items > locations:
+            room = locations - (items - self.bolt_bundles())
             raise OptionError(
                 f"Mega Man 8 ({self.player_name}): {self.bolt_bundles()} bolt "
                 f"bundles do not fit - the pool has room for {room}. Raise "
-                f"`bolt_bundle_size` (now {self.options.bolt_bundle_size.value}) "
-                f"or lower `bolt_surplus` (now {self.options.bolt_surplus.value}).")
+                f"`bolt_bundle_size` (now {self.options.bolt_bundle_size.value}), "
+                f"lower `bolt_surplus` (now {self.options.bolt_surplus.value}) "
+                f"or add locations with `pickupsanity` (+{len(pickups.PICKUPS)}) or "
+                f"`rematch_checks` (+{len(names.ROBOT_MASTERS)}).")
+
+        # stage_unlocks: the one stage open from the start. Always in set 1 -
+        # set 2 only exists after Duo, and Duo needs all of set 1.
+        self.starting_stage = self.random.choice(names.SET_1) if self.options.stage_unlocks else None
+
+        # The disc's randomized numbers, rolled once here so the patch and the
+        # spoiler read the same values (the spoiler can be written without
+        # generate_output running).
+        self.weapon_damage_factors: dict[str, float] = {}
+        self.weapon_damage_tables = damage.DAMAGE_TABLES_VANILLA
+        if self.options.weapon_damage:
+            self.weapon_damage_tables, self.weapon_damage_factors = damage.weapon_damage_tables(
+                self.options.weapon_damage.value, self.random)
+        self.boss_hp_factors: dict[str, float] = {}
+        if self.options.boss_hp_randomization:
+            self.boss_hp_factors = damage.boss_hp_rolls(
+                self.options.boss_hp_randomization.value, self.random)
+        self.boss_damage_factors: dict[str, float] = {}
+        if self.options.boss_damage:
+            self.boss_damage_factors = damage.boss_damage_rolls(self.options.boss_damage.value, self.random)
+        self.stage_music: dict[str, str] | None = None
+        if self.options.stage_music:
+            self.stage_music = music.music_assignment(self.random)
+            if self.stage_music is None:        # ~1e-11 per seed, but never silent
+                logging.warning("Mega Man 8 (%s): no stage-music deal fitted the disc's "
+                                "sound banks; stage music stays vanilla.", self.player_name)
 
     def create_item(self, name: str) -> MM8Item:
         data = item_table.get(name) or event_table[name]
-        return MM8Item(name, data.classification, data.code, self.player)
+        classification = data.classification
+        if name == names.EXIT and self.options.exit_stage_anytime:
+            # The option opens Exit everywhere without the part, and the part
+            # then has no effect at all (disc.exit_edits).
+            classification = ItemClassification.filler
+        return MM8Item(name, classification, data.code, self.player)
 
     def _event(self, region: Region, name: str) -> None:
         """An event location named after the event item it holds."""
@@ -122,10 +188,17 @@ class MM8World(World):
         return [bolts.BOLT_LOCATIONS[s] for s, st in sorted(bolts.BOLT_STAGE.items())
                 if st == stage]
 
+    def _stage_pickups(self, stage: str) -> list[str]:
+        """pickupsanity: stage access only, X5's rule for its pickups - no
+        pickup is known to need an item (a live look is owed)."""
+        if not self.options.pickupsanity:
+            return []
+        return [name for index, _r, _k, name in pickups.PICKUPS if index == names.STAGE_INDEX[stage]]
+
     def create_regions(self) -> None:
         menu = self._region("Menu", [])
-        intro = self._region(names.INTRO,
-                             self._stage_bolts(names.INTRO) + [names.MEGA_BALL_LOCATION])
+        intro = self._region(names.INTRO, self._stage_bolts(names.INTRO) + [names.MEGA_BALL_LOCATION]
+                             + self._stage_pickups(names.INTRO))
         stage_select = self._region("Stage Select", [])
         menu.connect(intro)
         intro.connect(stage_select)
@@ -134,6 +207,7 @@ class MM8World(World):
             locs = [names.boss_location(boss)] + self._stage_bolts(boss)
             locs += [names.midboss_location(boss) for r in names.RUSH
                      if names.RUSH_STAGE[r] == boss]
+            locs += self._stage_pickups(boss)
             region = self._region(boss, locs)
             self._event(region, names.beaten(boss))
             stage_select.connect(region)
@@ -144,7 +218,15 @@ class MM8World(World):
 
         previous = stage_select
         for i, wily in enumerate(names.WILY_STAGES):
-            region = self._region(wily, [names.WILY_CLEAR[wily]] if i < 3 else [])
+            if i < 3:
+                locs = [names.WILY_CLEAR[wily]]
+            elif self.options.rematch_checks:
+                locs = [names.rematch_location(b) for b in names.ROBOT_MASTERS]
+            else:
+                locs = []
+            if wily == names.WILY_3:
+                locs.append(names.WILY_3_BASS)
+            region = self._region(wily, locs + self._stage_pickups(wily))
             previous.connect(region)
             previous = region
         self._event(previous, names.VICTORY)
@@ -157,6 +239,13 @@ class MM8World(World):
         pool += [self.create_item(name) for name in names.RUSH]
         pool += [self.create_item(name) for name in names.PARTS]
         pool += [self.create_item(names.BOLTS) for _ in range(self.bolt_bundles())]
+        if self.options.stage_unlocks:
+            for boss in names.ROBOT_MASTERS:
+                codes = self.create_item(names.access_item(boss))
+                if boss == self.starting_stage:
+                    self.multiworld.push_precollected(codes)
+                else:
+                    pool.append(codes)
 
         # Over-full is caught in generate_early; by here it is too late to
         # report cleanly.
@@ -192,6 +281,13 @@ class MM8World(World):
         for boss in names.SET_2:
             entrance(f"Stage Select -> {boss}").access_rule = \
                 lambda state: state.has(names.DUO_CLEARED, player)
+
+        # stage_unlocks: each Robot Master stage also needs its codes - on top
+        # of the game's own structure, never instead of it.
+        if self.options.stage_unlocks:
+            for boss in names.ROBOT_MASTERS:
+                add_rule(entrance(f"Stage Select -> {boss}"),
+                         lambda state, codes=names.access_item(boss): state.has(codes, player))
 
         # The Wily stages open on all eight bosses. Also asking for all eight
         # WEAPONS is deliberately stricter than the game - nobody has checked
@@ -235,6 +331,28 @@ class MM8World(World):
     def generate_output(self, output_directory: str) -> None:
         write_patch(self, output_directory)
 
+    def write_spoiler(self, spoiler_handle) -> None:
+        if self.weapon_damage_factors:
+            spoiler_handle.write(f"\n\nMega Man 8 weapon damage ({self.player_name}):\n")
+            for family, factor in self.weapon_damage_factors.items():
+                spoiler_handle.write(f"    {family}: x{factor:.2f}\n")
+        if self.boss_hp_factors:
+            spoiler_handle.write(f"\n\nMega Man 8 boss HP ({self.player_name}):\n")
+            for boss, factor in self.boss_hp_factors.items():
+                line = f"    {boss}: {damage.scaled_hp(damage.BOSS_VANILLA_HP, factor)}"
+                if boss in damage.MIDBOSS_HP:
+                    _where, vanilla = damage.MIDBOSS_HP[boss]
+                    line += f" (Rush mini-boss {damage.scaled_hp(vanilla, factor)})"
+                spoiler_handle.write(line + "\n")
+        if self.boss_damage_factors:
+            spoiler_handle.write(f"\n\nMega Man 8 boss damage ({self.player_name}):\n")
+            for boss, factor in self.boss_damage_factors.items():
+                spoiler_handle.write(f"    {boss}: x{factor:.2f}\n")
+        if self.stage_music:
+            spoiler_handle.write(f"\n\nMega Man 8 stage music ({self.player_name}):\n")
+            for place, theme in self.stage_music.items():
+                spoiler_handle.write(f"    {place}: {theme}'s theme\n")
+
     def get_filler_item_name(self) -> str:
         filler, weights = zip(*names.FILLER_WEIGHTS)
         return self.random.choices(filler, weights=weights, k=1)[0]
@@ -243,6 +361,13 @@ class MM8World(World):
         return {
             "goal": self.options.goal.value,
             "bolt_bundle_size": self.options.bolt_bundle_size.value,
+            "death_link": self.options.death_link.value,
+            "stage_unlocks": self.options.stage_unlocks.value,
+            "pickupsanity": self.options.pickupsanity.value,
+            "rematch_checks": self.options.rematch_checks.value,
+            # What the disc's fills and pickups now stop at (disc.max_life_edits);
+            # the client's Life Energy fills to it.
+            "max_life": self.options.max_life.value,
             # The client checks the disc's AP block carries this before it
             # writes anything (disc.AP_STAMP).
             "seed_stamp": self.seed_stamp(),

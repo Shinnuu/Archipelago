@@ -3,6 +3,7 @@ from BaseClasses import Location
 from . import names
 from .bolts import BOLT_LOCATIONS, BOLT_STAGE
 from .items import BASE_ID
+from .pickups import PICKUPS
 
 
 class MM8Location(Location):
@@ -17,8 +18,11 @@ class MM8Location(Location):
 #   +20         the intro stage's Mega Ball
 #   +21         Duo's stage cleared
 #   +22..+24    Wily stages 1-3 cleared (Wily 4 is the goal event, not a check)
+#   +25         Wily Stage 3's Bass fight
+#   +30..+37    Wily 4 rematches (rematch_checks), in names.ROBOT_MASTERS order
 #   +100..+139  bolts, BASE + 100 + subId - the subId IS the bit in 0x8016D2FB
 #   +200..+217  Lab entries, BASE + 200 + the part id the base game sells there
+#   +300..+341  pickupsanity, BASE + 300 + the pickup's bit (pickups.PICKUPS order)
 location_table: dict[str, int] = {}
 
 for i, boss in enumerate(names.ROBOT_MASTERS):
@@ -31,6 +35,10 @@ location_table[names.MEGA_BALL_LOCATION] = BASE_ID + 20
 location_table[names.DUO_CLEAR] = BASE_ID + 21
 for i, wily in enumerate(names.WILY_STAGES[:3]):
     location_table[names.WILY_CLEAR[wily]] = BASE_ID + 22 + i
+location_table[names.WILY_3_BASS] = BASE_ID + 25
+
+for i, boss in enumerate(names.ROBOT_MASTERS):
+    location_table[names.rematch_location(boss)] = BASE_ID + 30 + i
 
 for sub_id, name in BOLT_LOCATIONS.items():
     location_table[name] = BASE_ID + 100 + sub_id
@@ -38,10 +46,15 @@ for sub_id, name in BOLT_LOCATIONS.items():
 for part in names.PARTS:
     location_table[names.shop_location(part)] = BASE_ID + 200 + names.PART_ID[part]
 
+for bit, (_stage, _record, _kind, name) in enumerate(PICKUPS):
+    location_table[name] = BASE_ID + 300 + bit
+
 
 location_groups = {
     "Robot Masters": {names.boss_location(b) for b in names.ROBOT_MASTERS},
     "Mid-bosses": {names.midboss_location(names.RUSH_STAGE[r]) for r in names.RUSH},
+    "Rematches": {names.rematch_location(b) for b in names.ROBOT_MASTERS},
+    "Pickups": {name for _s, _r, _k, name in PICKUPS},
     "Bolts": set(BOLT_LOCATIONS.values()),
     "Dr. Light's Lab": {names.shop_location(p) for p in names.PARTS},
     **{f"{stage} Bolts": {name for s, name in BOLT_LOCATIONS.items()

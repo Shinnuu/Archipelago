@@ -59,6 +59,7 @@ def patched_ram(stamp: int = STAMP) -> FakeRAM:
             + stamp.to_bytes(4, "little"))
     ram.put(0x80150848, b"BASLUS-00453")
     ram.put(0x8015E283, bytes([40]))              # HP
+    ram.put(0x8015E23C, bytes([1, 2]))            # the player alive, in play
     ram.put(0x801C3370, bytes([2]))               # lives
     return ram
 
@@ -247,6 +248,24 @@ class TestGrants(ClientTest):
         await self.poll(ram, ctx, client, 2)
         self.assertEqual(ctx.checks(), set(), "a grant must never read back as a check")
 
+    async def test_a_weapon_granted_mid_stage_arrives_full(self):
+        """Playtest record 9: the game fills energy only at a spawn, so a
+        weapon received mid-stage was usable but EMPTY. The control: a weapon
+        already usable keeps the energy the player has spent."""
+        ram = patched_ram()
+        ram.put(disc.OVL_BASE, (0x12).to_bytes(4, "little"))          # in a stage
+        held = names.WEAPON_SLOT[names.ICE_WAVE]
+        ram.put(disc.WEAPONS + 4 * held, b"\x00\x01\x00\x0C")         # usable, 12.0 left
+        ctx, client = FakeContext(["Ice Wave"]), MM8Client()
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(disc.WEAPONS + 4 * held, 4), b"\x00\x01\x00\x0C")
+        ctx.items_received.append(SimpleNamespace(item=item_table[names.FLAME_SWORD].code))
+        await self.poll(ram, ctx, client, 1)
+        slot = names.WEAPON_SLOT[names.FLAME_SWORD]
+        self.assertEqual(ram.get(disc.WEAPONS + 4 * slot, 4), b"\x00\x01\x00\x28")
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(disc.WEAPONS + 4 * held, 4), b"\x00\x01\x00\x0C", "never refilled again")
+
     async def test_bolts_are_what_was_sent_less_what_was_spent(self):
         ram = patched_ram()
         lab = (1 << names.PART_ID[names.POWER_SHIELD]) | (1 << names.PART_ID[names.EXIT])
@@ -306,6 +325,36 @@ class TestGrants(ClientTest):
         self.assertEqual(ram.get(0x801C3370, 1), bytes([4]))
         self.assertEqual(ram.get(0x8015E283, 1), bytes([40]))
         self.assertEqual(int.from_bytes(ram.get(disc.AP_PROCESSED, 4), "little"), 4)
+
+    async def test_life_energy_fills_to_the_seeds_max_life(self):
+        """max_life moves the maximum; slot data without it (an older seed)
+        keeps vanilla's 40."""
+        for slot_max, want in ((60, 60), (None, 40)):
+            ram = patched_ram()
+            ram.put(disc.OVL_BASE, (6).to_bytes(4, "little"))
+            ram.put(0x8015E283, bytes([10]))
+            ctx = FakeContext(["Life Energy"])
+            if slot_max is not None:
+                ctx.slot_data["max_life"] = slot_max
+            await self.poll(ram, ctx, MM8Client(), 1)
+            self.assertEqual(ram.get(0x8015E283, 1), bytes([want]), slot_max)
+
+    async def test_a_heal_waits_out_the_teleport_in(self):
+        """The flying sections' teleport-in adds before it compares with the
+        max, so a heal written mid-fill runs it round through 0. The control:
+        the same RAM in play heals."""
+        ram = patched_ram()
+        ram.put(disc.OVL_BASE, (6).to_bytes(4, "little"))
+        ram.put(0x8015E283, bytes([10]))
+        ram.put(0x8015E23C, bytes([1, 1]))                            # teleporting in
+        ctx = FakeContext(["Life Energy"])
+        client = MM8Client()
+        await self.poll(ram, ctx, client, 2)
+        self.assertEqual(ram.get(0x8015E283, 1), bytes([10]))
+        self.assertEqual(int.from_bytes(ram.get(disc.AP_PROCESSED, 4), "little"), 0)
+        ram.put(0x8015E23D, bytes([2]))                               # play
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(0x8015E283, 1), bytes([40]))
 
     async def test_a_heal_waits_out_a_death(self):
         ram = patched_ram()

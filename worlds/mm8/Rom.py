@@ -71,7 +71,9 @@ class MM8PatchExtension(APPatchExtension):
     def apply_basepatch(caller: APProcedurePatch, rom: bytes) -> bytes:
         entries = {int(part): tuple(entry) for part, entry
                    in json.loads(caller.get_file("lab.json").decode("utf-8")).items()}
-        edits = list(disc.BASE_EDITS) + disc.lab_text_edits(rom, entries)
+        seed = json.loads(caller.get_file("seed.json").decode("utf-8"))
+        edits = (list(disc.BASE_EDITS) + disc.routine_edits(rom)
+                 + disc.lab_text_edits(rom, entries) + disc.ap_block_edits(seed["stamp"]))
         return disc.apply_edits(rom, edits)
 
 
@@ -129,6 +131,7 @@ def write_patch(world: "MM8World", output_directory: str) -> str:
     patch = MM8ProcedurePatch(player=world.player,
                               player_name=world.multiworld.player_name[world.player])
     patch.write_file("lab.json", json.dumps(lab_entries(world)).encode("utf-8"))
+    patch.write_file("seed.json", json.dumps({"stamp": world.seed_stamp()}).encode("utf-8"))
     path = os.path.join(output_directory,
                         f"{world.multiworld.get_out_file_name_base(world.player)}"
                         f"{patch.patch_file_ending}")

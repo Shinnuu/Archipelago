@@ -144,8 +144,11 @@ class TestAgainstTheDump(unittest.TestCase):
                 continue
             self.assertEqual(got_part, part - 1, record)
             self.assertEqual(got_price, disc.LAB_PRICE[part], record)
-        guard = disc.addr_to_disc(disc.LAB_FULL_RETURN, disc.REGION_EXE)
-        self.assertEqual(patched[guard:guard + 4], disc.LAB_FULL_GUARD[4])
+        # P5/P6: each in-place rewrite landed where it names.
+        from .. import mips
+        for name, where, source, _vanilla in disc.IN_PLACE:
+            for i, w in enumerate(mips.assemble(source, where)):
+                self.assertEqual(word(patched, disc.addr_to_disc(where + 4 * i, disc.REGION_EXE)), w, name)
 
         declared = {disc.addr_to_disc(where + i, region)
                     for _l, where, region, vanilla, payload in disc.BASE_EDITS
@@ -162,6 +165,112 @@ class TestAgainstTheDump(unittest.TestCase):
             a = self.track1[s * disc.SECTOR_RAW:(s + 1) * disc.SECTOR_RAW]
             b = patched[s * disc.SECTOR_RAW:(s + 1) * disc.SECTOR_RAW]
             self.assertEqual(a, b, f"sector {s} changed but no edit touches it")
+
+    def _patched(self) -> bytes:
+        if not hasattr(type(self), "_base"):
+            type(self)._base = disc.apply_edits(self.track1, disc.BASE_EDITS)
+        return type(self)._base
+
+    def _word(self, image: bytes, where: int, region: str = disc.REGION_EXE) -> int:
+        return word(image, disc.addr_to_disc(where, region))
+
+    def test_a1_moves_only_the_capability_readers(self):
+        """P1: every capability reader now reads +1; the kill-record readers
+        still read +0 - the grant and its guard, the phase gates, stage
+        select, Exit, the save pack. Those untouched words are the control:
+        moving one of them would sever progression from the kill record."""
+        patched = self._patched()
+        for what, where, region, vanilla in disc.A1_CAPABILITY_READERS:
+            got = self._word(patched, where, region)
+            self.assertEqual(got, vanilla + 1, what)
+            self.assertEqual(got >> 26, 0x24, f"{what}: still an lbu")
+        for where in (0x801012C4, 0x80101288, 0x801012DC, 0x80101378,   # grant, guard, gates
+                      0x800FFD5C, 0x801135B8, 0x80120EB8):               # select, Exit, save
+            self.assertEqual(self._word(patched, where), self._word(self.track1, where), hex(where))
+        # The spawn refill keys on +1 and no longer clears it.
+        self.assertEqual(self._word(patched, 0x8010BE70), 0)
+        self.assertEqual(self._word(patched, 0x8010BE74), 0x90820001)
+
+    def test_a1_never_leaves_the_weapon_switch_without_a_usable_slot(self):
+        """The weapon switch spins forever with no usable slot. The buster
+        is usable from power-on, and every attract demo's loadout - owned
+        weapons with +1 = 0 on the vanilla disc - is usable too."""
+        patched = self._patched()
+        self.assertEqual(patched[disc.addr_to_disc(disc.WEAPONS + 1, disc.REGION_EXE)], 1)
+        self.assertEqual(self.track1[disc.addr_to_disc(disc.WEAPONS + 1, disc.REGION_EXE)], 0)
+        for pack, loadout in disc.DEMO_LOADOUTS.items():
+            for slot in range(10):
+                entry = loadout + 4 * slot
+                owned = self.track1[disc.addr_to_disc(entry, f"pack:{pack}")]
+                self.assertEqual(owned, 1, f"{pack} slot {slot}: not a loadout entry")
+                self.assertEqual(patched[disc.addr_to_disc(entry + 1, f"pack:{pack}")], 1)
+
+    def test_the_intro_mega_ball_no_longer_selects_itself(self):
+        """Seen live: the pickup's `sb v1, CURWEAPON` handed over a usable
+        Mega Ball. Now it selects the buster; the kill-record store beside it
+        (+0 of slot 1, the Mega Ball location) is untouched."""
+        patched = self._patched()
+        self.assertEqual(self._word(self.track1, 0x801E1728, "ovl:STAGE00"), 0xA023DC08)
+        self.assertEqual(self._word(patched, 0x801E1728, "ovl:STAGE00"), 0xA020DC08)
+        self.assertEqual(self._word(patched, 0x801E1770, "ovl:STAGE00"),
+                         self._word(self.track1, 0x801E1770, "ovl:STAGE00"))
+
+    def test_rush_pickups_record_into_the_ap_block(self):
+        """P2: the pickup's pointer table and all five stage reads now name
+        the AP block's Rush bytes, and the grant store itself is untouched
+        (it now writes the check record)."""
+        patched = self._patched()
+        for k in range(4):
+            self.assertEqual(self._word(patched, disc.RUSH_TABLE + 4 * k), disc.AP_RUSH + k)
+        for what, where, overlay, reg, k in disc.RUSH_STAGE_READS:
+            lui = self._word(patched, where - 4, f"ovl:{overlay}")
+            lbu = self._word(patched, where, f"ovl:{overlay}")
+            self.assertEqual((lui >> 26, (lui >> 16) & 31), (0x0F, reg), what)
+            self.assertEqual((lbu >> 26, (lbu >> 21) & 31, (lbu >> 16) & 31), (0x24, reg, reg), what)
+            lo = lbu & 0xFFFF
+            target = ((lui & 0xFFFF) << 16) + (lo - 0x10000 if lo & 0x8000 else lo)
+            self.assertEqual(target, disc.AP_RUSH + k, what)
+        self.assertEqual(self._word(patched, 0x80129B08), 0xA0430000)   # sb v1, 0(v0)
+
+    def test_bolt_pickup_keeps_its_bit_and_drops_its_increment(self):
+        patched = self._patched()
+        self.assertEqual(self._word(patched, 0x80129788), 0x24420000)
+        self.assertEqual(self._word(patched, 0x801297B4), self._word(self.track1, 0x801297B4))
+
+    def test_ap_block_is_free_and_takes_the_header(self):
+        """The block is zero on the vanilla disc, and the seed's header lands
+        there; a zero stamp is refused (the save extension uses 0 as 'no
+        stamp')."""
+        start = disc.addr_to_disc(disc.AP_BLOCK, disc.REGION_EXE)
+        self.assertEqual(self.track1[start:start + disc.AP_BLOCK_SIZE], bytes(disc.AP_BLOCK_SIZE))
+        image = disc.apply_edits(self.track1, disc.ap_block_edits(0x12345678))
+        self.assertEqual(image[start:start + 12], b"APM8" + (1).to_bytes(4, "little")
+                         + (0x12345678).to_bytes(4, "little"))
+        with self.assertRaises(ValueError):
+            disc.ap_block_edits(0)
+        self.assertNotEqual(disc.seed_stamp("any", 1), 0)
+        self.assertNotEqual(disc.seed_stamp("any", 1), disc.seed_stamp("any", 2))
+
+    def test_routines_go_over_the_dead_debug_menu_and_hook_in(self):
+        """The routines replace only the dead debug menu, and each hook's
+        vanilla words are what the card code has there."""
+        from .. import mips
+        edits = disc.routine_edits(self.track1)
+        patched = disc.apply_edits(self.track1, edits)
+        at = disc.routine_addresses()
+        for name, source in disc.ROUTINES:
+            words = mips.assemble(source, at[name])
+            for i, w in enumerate(words):
+                self.assertEqual(self._word(patched, at[name] + 4 * i), w, name)
+        write, load = at["P11 save extension: write"], at["P11 save extension: load"]
+        self.assertEqual(self._word(patched, 0x8011FC40), mips.word(f"jal {write:#x}", 0x8011FC40))
+        self.assertEqual(self._word(patched, 0x8011FC44), 0x3C128016)       # delay slot untouched
+        self.assertEqual(self._word(patched, 0x8011F850), mips.word(f"jal {load:#x}", 0x8011F850))
+        self.assertEqual(self._word(patched, 0x8011F854), 0x34020001)
+        # The cave is the debug menu: its entry is where the first routine starts.
+        self.assertEqual(self._word(self.track1, disc.CAVE_START), 0x27BDFFE8)   # addiu sp, sp, -0x18
+        # And the full set applies together without two edits sharing a byte.
+        disc.apply_edits(self.track1, list(disc.BASE_EDITS) + edits + disc.ap_block_edits(1))
 
     def test_audio_tracks_are_found_beside_track1(self):
         t2, t3 = disc.find_audio_tracks(TRACK1)

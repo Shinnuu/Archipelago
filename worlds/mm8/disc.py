@@ -63,6 +63,10 @@ OVERLAYS = {
 }
 PACKS = {
     "LABO.PAC": (132364, 483328),          # Dr. Light's Lab - its text is the shop
+    # The five attract demos; each swaps in its own weapon loadout (P1).
+    "PDEMO00.PAC": (132656, 563200), "PDEMO01.PAC": (132931, 753664),
+    "PDEMO02.PAC": (133299, 632832), "PDEMO03.PAC": (133608, 577536),
+    "PDEMO04.PAC": (133890, 677888),
 }
 
 REGION_EXE = "exe"          # `where` is a RAM address in the EXE
@@ -374,10 +378,429 @@ LAB_FULL_GUARD = ("Lab full-slots guard", LAB_FULL_RETURN, REGION_EXE,
                   (0x2402FFFF).to_bytes(4, "little"))     # addiu v0, zero, -1
 
 
+# ---- The architecture: X5's, fully decoupled (v1-design 5a) -----------------
+# The client is the only granter. Where the game's progression depends on its
+# own record (boss kills, Mega Ball, the bolt field) that record stays
+# vanilla-written and IS the check record, with capability decoupled from it;
+# every other grant is suppressed and writes an AP check record instead. AP
+# item state and check records live in one block the client re-initialises
+# from server state.
+
+def _w(value: int) -> bytes:
+    return value.to_bytes(4, "little")
+
+
+# ---- The AP block ----------------------------------------------------------------
+# Zero padding at the end of the EXE image (0x801D29A4..0x801D3000), which no
+# code in the EXE or any overlay touches (ram-notes 7, R11). Being inside the
+# image, it is on the disc: the patch writes the signature, version and seed
+# stamp there, so a patched game is recognisable from power-on.
+AP_BLOCK = 0x801D2A00
+AP_SIGNATURE = b"APM8"
+AP_VERSION = 1
+AP_STAMP = AP_BLOCK + 0x08        # u32, per seed, never 0
+AP_PARTS = AP_BLOCK + 0x0C        # u32, part ids 1-17 owned (item state, client)
+AP_LAB = AP_BLOCK + 0x10          # u32, Lab entries bought, bit = part id (P5)
+AP_RUSH = AP_BLOCK + 0x14         # 4 bytes, Rush pickups checked - BYTES, because
+                                  # the pickup's own store writes a byte (P2)
+AP_PROCESSED = AP_BLOCK + 0x18    # u32, items the client has applied to THIS game
+                                  # (X5's processed count; saved via P11)
+AP_BLOCK_SIZE = 0x40
+
+
+def ap_block_edits(stamp: int) -> list[tuple[str, int, str, bytes, bytes]]:
+    """The AP block's on-disc header: signature, version, this seed's stamp."""
+    if not 0 < stamp <= 0xFFFFFFFF:
+        raise ValueError(f"seed stamp must be a non-zero u32, got {stamp:#x}")
+    header = AP_SIGNATURE + _w(AP_VERSION) + _w(stamp)
+    return [("AP block header", AP_BLOCK, REGION_EXE, bytes(len(header)), header)]
+
+
+def seed_stamp(seed_name: str, player: int) -> int:
+    """A non-zero u32 naming this seed and slot. The save extension (P11)
+    ignores saves carrying a different one."""
+    digest = hashlib.md5(f"{seed_name}:{player}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "little") or 1
+
+
+# ---- P1: A1 - weapon capability decoupled from the kill record ---------------
+# `+0` of each weapon entry (0x801B1EAC + 4*slot) is BOTH "boss beaten" and
+# "weapon usable" - X5's trap. The kill-record readers (the grant and its
+# guard, the phase gates, stage select, the pause menu's Exit, the boss rooms,
+# the intro's Mega Ball, the save) keep reading +0; the CAPABILITY readers
+# move to the unused byte +1 by one immediate each - X5's 0x4C -> 0x4D. Every
+# reader was classified by reading its code (ram-notes 6).
+WEAPONS = 0x801B1EAC
+A1_CAPABILITY_READERS: list[tuple[str, int, str, int]] = [
+    # (what, RAM address, region, vanilla word) - `lbu rt, 0x1EAC(rs)` or,
+    # for Astro's Homing Sniper check, `lbu rt, 0x1ECC(rs)`; each gains +1.
+    ("energy-bar loop", 0x800FA3F4, REGION_EXE, 0x90221EAC),
+    ("weapon switch: current still owned?", 0x801104D4, REGION_EXE, 0x90221EAC),
+    ("weapon switch: next", 0x80110518, REGION_EXE, 0x90221EAC),
+    ("weapon switch: previous", 0x801105A4, REGION_EXE, 0x90221EAC),
+    ("pause cursor", 0x80112E7C, REGION_EXE, 0x90221EAC),
+    ("pause cursor", 0x80112F1C, REGION_EXE, 0x90221EAC),
+    ("pause cursor", 0x80113F08, REGION_EXE, 0x90231EAC),
+    ("pause icon", 0x801141A4, REGION_EXE, 0x90221EAC),
+    ("pause icon", 0x80114224, REGION_EXE, 0x90221EAC),
+    ("pause icon", 0x801144B0, REGION_EXE, 0x90221EAC),
+    ("refill item (all weapons)", 0x80128D74, REGION_EXE, 0x90221EAC),
+    ("full-recovery item", 0x80128E0C, REGION_EXE, 0x90221EAC),
+    ("weapon-energy pickup", 0x801290C4, REGION_EXE, 0x90221EAC),
+    ("Astro: Homing Sniper usable?", 0x801DBE4C, "ovl:STAGE07", 0x90421ECC),
+    ("Wily 4 Astro refight: Homing Sniper usable?", 0x801F1E04, "ovl:STAGE0D", 0x90421ECC),
+]
+# The spawn refill (0x8010BE50..8C, the player's spawn state): for each entry
+# it zeroes +1, then refills energy if +0. Key the refill on +1 and stop it
+# clearing +1 - its only writer anywhere.
+A1_SPAWN_REFILL = [
+    ("spawn refill: its +1 clear", 0x8010BE70, REGION_EXE, 0xA060FFFF, 0x00000000),  # sb zero,-1(v1) -> nop
+    ("spawn refill: owned?", 0x8010BE74, REGION_EXE, 0x90820000, 0x90820001),        # lbu v0,0(a0) -> 1(a0)
+]
+# The weapon switch steps (cur +- 1) & 0xF until it finds a usable slot - with
+# none it spins forever. So the buster is usable from power-on (the EXE load
+# puts this byte in RAM and nothing ever clears +1 once the refill's clear is
+# gone), and the five attract demos - which swap in their own loadout, every
+# +1 = 0, and USE weapons - get +1 = 1 in all ten entries.
+A1_BUSTER_SEED = ("buster usable from power-on", WEAPONS + 1, REGION_EXE, b"\x00", b"\x01")
+# The intro's Mega Ball pickup also SELECTS it: `sb v1(=1), 0x8016DC08` (the
+# current weapon) at STAGE00 0x801E1728. Firing reads only the current
+# weapon, so the pickup handed over a usable Mega Ball until the player
+# switched away (seen live 2026-09-24). Select the buster instead.
+A1_INTRO_SELECT = ("A1 intro Mega Ball: select the buster, not Mega Ball", 0x801E1728,
+                   "ovl:STAGE00", (0xA023DC08).to_bytes(4, "little"), (0xA020DC08).to_bytes(4, "little"))
+DEMO_LOADOUTS = {"PDEMO00.PAC": 0x21744, "PDEMO01.PAC": 0x36F44, "PDEMO02.PAC": 0x20F44,
+                 "PDEMO03.PAC": 0x20F44, "PDEMO04.PAC": 0x24744}
+
+
+def a1_edits() -> list[tuple[str, int, str, bytes, bytes]]:
+    edits = [(f"A1 {what}", where, region, _w(vanilla), _w(vanilla + 1))
+             for what, where, region, vanilla in A1_CAPABILITY_READERS]
+    edits += [(f"A1 {what}", where, region, _w(vanilla), _w(patched))
+              for what, where, region, vanilla, patched in A1_SPAWN_REFILL]
+    edits.append(A1_BUSTER_SEED)
+    edits.append(A1_INTRO_SELECT)
+    for pack, loadout in DEMO_LOADOUTS.items():
+        for slot in range(10):
+            edits.append((f"A1 {pack} demo loadout slot {slot} usable",
+                          loadout + 4 * slot + 1, f"pack:{pack}", b"\x00", b"\x01"))
+    return edits
+
+
+# ---- P2: the Rush pickups record a check instead of granting ------------------
+# The adapter is granted by ONE store, `sb 1, 0(ptr)` at 0x80129B08 in the
+# pickup object (item id 38), whose pointer comes from this table - which the
+# pickup also reads for "already collected" (ram-notes 5, R3). Point the table
+# at the AP block's Rush bytes and the store becomes the check record; point
+# the five stage reads (drop the pickup or not) at the same bytes, so "owned"
+# means "already checked" - exactly what a vanilla revisit does. The client
+# grants adapters by writing the live and persistent bytes.
+RUSH_TABLE = 0x80150D14
+RUSH_LIVE = 0x8016D300
+RUSH_STAGE_READS = [
+    # (what, RAM of the lbu, overlay, register, adapter) - each read is
+    # `lui r, 0x8017` immediately followed by `lbu r, 0xD30k(r)`.
+    ("Grenade: Bike drop", 0x801E0C78, "STAGE04", 2, 0),
+    ("Grenade: Bike at the mini-boss's spawn", 0x801DED90, "STAGE04", 3, 0),
+    ("Clown: Item drop", 0x801E8164, "STAGE02", 2, 1),
+    ("Sword: Bomber drop", 0x801DF184, "STAGE05", 2, 2),
+    ("Aqua: Health drop", 0x801E1000, "STAGE06", 2, 3),
+]
+
+
+def _lui(rt: int, imm: int) -> int:
+    return (0x0F << 26) | (rt << 16) | (imm & 0xFFFF)
+
+
+def _lbu(rt: int, rs: int, imm: int) -> int:
+    return (0x24 << 26) | (rs << 21) | (rt << 16) | (imm & 0xFFFF)
+
+
+def _hi_lo(address: int) -> tuple[int, int]:
+    """lui/offset halves for a signed 16-bit offset."""
+    lo = address & 0xFFFF
+    hi = (address >> 16) + (1 if lo & 0x8000 else 0)
+    return hi & 0xFFFF, lo
+
+
+def rush_edits() -> list[tuple[str, int, str, bytes, bytes]]:
+    table_vanilla = b"".join(_w(RUSH_LIVE + k) for k in range(4))
+    table_patched = b"".join(_w(AP_RUSH + k) for k in range(4))
+    edits = [("P2 Rush pickup pointers", RUSH_TABLE, REGION_EXE, table_vanilla, table_patched)]
+    for what, where, overlay, reg, k in RUSH_STAGE_READS:
+        vhi, vlo = _hi_lo(RUSH_LIVE + k)
+        phi, plo = _hi_lo(AP_RUSH + k)
+        vanilla = _w(_lui(reg, vhi)) + _w(_lbu(reg, reg, vlo))
+        patched = _w(_lui(reg, phi)) + _w(_lbu(reg, reg, plo))
+        edits.append((f"P2 {what}", where - 4, f"ovl:{overlay}", vanilla, patched))
+    return edits
+
+
+# ---- P4: a bolt pickup records its bit and grants nothing -----------------------
+# 0x80129788 `addiu v0, v0, 1` is the +1 to the counter 0x8016D2F0; the bit
+# store at 0x801297B4 - the check record, saved - stays. Bolts come only from
+# the bundles the client sends.
+BOLT_GRANT = ("P4 bolt pickup: no +1", 0x80129788, REGION_EXE, _w(0x24420001), _w(0x24420000))
+
+
+# ---- Routines: hand-written code in the dead debug menu -----------------------
+# 0x80134E7C..0x80136DAC (7,984 bytes) is the unused debug menu (MAINMENU,
+# FLAGCHANGE, ...): nothing calls it - no jal, j or data word points at it, in
+# the EXE or any overlay (ram-notes 7, R11). Routines are assembly text,
+# encoded and load-delay audited by mips.assemble (X5's ground rule).
+CAVE_START, CAVE_END = 0x80134E7C, 0x80136DAC
+CARD_BUFFER = 0x80060000          # the save's 1 KB file image (descriptor 0x801585BC)
+EXT_SIZE = 24
+EXT_MAIN, EXT_BACKUP = 0x338, 0x380   # + EXT_SIZE*slot: the file's unused tail (R2)
+EXT_CHECK_KEY = int.from_bytes(AP_SIGNATURE, "little")   # "APM8" as a u32
+
+# P11, the save extension (v1-design 5c). Each record copy in the card file
+# gets 24 bytes in the tail the game carries but never reads (0x338..0x3C7 of
+# 0x338..0x3FF):
+#   +0x00 seed stamp        +0x04 Lab bought      +0x08 Rush checked (4 bytes)
+#   +0x0C items processed   +0x10 spare (0)       +0x14 check word
+# check = XOR of the five words before it and "APM8". A new file zeroes the
+# whole tail, which fails the stamp test - as does a save from another seed
+# or a vanilla game. On load the Lab and Rush bits MERGE into the AP block
+# (checks are permanent), while the processed count is RESTORED as saved -
+# loading an older save rewinds the lives and energy it counts (X5's rule).
+_EXT_FIELDS = (("stamp", 0x08), ("lab", 0x10), ("rush", 0x14),
+               ("processed", 0x18), ("spare", 0x1C))   # (field, AP block offset)
+P11_WRITE = f"""
+    lui   t0, 0x801D
+    addiu t0, t0, 0x2A00          ; the AP block
+    lb    t2, 0xA(s1)             ; the slot being saved, 0-2
+    lw    t3, 0x08(t0)            ; seed stamp
+    lw    t4, 0x10(t0)            ; Lab bought
+    lw    t5, 0x14(t0)            ; Rush checked
+    lw    t6, 0x18(t0)            ; items processed
+    lw    t8, 0x1C(t0)            ; spare
+    sll   t9, t2, 1
+    addu  t9, t9, t2              ; slot * 3
+    sll   t9, t9, 3               ; slot * 24
+    lui   t1, 0x8006              ; the card buffer (the delay slot moved s2 on)
+    addu  t9, t1, t9
+    lui   t7, 0x384D
+    ori   t7, t7, 0x5041          ; "APM8"
+    xor   t7, t7, t3
+    xor   t7, t7, t4
+    xor   t7, t7, t5
+    xor   t7, t7, t6
+    xor   t7, t7, t8              ; check word
+    sw    t3, {EXT_MAIN + 0x00}(t9)
+    sw    t4, {EXT_MAIN + 0x04}(t9)
+    sw    t5, {EXT_MAIN + 0x08}(t9)
+    sw    t6, {EXT_MAIN + 0x0C}(t9)
+    sw    t8, {EXT_MAIN + 0x10}(t9)
+    sw    t7, {EXT_MAIN + 0x14}(t9)
+    sw    t3, {EXT_BACKUP + 0x00}(t9)
+    sw    t4, {EXT_BACKUP + 0x04}(t9)
+    sw    t5, {EXT_BACKUP + 0x08}(t9)
+    sw    t6, {EXT_BACKUP + 0x0C}(t9)
+    sw    t8, {EXT_BACKUP + 0x10}(t9)
+    sw    t7, {EXT_BACKUP + 0x14}(t9)
+    jr    ra
+    ori   s0, zero, 3             ; the retry count the hook displaced
+"""
+P11_LOAD = f"""
+    lb    t2, 0xA(s0)             ; the slot being loaded
+    lui   t0, 0x801D
+    addiu t0, t0, 0x2A00          ; the AP block
+    sll   t9, t2, 1
+    addu  t9, t9, t2
+    sll   t9, t9, 3               ; slot * 24
+    addu  t9, s2, t9              ; s2 = the card buffer here
+    lw    t3, 0x08(t0)            ; this disc's stamp
+    addiu t4, t9, {EXT_MAIN}      ; the main copy first
+    ori   t9, zero, 2
+try:
+    lw    t5, 0x00(t4)            ; stamp
+    lw    t6, 0x04(t4)            ; Lab
+    lw    t7, 0x08(t4)            ; Rush
+    lw    t8, 0x0C(t4)            ; processed
+    bne   t5, t3, next            ; another seed, a vanilla save, or empty
+    lw    t2, 0x10(t4)            ; spare
+    lw    t1, 0x14(t4)            ; check
+    xor   t5, t5, t6
+    xor   t5, t5, t7
+    xor   t5, t5, t8
+    xor   t5, t5, t2
+    lui   t2, 0x384D
+    ori   t2, t2, 0x5041          ; "APM8"
+    xor   t5, t5, t2
+    bne   t5, t1, next            ; damaged
+    nop
+    lw    t1, 0x10(t0)            ; merge Lab and Rush - OR, never clear
+    lw    t5, 0x14(t0)
+    or    t6, t6, t1
+    or    t7, t7, t5
+    sw    t6, 0x10(t0)
+    sw    t7, 0x14(t0)
+    b     done
+    sw    t8, 0x18(t0)            ; the processed count, as saved
+next:
+    addiu t9, t9, -1
+    bnez  t9, try
+    addiu t4, t4, {EXT_BACKUP - EXT_MAIN}   ; then the backup copy
+done:
+    ori   v0, zero, 1
+    jr    ra
+    sb    v0, 7(s0)               ; the store the hook displaced
+"""
+
+# P5, the Lab purchase: record, do not equip (v1-design 5, R5 research). At
+# 0x8011EBD8 the purchase calls the commit with `sb v1, 0(v0)` in the delay
+# slot - v1 the part id, v0 the free slot the search returned - and deducts
+# the price after it returns (0x8011EBE0..EBF8). The hook calls P5_BUY
+# instead and drops the store: the bit is set, nothing is equipped, the
+# commit still runs (as a tail call, so it returns to 0x8011EBE0) and the
+# price is still deducted.
+P5_BUY = """
+    lui   t0, 0x801D
+    lw    t1, 0x2A10(t0)          ; AP_LAB
+    ori   t2, zero, 1
+    sllv  t2, t2, v1              ; 1 << part id
+    or    t1, t1, t2
+    j     0x80101700              ; the commit - returns to 0x8011EBE0
+    sw    t1, 0x2A10(t0)
+"""
+
+# Where each routine lives, in cave order.
+ROUTINES: list[tuple[str, str]] = [
+    ("P11 save extension: write", P11_WRITE),
+    ("P11 save extension: load", P11_LOAD),
+    ("P5 Lab purchase", P5_BUY),
+]
+
+# ---- In-place rewrites: whole instruction runs replaced where they stand --------
+# (name, address, source, the vanilla words it replaces). Each keeps the host
+# function's registers and exits the way the original did; the words after a
+# rewrite's end, where it branches past them, are left as they were (dead).
+IN_PLACE: list[tuple[str, int, str, list[int]]] = [
+    # P5: the Lab's free-slot search (callers 0x8011E848 selection, 0x8011EBC4
+    # purchase - no others). Now: -1 ("You already have the part") iff the
+    # entry's AP_LAB bit is set, else 0. Nothing stores through the result
+    # any more (the purchase hook drops the store), so 0 is safe - and the
+    # interim full-Lab guard at 0x8011EF1C is dead code.
+    ("P5 Lab search: bought?", 0x8011EED8, """
+    lui   v1, 0x801D
+    lw    v1, 0x2A10(v1)          ; AP_LAB
+    andi  a0, a0, 0xFF
+    addiu a0, a0, 1               ; part index -> part id
+    srlv  v0, v1, a0
+    andi  v0, v0, 1
+    jr    ra
+    subu  v0, zero, v0            ; -1 bought, 0 not
+""", [0x3C038017, 0x2463D2F2, 0x00002821, 0x308400FF, 0x24840001, 0x90620000,
+      0x00000000, 0x14400003]),
+    # P6: the commit (0x80101700) builds the 24-byte mirror from AP_PARTS -
+    # mirror[i] = bit i - instead of wiping it and setting one byte per
+    # equipped slot; then the unchanged Rush copy at 0x80101754. Same
+    # registers as vanilla (a0 = the mirror, from 0x80101700/04). AP_PARTS
+    # bits 0 and 18-31 stay 0 (the client's contract); +0x12..+0x15 are the
+    # persistent Rush bytes, rewritten by the copy right after, as in vanilla.
+    ("P6 commit: effects from AP_PARTS", 0x80101708, """
+    lui   a2, 0x801D
+    lw    a2, 0x2A0C(a2)          ; AP_PARTS
+    addu  v1, zero, zero
+loop:
+    srlv  v0, a2, v1
+    andi  v0, v0, 1
+    addu  a1, a0, v1
+    sb    v0, 0(a1)               ; mirror[i] = owned?
+    addiu v1, v1, 1
+    sltiu v0, v1, 0x18
+    bnez  v0, loop
+    nop
+    b     0x80101754              ; the Rush copy, unchanged
+    nop
+""", [0x00001821, 0xA0800000, 0x24630001, 0x2C620018, 0x1440FFFC, 0x24840001,
+      0x3C04801C, 0x24843340, 0x34060001, 0x3C038017, 0x2463D2F2, 0x24650008,
+      0x90620000]),
+    # P6b: the pause screen's Laser / Arrow / Auto Shoot icons searched the 8
+    # slots for their part id; with parts off the slots they would all hide
+    # while the selection (0x8016D2FA, cycled from the MIRROR at 0x8011287C)
+    # still worked - invisible options. Now each asks mirror[10 + k]; a1 = 0
+    # shows it, 8 hides it, at the untouched `beq a1, 8` (0x80114418).
+    ("P6 pause shot icons", 0x801143EC, """
+    lui   at, 0x801C
+    addu  at, at, v0              ; v0 = k, 1..3
+    lbu   a1, 0x334A(at)          ; mirror[10 + k]
+    ori   v0, zero, 8
+    sltiu a1, a1, 1
+    sll   a1, a1, 3               ; 0 if owned, 8 if not
+    b     0x80114418
+    nop
+""", [0x2443000A, 0x00A71021, 0x90420002, 0x00000000, 0x10430006, 0x34020008,
+      0x24A50001, 0x2CA20008]),
+]
+
+
+def routine_addresses() -> dict[str, int]:
+    """Each routine's address in the cave, laid out in order, word-aligned."""
+    from . import mips
+    out, pc = {}, (CAVE_START + 3) & ~3
+    for name, source in ROUTINES:
+        out[name] = pc
+        pc += 4 * len(mips.assemble(source, pc))
+    if pc > CAVE_END:
+        raise ValueError(f"routines overrun the cave by {pc - CAVE_END} bytes")
+    return out
+
+
+def routine_edits(track1: bytes) -> list[tuple[str, int, str, bytes, bytes]]:
+    """The routines written over the dead debug menu, and the hooks that call
+    them. The cave's vanilla bytes are read from `track1`, whose md5 is
+    checked before any patch runs."""
+    from . import mips
+    at = routine_addresses()
+    edits = []
+    for name, source in ROUTINES:
+        code = mips.to_bytes(mips.assemble(source, at[name]))
+        vanilla = bytes(track1[addr_to_disc(at[name] + i, REGION_EXE)] for i in range(len(code)))
+        edits.append((f"{name} (routine)", at[name], REGION_EXE, vanilla, code))
+    write, load = at["P11 save extension: write"], at["P11 save extension: load"]
+    buy = at["P5 Lab purchase"]
+    edits += [
+        # Card write state, after the record's main and backup copies and
+        # before the 1 KB write; the delay slot `lui s2, 0x8016` stays.
+        ("P11 hook: save", 0x8011FC40, REGION_EXE, _w(0x34100003),
+         _w(mips.word(f"jal {write:#x}", 0x8011FC40))),
+        # Load confirm, after the slot's main record reaches 0x801507E0.
+        ("P11 hook: load", 0x8011F850, REGION_EXE, _w(0x34020001) + _w(0xA2020007),
+         _w(mips.word(f"jal {load:#x}", 0x8011F850)) + _w(0x34020001)),
+        # The Lab purchase: `jal commit` / `sb v1, 0(v0)` -> `jal P5_BUY` / nop.
+        ("P5 hook: purchase", 0x8011EBD8, REGION_EXE, _w(0x0C0405C0) + _w(0xA0430000),
+         _w(mips.word(f"jal {buy:#x}", 0x8011EBD8)) + _w(0)),
+    ]
+    return edits
+
+
+def in_place_edits() -> list[tuple[str, int, str, bytes, bytes]]:
+    from . import mips
+    edits = []
+    for name, where, source, vanilla in IN_PLACE:
+        words = mips.assemble(source, where)
+        if len(words) != len(vanilla):
+            raise ValueError(f"{name}: {len(words)} words over {len(vanilla)} vanilla")
+        edits.append((name, where, REGION_EXE, b"".join(_w(v) for v in vanilla),
+                      mips.to_bytes(words)))
+    return edits
+
+
+def ext_check(stamp: int, lab: int, rush: int, processed: int, spare: int = 0) -> int:
+    """The save extension's check word, as the routines compute it."""
+    return stamp ^ lab ^ rush ^ processed ^ spare ^ EXT_CHECK_KEY
+
+
 # ---- Edits -------------------------------------------------------------------
-# (label, where, region, expected vanilla, payload). Grows as the patch design
-# lands (v1-design section 5); every edit goes through apply_edits.
-BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = price_edits(LAB_PRICE) + [LAB_FULL_GUARD]
+# (label, where, region, expected vanilla, payload). Every edit goes through
+# apply_edits. BASE_EDITS are the same for every seed and need no disc to
+# build; the routines (whose vanilla bytes are read off the disc) and the
+# seed's own edits (the AP block header, the Lab text) are added at patch time.
+# (LAB_FULL_GUARD is gone: P5's search never returns a slot to store through.)
+BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = (
+    price_edits(LAB_PRICE) + a1_edits() + rush_edits() + [BOLT_GRANT] + in_place_edits())
 
 
 def apply_edits(track1: bytes, edits: Iterable[tuple[str, int, str, bytes, bytes]]) -> bytes:

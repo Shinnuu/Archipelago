@@ -28,6 +28,7 @@ class TestPatchFile(unittest.TestCase):
                 mock.patch.object(Rom, "get_base_rom_path", return_value=TRACK1):
             patch = Rom.MM8ProcedurePatch(player=1, player_name="Tester")
             patch.write_file("lab.json", json.dumps(entries).encode("utf-8"))
+            patch.write_file("seed.json", json.dumps({"stamp": 0x0BADCAFE}).encode("utf-8"))
             patch_path = os.path.join(tmp, "seed.apmm8")
             patch.write(patch_path)
 
@@ -58,3 +59,7 @@ class TestPatchFile(unittest.TestCase):
         text = chunk[start:start + 40]
         self.assertIn(bytes(disc.LAB_CHARSET[c] for c in "Bob's"), text)
         self.assertIn(bytes(disc.LAB_CHARSET[c] for c in "Item 2"), text)
+        # The seed's AP block header.
+        off = disc.addr_to_disc(disc.AP_BLOCK, disc.REGION_EXE)
+        self.assertEqual(t1[off:off + 12], b"APM8" + (1).to_bytes(4, "little")
+                         + (0x0BADCAFE).to_bytes(4, "little"))

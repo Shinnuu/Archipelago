@@ -22,6 +22,8 @@ from . import bolts, names
 from .items import MM8Item, event_table, item_groups, item_table
 from .locations import MM8Location, location_groups, location_table
 from .options import MM8Options
+from .client import MM8Client  # noqa: F401  (import registers the client)
+from .disc import seed_stamp
 from .Rom import MM8Settings, write_patch
 
 # What the Lab asks for before logic expects a player to shop. Bolts are not
@@ -226,6 +228,10 @@ class MM8World(World):
             self.multiworld.completion_condition[player] = \
                 lambda state: state.has(names.VICTORY, player)
 
+    def seed_stamp(self) -> int:
+        """Names this seed and slot on the disc and in the save (disc.seed_stamp)."""
+        return seed_stamp(self.multiworld.seed_name, self.player)
+
     def generate_output(self, output_directory: str) -> None:
         write_patch(self, output_directory)
 
@@ -237,4 +243,7 @@ class MM8World(World):
         return {
             "goal": self.options.goal.value,
             "bolt_bundle_size": self.options.bolt_bundle_size.value,
+            # The client checks the disc's AP block carries this before it
+            # writes anything (disc.AP_STAMP).
+            "seed_stamp": self.seed_stamp(),
         }

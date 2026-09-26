@@ -7,10 +7,11 @@ spawned by Tengu Man's overlay code). `mm8_bolt_harvest.py` in the research
 repo reproduces the table below and fails if it stops holding. [D]
 
 WHAT IT TAKES comes from the videochums bolt guide [G], which numbers each
-stage's bolts in PLAY order. Which subId is which guide number has NOT been
-read for most stages - coordinates alone do not settle it - so a requirement
-cannot yet be attached to the right bolt. Until it can, every unpinned bolt in
-a stage carries the requirements of EVERY unpinned guide bolt in that stage.
+stage's bolts in PLAY order. The names now follow play order too
+(PLAY_ORDER, read from the disc's maps), but that reading is not used to
+attach a guide number's requirement to one bolt: every unpinned bolt in a
+stage still carries the requirements of EVERY unpinned guide bolt in it
+(Ivor, 2026-09-25: the guide is fine for now).
 That can only over-gate: it narrows where fill may put things, and it can
 never ask a player for a bolt they cannot reach. X6 shipped two unwinnable
 seeds by guessing the loose way; this is the other way.
@@ -103,12 +104,37 @@ def stage_requirement(stage: str) -> Requirement:
     return tuple(clauses)
 
 
+# The order a player meets each stage's bolts - what the location names
+# number, so "Clown Man - Bolt 3" is the third bolt you come to (Ivor could
+# not find one named in subId order, 2026-09-24). Read from the disc
+# (2026-09-25, research repo ram-notes 10d): each stage's route off its
+# collision map (Scripts/mm8_stage_map.py), with the spawn list's own order
+# as the starting guess - the two agree except in the intro, whose route
+# drops in beside bolt 33, and in Tengu Man, whose bolt 14 is spawned by an
+# object listed late but met second (and pinned as the guide's #2). Every
+# play order the ramwatch logged agrees: Clown 10, 22, 7, 8; Grenade 32
+# before 17; Tengu 11 before 12; the intro's 33 first. Frost Man's 6 and 5
+# share one small room, so their order there is a judgement.
+# NAMES ONLY: requirements still come from GUIDE by stage (Ivor, 2026-09-25).
+PLAY_ORDER: dict[str, list[int]] = {
+    n.INTRO: [33, 1, 0],
+    n.FROST: [2, 23, 3, 4, 6, 5],
+    n.CLOWN: [10, 22, 7, 8, 9],
+    n.TENGU: [11, 14, 12, 13],
+    n.GRENADE: [15, 32, 16, 17, 18],
+    n.SWORD: [19, 20, 21],
+    n.AQUA: [27, 24, 25, 26],
+    n.ASTRO: [28, 29, 30, 31],
+    n.SEARCH: [34, 35, 36, 37],
+    n.DUO: [38, 39],
+}
+
+
 def location_name(sub_id: int) -> str:
-    """"Frost Man - Bolt 3" - numbered 1..N within the stage in subId order,
-    which is the game's internal order, NOT the guide's play order."""
+    """"Frost Man - Bolt 3" - the third bolt a player meets in Frost Man's
+    stage (PLAY_ORDER). The location's ID is still its subId."""
     stage = BOLT_STAGE[sub_id]
-    ordinal = sorted(s for s, st in BOLT_STAGE.items() if st == stage).index(sub_id) + 1
-    return f"{stage} - Bolt {ordinal}"
+    return f"{stage} - Bolt {PLAY_ORDER[stage].index(sub_id) + 1}"
 
 
 BOLT_LOCATIONS: dict[int, str] = {s: location_name(s) for s in sorted(BOLT_STAGE)}

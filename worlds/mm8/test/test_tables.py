@@ -120,3 +120,22 @@ class TestBolts(unittest.TestCase):
 
     def test_location_names_unique(self):
         self.assertEqual(len(set(bolts.BOLT_LOCATIONS.values())), 40)
+
+    def test_play_order_names_every_bolt_once(self):
+        listed = [s for order in bolts.PLAY_ORDER.values() for s in order]
+        self.assertEqual(sorted(listed), sorted(bolts.BOLT_STAGE))
+        for stage, order in bolts.PLAY_ORDER.items():
+            self.assertEqual({bolts.BOLT_STAGE[s] for s in order}, {stage})
+            self.assertEqual([bolts.BOLT_LOCATIONS[s] for s in order],
+                             [f"{stage} - Bolt {k}" for k in range(1, len(order) + 1)])
+
+    def test_play_order_agrees_with_what_was_seen(self):
+        """The ramwatch's BOLT events (orders a player really collected
+        them in), and the one bolt the disc ties to a guide number."""
+        order = bolts.PLAY_ORDER
+        self.assertEqual(order[names.CLOWN][:4], [10, 22, 7, 8])
+        self.assertLess(order[names.GRENADE].index(32), order[names.GRENADE].index(17))
+        self.assertLess(order[names.TENGU].index(11), order[names.TENGU].index(12))
+        self.assertEqual(order[names.INTRO][0], 33)
+        for sub_id, (stage, number) in bolts.PINNED.items():
+            self.assertEqual(order[stage].index(sub_id) + 1, number, sub_id)

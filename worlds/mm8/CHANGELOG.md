@@ -1,6 +1,6 @@
 # Mega Man 8 apworld — changelog
 
-## Unreleased — logic review: soft locks
+## Unreleased — logic review: soft locks, bolt names
 
 - **Duo's stage is in logic as soon as the first four Robot Masters are
   beaten**, because the game sends you there at that moment whether logic
@@ -16,6 +16,12 @@
 - **pickupsanity capsules now ask for what their stage's bolts ask for.** They
   had no requirements at all; the stage maps put several right beside bolts
   that need a weapon (Aqua Man's, for one).
+- **Bolt locations are numbered in the order you reach them.** "Clown Man -
+  Bolt 3" is now the third bolt you come to in Clown Man's stage; the
+  numbers used to follow the game's internal order, which is how a
+  playtester went looking for a bolt that was somewhere else entirely. The
+  order was read from each stage's map on the disc and matches every run
+  that was logged. Location IDs are unchanged.
 - **New tests pin the soft-lock rules**: 160 generated seeds across every
   stage_unlocks / pickupsanity / rematch_checks / goal combination (never an
   Access Codes item in a Wily stage or in the stage it opens; everything

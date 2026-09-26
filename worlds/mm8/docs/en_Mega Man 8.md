@@ -11,7 +11,9 @@ start with.
 
 **Every bolt in a stage is a check.** Picking one up sends whatever item is
 there, which may belong to someone else — it no longer adds a bolt to your own
-count. Your bolts arrive as **Bolts** items instead.
+count. Your bolts arrive as **Bolts** items instead. A stage's bolts are
+numbered in the order you reach them: "Clown Man - Bolt 3" is the third one
+you come to.
 
 **Dr. Light's Lab is a shop full of checks.** Each of its 17 entries holds an
 item, and its description in the Lab tells you what that item is and whose it

@@ -1,5 +1,13 @@
 # Mega Man 8 apworld — changelog
 
+## Unreleased — MM8-Unpatcher
+
+- **MM8-Unpatcher**, a separate download beside the apworld (Mega Man X5's
+  unpatcher, for a three-track disc): drag a patched `.bin` or `.cue` onto it
+  and it rebuilds your original three track files and their `.cue`, checked
+  against the Redump hashes before anything is written. It undoes every
+  option, Mega Man's colour and the stage music shuffle.
+
 ## Unreleased — logic review: soft locks, bolt names
 
 - **Duo's stage is in logic as soon as the first four Robot Masters are

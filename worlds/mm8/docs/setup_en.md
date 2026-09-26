@@ -162,6 +162,13 @@ above, and that Tracks 2 and 3 are in the same folder. The usual causes are
 pointing it at the `.cue` or at another track, or a dump made in a different
 format.
 
+**I no longer have my clean dump.** Download the standalone
+**MM8-Unpatcher** from the apworld's release page and drag a patched `.bin`
+(or its `.cue`) onto it. It rebuilds the three original track files and their
+`.cue` in an "(unpatched)" folder beside the disc, checks all three against the
+Redump hashes before it writes anything, and never changes the file you gave
+it. Point the Mega Man 8 setting at the Track 1 in that folder.
+
 **The game does not respond to any button.** The controller is set to analog.
 Switch BizHawk's PS1 pad to digital.
 

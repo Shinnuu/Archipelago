@@ -22,6 +22,22 @@ fortress restarts at Wily 1). X5 leaves out only an intro it cannot revisit.
 
 NOT A LOCATION: Clown Man's 1-UP container - a different object (id 44),
 broken by the Mega Ball, with its own grant (STAGE02 0x801E4AD8).
+
+WHAT ONE NEEDS (logic review, 2026-09-25). No guide covers pickups, so each
+carries what an unpinned bolt of its stage carries - bolts.stage_requirement,
+the same strict reading the bolts take. The stage maps (the research repo's
+Scripts/mm8_stage_map.py, drawn from the disc's collision data) show why a
+blanket "stage access only" was not safe: Aqua Man's Large Life Energy 1 is in
+the same small room as bolt 24, 96 px above it, and his Large Weapon Energy 2
+and Large Life Energy 2 share bolt 25's ledge, 24 and 48 px from it. Where the
+map cannot settle reach (Aqua's is under water; Search Man's pair sits near
+hook tiles and Flame-Sword-only objects), the strict reading stands in for a
+live look. It only narrows where fill may put progression; loosening a stage
+needs evidence per pickup, as R1 would for bolts.
+DELIBERATELY FREE: the intro and Tengu Man (no unpinned bolt there needs
+anything - bolt 14's Homing Sniper / Astro Crush is the breakable object that
+carries it), and the Wily stages (no bolts; the fortress already needs every
+weapon).
 """
 from . import names
 

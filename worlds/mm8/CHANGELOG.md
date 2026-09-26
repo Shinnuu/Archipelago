@@ -1,5 +1,28 @@
 # Mega Man 8 apworld — changelog
 
+## Unreleased — logic review: soft locks
+
+- **Duo's stage is in logic as soon as the first four Robot Masters are
+  beaten**, because the game sends you there at that moment whether logic
+  likes it or not. It used to wait for the Mega Ball and Thunder Claw, which
+  only his two bolts need; those two now sit on the bolts. Duo's stage was
+  checked on the disc to be clearable with the Mega Buster alone - its code
+  reads none of your inventory, Duo takes buster damage, and the way down to
+  him has no hook and no spikes - so being sent in early can never trap you.
+- **Sword, Aqua, Astro and Search Man still expect the Mega Ball and Thunder
+  Claw**, now stated outright: they used to follow from Duo's rule. The base
+  game never lets a player into them without both, and nobody has checked
+  whether their stages rely on it.
+- **pickupsanity capsules now ask for what their stage's bolts ask for.** They
+  had no requirements at all; the stage maps put several right beside bolts
+  that need a weapon (Aqua Man's, for one).
+- **New tests pin the soft-lock rules**: 160 generated seeds across every
+  stage_unlocks / pickupsanity / rematch_checks / goal combination (never an
+  Access Codes item in a Wily stage or in the stage it opens; everything
+  reachable), a rule-level check that no stage's codes can be skipped on the
+  way to Wily (Mega Man X5's tester deadlock), Duo's forced entry, and two
+  Mega Man 8 slots in one multiworld.
+
 ## Unreleased — fixes from the first full playtest
 
 - **A weapon received mid-stage arrives full.** The game only fills weapon

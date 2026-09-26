@@ -29,9 +29,17 @@ As in the base game, but on **bosses beaten** rather than weapons held — in a
 randomizer, the weapon a boss would award is somebody else's item.
 
 - Frost Man, Clown Man, Tengu Man and Grenade Man are open after the intro.
-- Duo's stage opens once those four are beaten.
+- Duo's stage opens once those four are beaten — and, as in the base game,
+  the fourth of them sends you **straight into it**: no stage select, no Lab,
+  no way out until Duo is beaten. That is always safe: Duo's stage can be
+  cleared with the Mega Buster alone, so logic never asks for anything there
+  except its two bolts (Mega Ball and Thunder Claw), which you can come back
+  for — the stage stays on the select afterwards.
 - Sword Man, Aqua Man, Astro Man and Search Man open once Duo's stage is clear.
-- The Wily stages open once all eight are beaten.
+  Logic also expects the **Mega Ball and Thunder Claw** before sending you
+  into them: the base game never lets anyone reach these four without both.
+- The Wily stages open once all eight are beaten. Logic also expects all eight
+  weapons.
 
 ## Items and locations
 
@@ -77,3 +85,6 @@ beaten — so no order of purchases can ever leave you stuck.
   own numbering. Until it is, logic asks for every weapon any bolt in that
   stage needs. You may find bolts reachable earlier than logic says; you will
   never be asked for one you cannot reach.
+- With `pickupsanity`, a capsule asks for the same weapons as the bolts of its
+  stage — no guide covers the capsules, and several sit right beside bolts
+  that need something. Again: sometimes earlier than logic says, never later.

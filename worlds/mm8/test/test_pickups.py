@@ -3,7 +3,10 @@ location list against the disc's own spawn lists, and the client."""
 import struct
 import unittest
 
-from .. import disc, mips, names, pickups
+from BaseClasses import CollectionState
+
+from . import MM8TestBase
+from .. import bolts, disc, mips, names, pickups
 from ..client import MM8Client
 from ..locations import location_table
 from .r3000 import R3000
@@ -186,6 +189,54 @@ class TestAgainstTheDump(unittest.TestCase):
             self.assertEqual(got, vanilla, label)
         disc.apply_edits(self.track1, list(disc.BASE_EDITS) + disc.routine_edits(self.track1)
                          + disc.ap_block_edits(1) + edits)
+
+
+class TestGates(MM8TestBase):
+    """Each pickup carries what an unpinned bolt of its stage carries
+    (pickups.py, WHAT ONE NEEDS). Tested on the location's own rule, apart
+    from its stage's entrance."""
+    options = {"pickupsanity": True}
+
+    def rule(self, name: str):
+        return self.multiworld.get_location(name, self.player).access_rule
+
+    def test_every_pickup_carries_its_stage_s_requirement(self):
+        everything = self.multiworld.get_all_state()
+        for index, _record, _kind, name in pickups.PICKUPS:
+            requirement = bolts.stage_requirement(pickups.STAGE_OF[index])
+            with self.subTest(name):
+                self.assertTrue(self.rule(name)(everything))
+                for clause in requirement:
+                    state = everything.copy()
+                    for item in list(self.multiworld.itempool):
+                        if item.player == self.player and item.name in clause:
+                            state.remove(item)
+                    self.assertFalse(self.rule(name)(state), f"{name} without any of {sorted(clause)}")
+
+    def test_the_same_as_an_unpinned_bolt_of_the_stage(self):
+        for sub_id, stage in bolts.BOLT_STAGE.items():
+            if sub_id not in bolts.PINNED:
+                self.assertEqual(bolts.requirement(sub_id), bolts.stage_requirement(stage), sub_id)
+
+    def test_the_three_beside_aqua_s_bolts(self):
+        """The map evidence: these share bolt 24's room and bolt 25's ledge."""
+        self.assertEqual(bolts.BOLT_STAGE[24], names.AQUA)
+        self.assertEqual(bolts.BOLT_STAGE[25], names.AQUA)
+        for name in ("Aqua Man - Large Life Energy 1", "Aqua Man - Large Weapon Energy 2",
+                     "Aqua Man - Large Life Energy 2"):
+            state = CollectionState(self.multiworld)
+            self.assertFalse(self.rule(name)(state), name)
+            for item in (names.ASTRO_CRUSH, names.TORNADO_HOLD):
+                state.collect(self.world.create_item(item), True)
+            self.assertTrue(self.rule(name)(state), name)
+
+    def test_the_free_stages(self):
+        empty = CollectionState(self.multiworld)
+        for index, _record, _kind, name in pickups.PICKUPS:
+            stage = pickups.STAGE_OF[index]
+            if stage in (names.INTRO, names.TENGU) or stage in names.WILY_STAGES:
+                self.assertEqual(bolts.stage_requirement(stage), (), stage)
+                self.assertTrue(self.rule(name)(empty), name)
 
 
 class TestClient(ClientTest):

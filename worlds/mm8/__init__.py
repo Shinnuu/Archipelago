@@ -189,8 +189,7 @@ class MM8World(World):
                 if st == stage]
 
     def _stage_pickups(self, stage: str) -> list[str]:
-        """pickupsanity: stage access only, X5's rule for its pickups - no
-        pickup is known to need an item (a live look is owed)."""
+        """pickupsanity's locations in a stage (their rules: set_rules, pickups.py)."""
         if not self.options.pickupsanity:
             return []
         return [name for index, _r, _k, name in pickups.PICKUPS if index == names.STAGE_INDEX[stage]]
@@ -270,17 +269,34 @@ class MM8World(World):
         # (A1) moves them onto a boss record, because in a randomizer the
         # weapon a boss awards is somebody else's item.
         #
-        # Duo additionally needs Mega Ball and Thunder Claw, which are what its
-        # two bolts need. Whether Duo's stage can be REPLAYED is not known
-        # (v1-design R7); if it cannot, entering without them would lose those
-        # checks for good, so logic never sends a player in without them.
+        # Duo is FORCED: the fourth set-1 kill sets phase 2, and the hub plays
+        # ROCK8_2 and puts the player in Duo's stage with no stage select, no
+        # Lab and no Exit out until he is cleared (ram-notes 9f). So his
+        # entrance is set 1 and nothing else - logic must allow what the game
+        # compels - and his clear must need nothing. It needs nothing [D]
+        # (ram-notes 10b): STAGE09 reads no inventory, Duo (id 80, fought at
+        # phase 3 only) takes the buster through damage table 29, and the
+        # route down to him has no hook and no spikes. What the stage does
+        # need is on its two bolts (Mega Ball, Thunder Claw - bolts.GUIDE),
+        # in an upper branch off the route; the stage replays at phase >= 4
+        # (Ivor, 2026-09-25), so they can be collected later.
+        # test_soft_locks.ForcedDuo is the guard: nothing may be added to
+        # Duo's clear that a player forced in might not hold.
         set_1_beaten = [names.beaten(b) for b in names.SET_1]
         entrance(f"Stage Select -> {names.DUO}").access_rule = \
-            lambda state: (state.has_all(set_1_beaten, player)
-                           and state.has_all((names.MEGA_BALL, names.THUNDER_CLAW), player))
+            lambda state: state.has_all(set_1_beaten, player)
+
+        # Set 2 opens on Duo's clear, and ALSO needs Mega Ball + Thunder
+        # Claw. Until 2026-09-25 those came through Duo's entrance; they stay
+        # here explicitly, because in vanilla set 2 is only ever played
+        # holding the Mega Ball and all four set-1 weapons, so a set-2 route
+        # may assume any of them, and nobody has checked. Stricter only
+        # narrows placement. (The other three set-1 weapons were never asked
+        # for - an open question, not a finding.)
         for boss in names.SET_2:
             entrance(f"Stage Select -> {boss}").access_rule = \
-                lambda state: state.has(names.DUO_CLEARED, player)
+                lambda state: (state.has(names.DUO_CLEARED, player)
+                               and state.has_all((names.MEGA_BALL, names.THUNDER_CLAW), player))
 
         # stage_unlocks: each Robot Master stage also needs its codes - on top
         # of the game's own structure, never instead of it.
@@ -297,13 +313,21 @@ class MM8World(World):
             lambda state: (state.has_all(all_beaten, player)
                            and state.has_all(names.WEAPONS, player))
 
-        # --- Bolts ---------------------------------------------------------
+        # --- Bolts and pickups ----------------------------------------------
+        def meets(requirement):
+            return lambda state: all(state.has_any(clause, player) for clause in requirement)
+
         for sub_id, name in bolts.BOLT_LOCATIONS.items():
             requirement = bolts.requirement(sub_id)
             if requirement:
-                location(name).access_rule = \
-                    lambda state, req=requirement: all(state.has_any(clause, player)
-                                                       for clause in req)
+                location(name).access_rule = meets(requirement)
+        # Pickups carry what an unpinned bolt of their stage carries - the
+        # reasoning, the evidence and the free stages are in pickups.py.
+        if self.options.pickupsanity:
+            for stage_index, _record, _kind, name in pickups.PICKUPS:
+                requirement = bolts.stage_requirement(pickups.STAGE_OF[stage_index])
+                if requirement:
+                    location(name).access_rule = meets(requirement)
 
         # --- The Lab ---------------------------------------------------------
         def bolts_held(state) -> int:

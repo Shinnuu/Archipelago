@@ -82,10 +82,19 @@ def requirement(sub_id: int) -> Requirement:
     if sub_id in PINNED:
         stage, number = PINNED[sub_id]
         return GUIDE[stage][number - 1]
-    stage = BOLT_STAGE[sub_id]
+    return stage_requirement(BOLT_STAGE[sub_id])
+
+
+def stage_requirement(stage: str) -> Requirement:
+    """The conjunction of every UNPINNED guide bolt in `stage` - what an
+    unpinned bolt there carries, and what anything else placed in the stage
+    without a guide entry of its own inherits (pickups.py). A pinned bolt's
+    requirement is its own: it is a breakable object carrying that one bolt
+    (bolt 14's parent), not a way into a part of the stage. FREE for a stage
+    with no bolts."""
     taken = {number for s, number in PINNED.values() if s == stage}
     clauses: list[Clause] = []
-    for number, req in enumerate(GUIDE[stage], start=1):
+    for number, req in enumerate(GUIDE.get(stage, []), start=1):
         if number in taken:
             continue
         for clause in req:

@@ -1,4 +1,5 @@
 """Reachability: the stage structure, the Lab's bolt gates, and the bolts."""
+from BaseClasses import CollectionState
 from Options import OptionError
 
 from . import MM8TestBase
@@ -20,15 +21,31 @@ class TestStructure(MM8TestBase):
         for boss in names.SET_2:
             self.assertFalse(self.can_reach_location(names.boss_location(boss)), boss)
 
-    def test_duo_needs_mega_ball_and_thunder_claw(self):
+    def test_duo_opens_on_set_1_alone(self):
+        # The game forces Duo after the fourth set-1 kill (test_soft_locks).
         self.multiworld.state.sweep_for_advancements()
-        self.assertFalse(self.can_reach_region(names.DUO))
-        self.collect_by_name(names.MEGA_BALL)
-        self.assertFalse(self.can_reach_region(names.DUO))
-        self.collect_by_name(names.THUNDER_CLAW)
-        self.assertTrue(self.can_reach_region(names.DUO))
+        self.assertTrue(self.can_reach_location(names.DUO_CLEAR))
+        self.assertTrue(self.multiworld.state.has(names.DUO_CLEARED, self.player))
 
-    def test_set_2_opens_on_duo(self):
+    def test_duo_bolts_need_mega_ball_and_thunder_claw(self):
+        self.multiworld.state.sweep_for_advancements()
+        duo_bolts = [s for s, stage in bolts.BOLT_STAGE.items() if stage == names.DUO]
+        for items in ([], [names.MEGA_BALL], [names.THUNDER_CLAW]):
+            collected = self.collect_by_name(items)
+            for sub_id in duo_bolts:
+                self.assertFalse(self.can_reach_location(bolt(sub_id)), (sub_id, items))
+            self.remove(collected)
+        self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
+        for sub_id in duo_bolts:
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+
+    def test_set_2_needs_duo_mega_ball_and_thunder_claw(self):
+        self.multiworld.state.sweep_for_advancements()
+        for items in ([], [names.MEGA_BALL], [names.THUNDER_CLAW]):
+            collected = self.collect_by_name(items)
+            for boss in names.SET_2:
+                self.assertFalse(self.can_reach_region(boss), (boss, items))
+            self.remove(collected)
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
         for boss in names.SET_2:
             self.assertTrue(self.can_reach_location(names.boss_location(boss)), boss)
@@ -64,15 +81,19 @@ class TestLab(MM8TestBase):
         self.assertTrue(self.can_reach_location(entry))
 
     def test_post_duo_stock_needs_duo_and_40(self):
-        entry = names.shop_location(names.HYPER_SLIDER)
+        # Duo's clear is free once set 1 is (and set 1 is free here), so a
+        # sweep would collect it: build the state without one.
+        entry = self.multiworld.get_location(names.shop_location(names.HYPER_SLIDER), self.player)
         bundles = self.get_items_by_name(names.BOLTS)
         need = -(-FULL_STOCK_COST // 5)                        # 8 bundles
-        self.collect(bundles[:need])
-        self.assertFalse(self.can_reach_location(entry))       # no Duo yet
-        self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
-        self.assertTrue(self.can_reach_location(entry))
-        self.remove([bundles[need - 1]])
-        self.assertFalse(self.can_reach_location(entry))
+        state = CollectionState(self.multiworld)
+        for bundle in bundles[:need]:
+            state.collect(bundle, True)
+        self.assertFalse(entry.can_reach(state))               # no Duo yet
+        state.collect(self.world.create_item(names.DUO_CLEARED), True)
+        self.assertTrue(entry.can_reach(state))
+        state.remove(bundles[need - 1])
+        self.assertFalse(entry.can_reach(state))
 
 
 class TestBoltRules(MM8TestBase):
@@ -107,7 +128,8 @@ class TestRobotMastersGoal(MM8TestBase):
     options = {"goal": "robot_masters"}
 
     def test_goal_without_wily(self):
-        # Set 2 needs Duo, and Duo needs Mega Ball + Thunder Claw - nothing else.
+        # Set 2 needs Duo (free once set 1 is) plus Mega Ball + Thunder Claw.
+        self.assertBeatable(False)
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
         self.assertBeatable(True)
 

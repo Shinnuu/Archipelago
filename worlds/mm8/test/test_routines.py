@@ -247,6 +247,20 @@ class TestAssembler(unittest.TestCase):
         for bad in ("lw t0, 0(t1)\naddu t2, t0, t1\nnop",        # load delay
                     "lbu t0, 0(t1)\nsb t0, 0(t2)\nnop",           # the X5 v3-v6 bug
                     "beq t0, t1, x\nx: j 0x80000000\nnop",        # transfer in a delay slot
-                    "nop\njr ra"):                                # no delay slot at the end
+                    "nop\njr ra",                                 # no delay slot at the end
+                    # a load in a branch's delay slot, read at the target
+                    "beqz a0, out\nlbu t0, 0(a1)\nnop\nout: addu v0, t0, zero\njr ra\nnop"):
             with self.assertRaises(ValueError, msg=bad):
                 mips.assemble(bad, 0x80000000)
+        # The control: the same shape reading another register at the target.
+        mips.assemble("beqz a0, out\nlbu t0, 0(a1)\nnop\nout: addu v0, t1, zero\njr ra\nnop",
+                      0x80000000)
+
+    def test_signed_fields_refuse_what_would_encode_negative(self):
+        """0x8000-0xFFFF in a signed field used to encode as negative."""
+        for bad in ("lw t0, 0x8000(t1)", "addiu v0, v0, 0xFFFF", "b 0x80030000"):
+            with self.assertRaises(ValueError, msg=bad):
+                mips.word(bad, 0x80000000)
+        # Zero-extended fields take the whole range.
+        self.assertEqual(mips.word("ori v0, zero, 0xFFFF", 0x80000000), 0x3402FFFF)
+        self.assertEqual(mips.word("andi v0, v0, 0x8000", 0x80000000), 0x30428000)

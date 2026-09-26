@@ -15,7 +15,7 @@ Policies, each with its reason. Read these before changing anything.
    turn its records into false checks and its capability into false grants.
 
 2. THE ATTRACT DEMO IS NOT PLAY. Each demo swaps in its own weapon loadout -
-   every Robot Master "beaten" - and clears and collects bolts. The demo runs
+   every Robot Master "beaten" - and clears the bolt field. The demo runs
    exactly while the timer 0x801B2944 is non-zero (0x800FF4C0), so nothing is
    read or written then; and the weapon capability bytes must read back as
    the client last wrote them, which a demo's whole-entry swap breaks.
@@ -157,7 +157,7 @@ AP_OFF_CONFIRMED = disc.AP_PICKUP_CONFIRMED - disc.AP_BLOCK
 PICKUP_NAMES = [name for _s, _r, _k, name in PICKUPS]      # bit i = PICKUPS[i]
 STAGE_OVERLAYS = range(6, 0x14)
 HP_MAX = 40                             # [L] vanilla; a seed's max_life (slot data) replaces it
-LIVES_CAP = 9                           # inference: the lives counter is one digit
+LIVES_CAP = 9                           # the game's own: the 1-UP pickup clamps at 9 (0x80128D10)
 ENERGY_FULL = 0x2800                    # 40.0 in the 8.8 energy halfword
 WILY_CLEARS_FOR_GOAL = 4                # +1 per Wily stage cleared (0x80101418..24)
 PHASE_DUO_CLEARED = 4                   # phase 3 -> 4 on Duo's clear (0x801013EC)
@@ -181,7 +181,6 @@ class MM8Client(BizHawkClient):
         self._reset()
 
     def _reset(self) -> None:
-        self.sent: set[int] = set()
         self.last_signature: bytes | None = None
         self.refusal: str | None = None       # the reason currently in force
         self.refusal_since: float | None = None
@@ -230,6 +229,12 @@ class MM8Client(BizHawkClient):
         return True
 
     def on_package(self, ctx: "BizHawkClientContext", cmd: str, args: dict) -> None:
+        if cmd == "Connected":
+            # A fresh login. The goal is latched per session, and a
+            # StatusUpdate lost with the old socket would otherwise never go
+            # out again; the server ignores a repeat.
+            self.victory_sent = False
+            return
         if cmd != "Bounced" or "DeathLink" not in args.get("tags", []):
             return
         # Our own bounce comes back to us; core's timestamp filter does not
@@ -422,8 +427,24 @@ class MM8Client(BizHawkClient):
     # ---- the poll ------------------------------------------------------------
 
     async def game_watcher(self, ctx: "BizHawkClientContext") -> None:
-        if ctx.slot_data is None or ctx.server is None:
+        # `ctx.slot`, not just slot_data (X5): a reconnect leaves slot_data
+        # from the last login and sets ctx.server as soon as the socket
+        # opens, so until Connected arrives items_received is EMPTY - a poll
+        # then stripped every grant (and re-granted them as fresh, refilling
+        # spent energy), and sent checks to a server that drops them from an
+        # unauthenticated client (pre-release review B4).
+        if ctx.server is None or ctx.slot is None or ctx.slot_data is None:
             return
+        try:
+            await self._poll(ctx)
+        except (bizhawk.RequestFailedError, bizhawk.NotConnectedError):
+            # BizHawk went away mid-poll (closed, ROM unloaded, a timeout).
+            # _bizhawk/context.py calls game_watcher outside its own try, so an
+            # escape here ended the watcher for the rest of the session with
+            # the window still looking alive (review B3). X5 catches it too.
+            self.last_signature = None
+
+    async def _poll(self, ctx: "BizHawkClientContext") -> None:
         try:
             (ap, weapons, live, persist_rush, progress, demo, overlay, hp, mirror, cur_weapon, sig,
              mode, player, control, paused, select) = await bizhawk.read(
@@ -456,8 +477,9 @@ class MM8Client(BizHawkClient):
             return
         # Policy 1.
         if ap[:4] != disc.AP_SIGNATURE or _u32(ap, 4) != disc.AP_VERSION:
-            self._refuse("this is not a disc patched for this Archipelago version "
-                         "(open your .apmm8 to build it)", grace=REFUSAL_GRACE)
+            self._refuse("this is not a disc patched by this version of the Mega Man 8 apworld "
+                         "(a savestate from another disc: reset; otherwise open your .apmm8 "
+                         "again, which rebuilds an outdated disc)", grace=REFUSAL_GRACE)
             self._drop_death_link("with no patched disc running")
             return
         want_stamp = ctx.slot_data.get("seed_stamp")
@@ -496,9 +518,10 @@ class MM8Client(BizHawkClient):
         if stable:
             found = {location_table[name]
                      for name in self.detect(weapons, live, progress, ap, rematches, pickupsanity, bass)}
-            new = found - set(ctx.checked_locations) - self.sent
+            # Re-sent every stable poll until the server has it (X5): a send
+            # can be lost with a dropping socket, and nothing else retries.
+            new = found - set(ctx.checked_locations)
             if new:
-                self.sent |= new
                 await ctx.send_msgs([{"cmd": "LocationChecks", "locations": sorted(new)}])
             goal = ctx.slot_data.get("goal", GOAL_WILY)
             if not self.victory_sent and self.goal_reached(goal, weapons, progress):
@@ -574,6 +597,13 @@ class MM8Client(BizHawkClient):
                 logger.info(f"Mega Man 8: stages unlocked ({len(unlocked)}/8): "
                             + ", ".join(b for b in names.ROBOT_MASTERS if b in unlocked))
 
+        # Only while no demo has started and the disc is still this seed's.
+        base_guards = [(DEMO_TIMER_ADDR, bytes(4), "MainRAM"),
+                       (AP_ADDR + AP_OFF_STAMP, ap[AP_OFF_STAMP:AP_OFF_STAMP + 4], "MainRAM")]
+        if writes:
+            if await bizhawk.guarded_write(ctx.bizhawk_ctx, writes, base_guards):
+                self.capability_written = capability
+
         # ---- consumables (policy 4), only in a stage ----
         in_stage = _u32(overlay) in STAGE_OVERLAYS
         processed = _u32(ap, AP_OFF_PROCESSED)
@@ -596,23 +626,31 @@ class MM8Client(BizHawkClient):
                 elif name == names.WEAPON_ENERGY:
                     energy_refill = True
                 processed += 1
+            batch: list[tuple[int, bytes, str]] = []
             if lives != progress[4]:
-                writes.append((PROGRESS_ADDR + 4, bytes([lives]), "MainRAM"))
+                batch.append((PROGRESS_ADDR + 4, bytes([lives]), "MainRAM"))
             if cur_hp != hp[0]:
-                writes.append((HP_ADDR, bytes([cur_hp]), "MainRAM"))
+                batch.append((HP_ADDR, bytes([cur_hp]), "MainRAM"))
             if energy_refill:
                 for slot in range(1, 10):
                     if capability[slot]:
-                        writes.append((WEAPONS_ADDR + 4 * slot + 2,
-                                       ENERGY_FULL.to_bytes(2, "little"), "MainRAM"))
-            writes.append((AP_ADDR + AP_OFF_PROCESSED, processed.to_bytes(4, "little"), "MainRAM"))
-
-        if writes:
-            # Only while no demo has started and the disc is still this seed's.
-            guards = [(DEMO_TIMER_ADDR, bytes(4), "MainRAM"),
-                      (AP_ADDR + AP_OFF_STAMP, ap[AP_OFF_STAMP:AP_OFF_STAMP + 4], "MainRAM")]
-            if await bizhawk.guarded_write(ctx.bizhawk_ctx, writes, guards):
-                self.capability_written = capability
+                        batch.append((WEAPONS_ADDR + 4 * slot + 2,
+                                      ENERGY_FULL.to_bytes(2, "little"), "MainRAM"))
+            batch.append((AP_ADDR + AP_OFF_PROCESSED, processed.to_bytes(4, "little"), "MainRAM"))
+            # Its own write, guarded on everything it was computed from (X5):
+            # a death, a 1-Up picked up, a stage change or a same-seed
+            # savestate between the read and the write would otherwise have
+            # a heal land on a dying player, a lives change undone, or the
+            # processed count rewound or advanced - items applied twice or
+            # skipped (review M3). A refused batch is simply retried.
+            guards = base_guards + [
+                (AP_ADDR + AP_OFF_PROCESSED, ap[AP_OFF_PROCESSED:AP_OFF_PROCESSED + 4], "MainRAM"),
+                (PROGRESS_ADDR + 4, progress[4:5], "MainRAM"),
+                (OVERLAY_ADDR, overlay, "MainRAM")]
+            if cur_hp != hp[0]:
+                guards += [(HP_ADDR, hp, "MainRAM"),
+                           (PLAYER_ADDR + 1, bytes([TOP_PLAY]), "MainRAM")]
+            await bizhawk.guarded_write(ctx.bizhawk_ctx, batch, guards)
 
         # ---- DeathLink ----
         if ctx.slot_data.get("death_link"):

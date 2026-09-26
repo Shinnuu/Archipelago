@@ -1,5 +1,5 @@
 """Reachability: the stage structure, the Lab's bolt gates, and the bolts."""
-from BaseClasses import CollectionState
+from BaseClasses import CollectionState, ItemClassification
 from Options import OptionError
 
 from . import MM8TestBase
@@ -79,6 +79,26 @@ class TestLab(MM8TestBase):
         self.assertFalse(self.can_reach_location(entry))
         self.collect(bundles[need - 1])
         self.assertTrue(self.can_reach_location(entry))
+
+    def test_start_stock_holds_nothing_required(self):
+        """Review B1: after Duo the Lab also sells the post-Duo stock, so a
+        start-stock entry in logic at 21 can be left unaffordable - it may
+        hold nothing required. The post-Duo stock (behind 40) may."""
+        required, spare = self.world.create_item(names.MEGA_BALL), self.world.create_item(names.EXTRA_LIFE)
+        for part in names.START_STOCK:
+            entry = self.multiworld.get_location(names.shop_location(part), self.player)
+            self.assertFalse(entry.item_rule(required), part)
+            self.assertTrue(entry.item_rule(spare), part)
+        for part in names.POST_DUO_STOCK:
+            entry = self.multiworld.get_location(names.shop_location(part), self.player)
+            self.assertTrue(entry.item_rule(required), part)
+
+    def test_only_the_bundles_logic_counts_are_progression(self):
+        """Review B2: logic counts bolts up to 40 - eight bundles of 5; the
+        other four of the twelve are useful, so fill need not place them early."""
+        kinds = [item.classification for item in self.get_items_by_name(names.BOLTS)]
+        self.assertEqual(sum(bool(k & ItemClassification.progression) for k in kinds), 8)
+        self.assertEqual(kinds.count(ItemClassification.useful), 4)
 
     def test_post_duo_stock_needs_duo_and_40(self):
         # Duo's clear is free once set 1 is (and set 1 is free here), so a

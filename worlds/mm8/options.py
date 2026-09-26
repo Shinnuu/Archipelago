@@ -33,9 +33,11 @@ MegaManPalette = _palette_option("MegaManPalette", "Mega Man Colour", """Recolou
     `vanilla` leaves him alone. `random` is rolled when the seed is generated,
     so it is fixed and in the spoiler; it can land on vanilla.
 
-    You do not need a new seed to change your mind: name a colour as
-    `mega_man_palette` under `mm8_options` in your own host.yaml and re-patch.
-    Anything named there wins over this setting.
+    You do not need a new seed to change your mind: name a colour (or
+    `random`) as `mega_man_palette` under `mm8_options` in your own host.yaml,
+    delete the patched .bin and .cue, and open your .apmm8 again. A colour
+    named there wins over this setting; `unset` (what Archipelago writes there
+    by itself) and `vanilla` leave this setting in charge.
     """)
 
 
@@ -59,6 +61,7 @@ class BoltBundleSize(Range):
     Every bolt you pick up in a stage is a check, like any other - it no
     longer adds to your own bolt count. Your bolts come from "Bolts" items
     found in the multiworld instead, and Dr. Light spends them in the Lab.
+    At 1, every Bolts item is one bolt, as in the base game.
     """
     display_name = "Bolt Bundle Size"
     range_start = 1
@@ -72,14 +75,21 @@ class BoltSurplus(Range):
 
     Every one of the Lab's 17 entries is a check, and the randomizer prices
     them so that together they cost 40 bolts - the number of bolts in the
-    game. Logic only expects you to shop once you could buy EVERYTHING in
-    stock - 21 bolts for the nine entries on sale from the start, 40 once Duo
-    is beaten - so buying in any order can never strand you. The surplus is
-    how much slack you get on top: at 40 the pool holds 60 bolts (twelve
-    bundles of 5), so the Lab opens up in logic after 35% and 67% of them.
+    game. Bolts never come back once spent, and the Lab sells whatever is in
+    stock whether logic expects you there or not, so logic is built to
+    survive buying in ANY order: the nine entries on sale from the start never
+    hold anything required, and logic expects them once you have received 21
+    bolts; the eight that appear after Duo can hold anything, and logic waits
+    until you have received 40 - the whole Lab - before expecting those.
 
-    The pool has limited room. If the bundles would not fit, generation stops
-    and says so rather than silently dropping items - raise the bundle size.
+    The surplus is how much slack you get on top: at 40 the pool holds 60
+    bolts (twelve bundles of 5). Logic counts the first 40; the other bundles
+    are extra spending money.
+
+    The pool has limited room. With small bundles and a big surplus the
+    Bolts items may not fit; generation then stops and says so rather than
+    silently dropping items - raise the bundle size, lower the surplus, or
+    turn on Pickupsanity.
     """
     display_name = "Bolt Surplus"
     range_start = 0
@@ -165,7 +175,8 @@ class WeaponDamage(Choice):
     The Mega Buster rolls ONCE for all its shots - plain, half charge, full
     charge, and the Laser and Arrow charge shots - so a charged shot never
     comes out weaker than a plain one. Rush's Bike and Bomber shots roll as
-    weapons of their own.
+    weapons of their own, and so does the shot of the flying sections (Tengu
+    Man's stage and Wily Stage 2).
 
     What each weapon can hurt does not change: a weapon that could not damage
     something still cannot, and one that could still can - so every bolt
@@ -188,6 +199,10 @@ class WeaponDamage(Choice):
 class BossHPRandomization(Choice):
     """Randomize how much HP the eight Robot Masters have.
 
+    Only the Robot Masters and their Rush mini-bosses, unlike Mega Man X5's,
+    which also rolls its other mid-bosses and endgame fights: the intro
+    stage's boss, Duo and the Wily stages' own bosses keep their normal HP.
+
     Each Robot Master rolls once for the seed, and the roll covers his own
     stage, his rematch in Wily's fourth stage, and the Rush mini-boss in his
     stage where there is one. Normal is 40 (the mini-bosses 32 or 40).
@@ -200,13 +215,10 @@ class BossHPRandomization(Choice):
 
     The health bar shows at most 40. A boss rolled above that fills the bar,
     and the bar only starts to fall once his health drops to 40 - the extra
-    is real, the bar just cannot show it. The most any boss can have is 127.
+    is real, the bar just cannot show it. The most any roll gives is 100.
 
     A boss with little HP can start below the point where he changes tactics,
     so a low roll may open straight into his late-fight behaviour.
-
-    The intro stage's boss, Duo and the Wily stages' own bosses are not
-    rolled.
 
     Changes the disc.
     """
@@ -252,14 +264,14 @@ class BossDamage(Choice):
 
 
 class MaxLife(Range):
-    """How much life Mega Man has. Normal is 40.
+    """How much life Mega Man has. Normal is 40. THE LIFE BAR DOES NOT GROW:
+    unlike Mega Man X5's Starting Life, where a bigger maximum draws a longer
+    bar, Mega Man 8's bar stays its normal size and shows at most 40.
 
-    THE LIFE BAR DOES NOT GROW. Unlike Mega Man X5's Starting Life, where a
-    bigger maximum draws a longer bar, Mega Man 8's bar always stays its
-    normal size and can show at most 40. Above 40 the bar stays full until
-    your life drops below 40 - the extra life is real and it protects you,
-    but you cannot see it on the bar. Below 40 a full bar is only that tall,
-    so it looks partly empty even at full life.
+    Above 40 the bar stays full until your life drops below 40 - the extra
+    life is real and it protects you, but you cannot see it on the bar. Below
+    40 a full bar is only that tall, so it looks partly empty even at full
+    life.
 
     Mega Man 8 has no Heart Tanks - his life never grows - so this sets it
     for the whole run. Everything that fills it respects the new maximum:
@@ -295,14 +307,16 @@ class StageUnlocks(Toggle):
     A locked stage still shows on the stage select and the cursor still moves
     onto it; pressing confirm simply does nothing until you hold its codes.
 
-    Client-side: needs no disc change, and works on a disc you have already
-    patched.
+    Client-side: the lock is applied by the client, not written into the
+    disc.
     """
     display_name = "Stage Unlocks"
 
 
 class PickupSanity(Toggle):
-    """Freestanding pickups become checks.
+    """Freestanding pickups become checks - the intro stage's capsule
+    included, unlike Mega Man X5's, because Mega Man 8's intro can be
+    replayed.
 
     Every Life Energy, Weapon Energy, Weapon Energy Refill and 1-UP capsule
     placed in a stage becomes a location - 42 in all: 35 in the Robot Master

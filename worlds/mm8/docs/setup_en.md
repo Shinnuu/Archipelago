@@ -4,13 +4,15 @@
 
 - **Archipelago** 0.6.7 or later
   ([releases](https://github.com/ArchipelagoMW/Archipelago/releases)), and the
-  `mm8.apworld` file.
+  `mm8.apworld` file from the
+  [Mega Man 8 releases](https://github.com/Shinnuu/Archipelago/releases?q=mm8).
 - **BizHawk 2.7 or newer**
   ([releases](https://github.com/TASEmulators/BizHawk/releases)) — 2.7.0 is
   the minimum Archipelago's connector script accepts. This world was tested
   on **2.10**; newer versions print an untested-version warning from the
-  connector but are expected to work. The PSX core is **NymaShock** (BizHawk's
-  default for PS1).
+  connector but are expected to work. On first install, run BizHawk's
+  prerequisites installer if EmuHawk won't start. The PSX core is
+  **NymaShock** (BizHawk's default for PS1).
 - A **US-region PS1 BIOS** (e.g. SCPH-5501), dumped from your own console. In
   EmuHawk: **Config → Firmware**, find the PSX (U) entry and point it at your
   BIOS file — or drop the file into BizHawk's `Firmware` folder.
@@ -64,34 +66,43 @@ player produces a disc that does not match the seed.
 2. From the finished seed you will receive an **`.apmm8`** file.
 3. Open it via the Launcher's **Open Patch**. The first time, Archipelago asks
    for your disc image: point it at **`(Track 1).bin`** — not the `.cue`, and
-   not Track 2 or 3.
+   not Track 2 or 3. (It is remembered as `rom_file` under `mm8_options` in
+   Archipelago's `host.yaml`.)
 4. This produces **one** patched `.bin` and a `.cue` beside the patch file.
    The `.bin` holds all three tracks; your original dump is never modified.
 
 **Patch a new disc for every seed.** The disc carries a stamp naming its seed,
-and the client will not act on a disc patched for another one.
+and the client will not act on a disc patched for another one. Opening the
+same `.apmm8` again reuses the disc it already made — unless that disc is
+outdated (made by an older apworld), which it rebuilds.
 
 ## Mega Man's colour (optional)
 
 `mega_man_palette` recolours Mega Man's normal buster colours and the flashes
 that go with them. Purely cosmetic: no items, locations or logic change, and
 two players in the same multiworld can pick differently. It accepts `vanilla`,
-`random`, or one of:
-
-> crimson · scarlet · amber · gold · olive · forest · emerald · teal · cyan ·
-> azure · blue · indigo · violet · magenta · rose · silver · black · white
+`random`, or one of: crimson, scarlet, amber, gold, olive, forest, emerald,
+teal, cyan, azure, blue, indigo, violet, magenta, rose, silver, black, white.
 
 `random` is rolled when the seed is generated, so it is fixed and in the
 spoiler; it can land on vanilla.
 
 To change it without a new seed, name a colour as `mega_man_palette` under
 `mm8_options` in Archipelago's `host.yaml`, **delete the `.bin` and `.cue` you
-made before** (the patcher skips its work if a disc of that name already
-exists), and open the same `.apmm8` again. `vanilla` in `host.yaml` does
-nothing — Archipelago writes that value there by itself — so to play in the
+made before** (the patcher reuses a disc it already made for this seed), and
+open the same `.apmm8` again. Archipelago writes `unset` there by itself, and
+`unset` or `vanilla` there leaves your YAML in charge — so to play in the
 original colours, choose `vanilla` in your YAML.
 
 ## Playing
+
+By default **Open Patch does the setup for you**: the first time, it also asks
+where `EmuHawk.exe` is, and from then on it starts BizHawk with the patched
+disc and the connector script already loaded, and opens the **BizHawk
+Client**. Connect the client to the room's address with your slot name.
+
+If BizHawk did not start (or you turned that off in `host.yaml`), do it by
+hand:
 
 1. Open **BizHawk** and load the patched **`.cue`**.
 2. Open **Tools → Lua Console**, then **Script → Open Script**, and load
@@ -109,18 +120,32 @@ go.
   BizHawk calls them all "Mega Man 8 (USA)", whatever the file is named.
   - **A savestate from another seed is refused.** The client says the disc was
     "patched for a different seed" and does nothing until you load one of this
-    seed's states or reset. Nothing is sent from it.
-  - **A memory-card save from another seed is taken as THIS seed's.** Loading
-    it sends everything that save has done — bosses beaten, Duo, the intro's
-    Mega Ball — as this seed's checks, at once. **Start a New Game for each
-    new seed**, and save over an old slot.
+    seed's states or reset. Nothing is sent from it. **With `stage_music` on,
+    reset rather than play on** from such a state: it carries the other disc's
+    table of where the music lives, and the next stage's music would load from
+    the wrong place.
+  - **A memory-card save from another seed — or from the original game — is
+    taken as THIS seed's.** Loading it sends what the game itself recorded —
+    bosses beaten, bolts collected, Duo's clear, the intro's Mega Ball — as
+    this seed's checks, at once. **Start a New Game for each new
+    seed**, and save over an old slot.
+  - **Savestates carry the memory card too**, so loading an old state rolls
+    back any saves you made after it.
 - **Save your memory card to disk.** BizHawk writes it on a clean close, when
   you press **Flush SaveRAM** (`Ctrl+S` by default), or every few minutes if
   autosave is on under `Config → Customize → Advanced`. An unclean exit loses
   what came after the last write.
 - **Bolts you pick up are checks.** They no longer add to your count; your
   bolts come from **Bolts** items. Each Lab entry's description names the item
-  it holds and whose it is.
+  it holds and whose it is — the entry's name and picture above it stay the
+  original part's.
+- **Every part you receive works at once, all together.** There is no limit
+  of eight and nothing to equip: buying a Lab entry sends its check and equips
+  nothing, and a part stays on once you have it. The Lab's "equipped" panel
+  and the pause screen's parts row stay empty. Laser, Arrow and Auto Shoot
+  are picked on the pause screen as usual.
+- **A Rush mini-boss still drops its adapter**, looking as it always did;
+  touching it sends the check. The adapter itself is an item like any other.
 - **Weapons work the moment they arrive**, with full energy — even in the
   middle of a stage.
 - **Life Energy items wait until you are in control.** One that arrives while
@@ -139,7 +164,10 @@ go.
   anything**, and it comes back every time the stage section restarts until the
   server has the check. After that it works normally.
 - **"Wily Stage 3 - Bass" is sent while Bass retreats** after the fight. Let
-  his parting scene play out rather than resetting straight away.
+  his parting scene play out rather than resetting straight away. It, and the
+  `rematch_checks` rematches, are seen only while the client is connected:
+  the game keeps no record the client could read later, so one missed while
+  disconnected means playing that fight again.
 - **With `stage_unlocks`, a locked stage still shows on the stage select**;
   pressing confirm on it simply does nothing. The client log lists your open
   stages each time a new one arrives.
@@ -149,9 +177,15 @@ go.
 **The client connects to the room but never sees the game.** The connector Lua
 is not running in BizHawk, or your BizHawk is older than 2.7.
 
-**The client says "this is not a disc patched for this Archipelago
-version".** You loaded the original disc, or a disc from an older version of
-the apworld. Open your `.apmm8` and load the `.cue` it makes.
+**The client says "this is not a disc patched by this version of the Mega Man 8
+apworld".** Either a savestate from the original game (or an older disc) is
+loaded — reset, or load one of this seed's states — or the disc itself is the
+original or outdated: open your `.apmm8` again, which rebuilds an outdated
+disc, and load the `.cue` it makes.
+
+**The patcher says the `.apmm8` "was made by a different version of the Mega
+Man 8 apworld".** The seed was generated with another apworld version than the
+one you have installed. Install the version the seed was generated with.
 
 **The client says "this disc was patched for a different seed or slot".** You
 loaded another seed's disc or one of its savestates. Load this seed's `.cue`,
@@ -163,16 +197,19 @@ pointing it at the `.cue` or at another track, or a dump made in a different
 format.
 
 **I no longer have my clean dump.** Download the standalone
-**MM8-Unpatcher** from the apworld's release page and drag a patched `.bin`
-(or its `.cue`) onto it. It rebuilds the three original track files and their
-`.cue` in an "(unpatched)" folder beside the disc, checks all three against the
-Redump hashes before it writes anything, and never changes the file you gave
-it. Point the Mega Man 8 setting at the Track 1 in that folder.
+**MM8-Unpatcher** from the
+[Mega Man 8 releases](https://github.com/Shinnuu/Archipelago/releases?q=mm8)
+and drag a patched `.bin` (or its `.cue`) onto it. It rebuilds the three
+original track files and their `.cue` in an "(unpatched)" folder beside the
+disc, checks all three against the Redump hashes before it writes anything,
+and never changes the file you gave it. Point `rom_file` under `mm8_options`
+in `host.yaml` at the Track 1 in that folder. It also splits a clean dump
+that was merged into a single `.bin` back into its three tracks.
 
 **The game does not respond to any button.** The controller is set to analog.
 Switch BizHawk's PS1 pad to digital.
 
-**I changed a colour and nothing happened.** The patcher did no work because a
-`.bin`/`.cue` of that name already existed — delete the old pair and open the
-patch again — or an entry under `mm8_options` in `host.yaml` is overriding
+**I changed a colour and nothing happened.** The patcher reused the disc it
+had already made for this seed — delete the old `.bin`/`.cue` pair and open
+the patch again — or an entry under `mm8_options` in `host.yaml` is overriding
 your YAML.

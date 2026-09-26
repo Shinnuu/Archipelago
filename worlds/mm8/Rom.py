@@ -80,6 +80,12 @@ class MM8PatchExtension(APPatchExtension):
         entries = {int(part): tuple(entry) for part, entry
                    in json.loads(caller.get_file("lab.json").decode("utf-8")).items()}
         seed = json.loads(caller.get_file("seed.json").decode("utf-8"))
+        # A patch without a layout predates this check; none left this machine.
+        if seed.get("layout", disc.code_layout()) != disc.code_layout():
+            raise ValueError(
+                "Mega Man 8: this .apmm8 was made by a different version of the Mega Man 8 "
+                "apworld than the one installed, and the two lay out the disc's added code "
+                "differently. Patch it with the apworld version the seed was generated with.")
         try:
             options = decode_edits(caller.get_file("seed_edits.json"))
         except KeyError:
@@ -159,9 +165,12 @@ class MM8ProcedurePatch(APProcedurePatch):
         "<name>.cue". The .bin is assembled under a temporary name and only
         renamed into place once complete, so an interrupted patch never
         leaves a half-disc that the "already exists" check would accept."""
+        # Read first, always: Patch.create_rom_file hands the client the
+        # server and slot from here, and the reuse check needs the stamp.
+        self.read()
         file_name = target[:-len(self.result_file_ending)]
         bin_path, cue_path = file_name + ".bin", file_name + ".cue"
-        if os.path.exists(bin_path) and os.path.exists(cue_path):
+        if self._already_built(bin_path, cue_path):
             logger.info("Patched disc + CUE already exist!")
             return
         track2, track3 = disc.find_audio_tracks(get_base_rom_path())
@@ -174,8 +183,33 @@ class MM8ProcedurePatch(APProcedurePatch):
                     shutil.copyfileobj(f, out, 1 << 20)
         os.remove(target)
         os.replace(partial, bin_path)
-        with open(cue_path, "w", newline="\n") as f:
+        # UTF-8, named explicitly: the file name carries the player's name,
+        # and the platform default (cp1252 here) turned "ö" into a byte no
+        # UTF-8 reader resolves and crashed outright on Japanese (review M2).
+        # Via a temporary name, so a failure can never leave a cue behind.
+        with open(cue_path + ".partial", "w", encoding="utf-8", newline="\n") as f:
             f.write(disc.merged_cue(os.path.basename(bin_path)))
+        os.replace(cue_path + ".partial", cue_path)
+
+    def _already_built(self, bin_path: str, cue_path: str) -> bool:
+        """A disc this very patch already made: its cue names its .bin, and
+        the .bin's AP block carries this patch format and this seed's stamp.
+        A disc from an older apworld or another seed, or a cue a failed run
+        left, is rebuilt rather than reused."""
+        if not (os.path.exists(bin_path) and os.path.exists(cue_path)):
+            return False
+        try:
+            with open(cue_path, encoding="utf-8") as f:
+                if f.read() != disc.merged_cue(os.path.basename(bin_path)):
+                    return False
+            stamp = json.loads(self.get_file("seed.json").decode("utf-8"))["stamp"]
+            with open(bin_path, "rb") as f:
+                f.seek(disc.addr_to_disc(disc.AP_BLOCK, disc.REGION_EXE))
+                header = f.read(12)
+        except (OSError, UnicodeDecodeError, ValueError, KeyError):
+            return False
+        return header == (disc.AP_SIGNATURE + disc.AP_VERSION.to_bytes(4, "little")
+                          + stamp.to_bytes(4, "little"))
 
 
 def lab_entries(world: "MM8World") -> dict[int, tuple[str, str | None, str | None]]:
@@ -230,7 +264,8 @@ def write_patch(world: "MM8World", output_directory: str) -> str:
     patch = MM8ProcedurePatch(player=world.player,
                               player_name=world.multiworld.player_name[world.player])
     patch.write_file("lab.json", json.dumps(lab_entries(world)).encode("utf-8"))
-    patch.write_file("seed.json", json.dumps({"stamp": world.seed_stamp()}).encode("utf-8"))
+    patch.write_file("seed.json", json.dumps({"stamp": world.seed_stamp(),
+                                              "layout": disc.code_layout()}).encode("utf-8"))
     patch.write_file("seed_edits.json", encode_edits(seed_edits(world)))
     # Resolved HERE so `random` is rolled once, at generation, and recorded.
     patch.write_file("palettes.json", json.dumps({

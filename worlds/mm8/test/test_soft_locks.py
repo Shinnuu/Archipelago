@@ -135,6 +135,159 @@ class TestCodesStayAheadOfWily(MM8TestBase):
         self.assertTrue(state.can_reach(names.WILY_1, "Region", self.player))
 
 
+LAB = {names.shop_location(part): part for part in names.PARTS}
+
+
+def play_the_lab(multiworld, player: int, choose) -> tuple[bool, dict]:
+    """Play a filled seed buying Lab entries in the order `choose` picks, and
+    say whether it still ends with the whole Lab bought, the goal beaten and
+    every location reached.
+
+    The player: every non-Lab location logic reaches, plus the items of the
+    entries BOUGHT, whatever their rules say (the game does not know logic).
+    The Lab sells the start stock always and the post-Duo stock once Duo is
+    cleared; a purchase needs the bolts received, less those spent, to cover
+    its price. Bolts received count every Bolts item, whatever its
+    classification - the client counts them all."""
+    size = multiworld.worlds[player].options.bolt_bundle_size.value
+
+    def sweep(bought):
+        state, reached, bundles = CollectionState(multiworld), set(), 0
+        grew = True
+        while grew:
+            grew = False
+            for loc in multiworld.get_locations():
+                if loc in reached or loc.item is None:
+                    continue
+                if loc.player == player and loc.name in LAB:
+                    if LAB[loc.name] not in bought:
+                        continue
+                elif not loc.can_reach(state):
+                    continue
+                reached.add(loc)
+                state.collect(loc.item, True, loc)
+                bundles += loc.item.player == player and loc.item.name == names.BOLTS
+                grew = True
+        return state, reached, bundles
+
+    bought: list[str] = []
+    while True:
+        state, reached, bundles = sweep(set(bought))
+        left = bundles * size - sum(names.LAB_PRICE[p] for p in bought)
+        stock = list(names.START_STOCK)
+        if state.has(names.DUO_CLEARED, player):
+            stock += names.POST_DUO_STOCK
+        affordable = [p for p in stock if p not in bought and names.LAB_PRICE[p] <= left]
+        if not affordable:
+            break
+        bought.append(choose(affordable))
+    mine = [loc for loc in multiworld.get_locations(player) if loc.item is not None]
+    beaten = multiworld.has_beaten_game(state, player)
+    ok = len(bought) == len(names.PARTS) and beaten and all(loc in reached for loc in mine)
+    return ok, {"bought": len(bought), "beaten": beaten,
+                "unreached": sum(loc not in reached for loc in mine)}
+
+
+def losing_orders(multiworld, player: int, rng, random_orders: int = 2) -> list:
+    """Purchase orders that lose the seed: for every Lab entry holding an
+    advancement item, spend on everything else first (non-advancement,
+    post-Duo, dearest first); then a few random orders."""
+    item_of = {p: multiworld.get_location(names.shop_location(p), player).item for p in names.PARTS}
+    losses = []
+    for target in names.PARTS:
+        if not item_of[target].advancement:
+            continue
+
+        def spend_elsewhere(affordable, target=target):
+            others = sorted((p for p in affordable if p != target),
+                            key=lambda p: (item_of[p].advancement, p in names.START_STOCK,
+                                           -names.LAB_PRICE[p]))
+            return others[0] if others else target
+
+        ok, info = play_the_lab(multiworld, player, spend_elsewhere)
+        if not ok:
+            losses.append((target, item_of[target].name, info))
+    for _ in range(random_orders):
+        ok, info = play_the_lab(multiworld, player, rng.choice)
+        if not ok:
+            losses.append(("random order", None, info))
+    return losses
+
+
+class TestLabPurchaseOrder(unittest.TestCase):
+    """Pre-release review B1 (2026-09-26). Bolts never come back, and the Lab
+    sells whatever is in stock, in logic or not - so no order of purchases may
+    lose a seed. Reachability tests cannot see this (a sweep never spends), so
+    this plays the Lab adversarially on real fills. The start stock had been
+    in logic at 21 with anything in it; after Duo the Lab also sells 19 bolts'
+    worth more, and spending there first stranded an entry holding progression
+    in 117 of 183 seeds."""
+    EXTREMES = [dict(bolt_bundle_size=1, bolt_surplus=0), dict(bolt_bundle_size=2, bolt_surplus=40,
+                                                               stage_unlocks=True, pickupsanity=True),
+                dict(bolt_bundle_size=3, bolt_surplus=100), dict(bolt_bundle_size=20, bolt_surplus=0),
+                dict(bolt_bundle_size=5, bolt_surplus=100)]
+
+    def test_no_purchase_order_loses_a_seed(self) -> None:
+        import random
+        rng = random.Random(8)
+        for options in SWEEP + self.EXTREMES:
+            for seed in range(2):
+                with self.subTest(seed=seed, **options):
+                    self.assertEqual(losing_orders(generate(seed, options), 1, rng), [])
+
+    def test_the_old_rule_loses_seeds(self) -> None:
+        """The control: with the start stock free to hold anything (the old
+        rule), the same search finds losing orders - still, with the bundles
+        placed first (fill_hook): 22 of 25 seeds at surplus 0, 6 of 25 at the
+        defaults. Not at surplus 100, whose spare bundles now mask it - so the
+        item rule is the guarantee, the fill order only makes it rarer."""
+        import random
+        from unittest import mock
+        original = MM8World.set_rules
+
+        def old_rules(world):
+            original(world)
+            for part in names.START_STOCK:
+                world.multiworld.get_location(names.shop_location(part), world.player).item_rule = \
+                    lambda item: True
+
+        rng = random.Random(8)
+        with mock.patch.object(MM8World, "set_rules", old_rules):
+            lost = sum(bool(losing_orders(generate(seed, dict(bolt_surplus=0)), 1, rng))
+                       for seed in range(10))
+        self.assertGreater(lost, 0)
+
+
+class TestSmallBundlesFill(unittest.TestCase):
+    """Review B2 (2026-09-26). The Lab counts Bolts items - 21, then 40 of
+    them at bundle size 1 - and fill closed the Lab to everything placed after
+    the bundles thinned out, so sizes 1-3 failed fill now and then. MM8World.
+    fill_hook places the bundles first."""
+    SMALL = [dict(bolt_bundle_size=1, bolt_surplus=0), dict(bolt_bundle_size=1, bolt_surplus=0, pickupsanity=True),
+             dict(bolt_bundle_size=2, bolt_surplus=40, stage_unlocks=True, pickupsanity=True),
+             dict(bolt_bundle_size=2, bolt_surplus=0, stage_unlocks=True),
+             dict(bolt_bundle_size=3, bolt_surplus=40, stage_unlocks=True)]
+
+    def test_small_bundles_always_fill(self) -> None:
+        for options in self.SMALL:
+            for seed in range(20):
+                with self.subTest(seed=seed, **options):
+                    generate(seed, options)
+
+    def test_without_the_hook_they_did_not(self) -> None:
+        """The control: bundles placed wherever the shuffle puts them."""
+        from unittest import mock
+        from Fill import FillError
+        failed = 0
+        with mock.patch.object(MM8World, "fill_hook", lambda *args: None):
+            for seed in range(20):
+                try:
+                    generate(seed, dict(bolt_bundle_size=1, bolt_surplus=0))
+                except FillError:
+                    failed += 1
+        self.assertGreater(failed, 0)
+
+
 class ForcedDuo:
     """At the moment the game forces Duo, the player has beaten set 1 and may
     hold NOTHING else - items arrive in any order, and the Lab and the set-1

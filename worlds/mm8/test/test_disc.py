@@ -133,8 +133,8 @@ class TestAgainstTheDump(unittest.TestCase):
 
     def test_base_edits_reprice_the_lab_and_touch_nothing_else(self):
         """After the base patch the shop table holds LAB_PRICE with its part
-        column and blank record unchanged, the full-Lab guard is in place,
-        and no user-data byte changed except the ones an edit declares."""
+        column and blank record unchanged, and no user-data byte changed
+        except the ones an edit declares."""
         patched = disc.apply_edits(self.track1, disc.BASE_EDITS)
         off = disc.addr_to_disc(disc.SHOP_TABLE, disc.REGION_EXE)
         for record, part in enumerate(disc.SHOP_RECORDS):
@@ -243,6 +243,10 @@ class TestAgainstTheDump(unittest.TestCase):
         stamp')."""
         start = disc.addr_to_disc(disc.AP_BLOCK, disc.REGION_EXE)
         self.assertEqual(self.track1[start:start + disc.AP_BLOCK_SIZE], bytes(disc.AP_BLOCK_SIZE))
+        # pickupsanity's key table follows the block's 0x40 bytes: free too.
+        keys = [disc.addr_to_disc(disc.PICKUP_KEYS + i, disc.REGION_EXE)
+                for i in range(disc.PICKUP_KEYS_ROOM)]
+        self.assertEqual(bytes(self.track1[a] for a in keys), bytes(disc.PICKUP_KEYS_ROOM))
         image = disc.apply_edits(self.track1, disc.ap_block_edits(0x12345678))
         self.assertEqual(image[start:start + 12], b"APM8" + (1).to_bytes(4, "little")
                          + (0x12345678).to_bytes(4, "little"))

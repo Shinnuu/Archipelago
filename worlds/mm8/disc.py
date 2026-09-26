@@ -214,18 +214,25 @@ _LAB_SUBSTITUTES = {
     ":": "-", ";": ",", "/": "-", "\\": "-", "|": "-", "_": " ", "=": "-",
     "&": "+", "[": "(", "{": "(", "<": "(", "]": ")", "}": ")", ">": ")",
     "’": "'", "‘": "'", "`": "'", "´": "'",
-    "\"": "“", "–": "-", "—": "-", "…": "...",
+    "–": "-", "—": "-", "…": "...", "×": "x", "·": "-",
+    # Letters NFKD does not decompose, which would otherwise vanish
+    # ("Łukasz" came out "ukasz").
+    "Æ": "AE", "æ": "ae", "Œ": "OE", "œ": "oe", "Ø": "O", "ø": "o", "Ł": "L", "ł": "l",
+    "ß": "ss", "ı": "i", "Đ": "D", "đ": "d", "Þ": "Th", "þ": "th",
 }
 
 
 def lab_sanitize(text: str) -> str:
     """Anything onto the Lab font: accents stripped, near-equivalents
-    substituted, the rest dropped, runs of spaces collapsed."""
+    substituted, the rest dropped, runs of spaces collapsed. Straight double
+    quotes alternate open and close, as the font's curly pair do."""
     import unicodedata
-    out = []
+    out, quote_open = [], False
     for ch in unicodedata.normalize("NFKD", text):
         if unicodedata.combining(ch):
             continue
+        if ch == "\"":
+            ch, quote_open = ("”" if quote_open else "“"), not quote_open
         ch = _LAB_SUBSTITUTES.get(ch, ch)
         out.append("".join(c for c in ch if c in LAB_CHARSET))
     return " ".join("".join(out).split())
@@ -271,15 +278,18 @@ def lab_description(item: str, owner: str | None = None, game: str | None = None
 
     `brevity` trades detail for room: 0 as much as six lines allow, 1 no game,
     2 the item on at most two lines, 3 one line each for owner and item."""
-    item_lines = lab_wrap(item) or ["Nothing"]
+    # Each name is checked for anything drawable BEFORE "'s" or the brackets
+    # join it: a name wholly in another script sanitises to nothing, and
+    # "'s" / "()" alone used to stand in for it.
+    item_lines = lab_wrap(item) or ["Unnamed item"]
     if owner is None:
         return _cut(item_lines, (LAB_LINES, LAB_LINES, 2, 1)[brevity])
-    head = lab_wrap(f"{owner}'s") or ["Someone's"]
+    head = lab_wrap(f"{owner}'s") if lab_sanitize(owner) else ["Someone's"]
     if brevity >= 3:
         return _cut(head, 1) + _cut(item_lines, 1)
     if brevity >= 2:
         item_lines = _cut(item_lines, 2)
-    tail = lab_wrap(f"({game})") if game and brevity == 0 else []
+    tail = lab_wrap(f"({game})") if game and lab_sanitize(game) and brevity == 0 else []
     if len(head + item_lines + tail) > LAB_LINES:
         tail = []
     return _cut(head + item_lines, LAB_LINES - len(tail)) + tail
@@ -361,21 +371,6 @@ def lab_text_edits(track1: bytes, entries: dict[int, tuple[str, str | None, str 
         ("Lab text size", LAB_TEXT_SIZE_FIELD, "pack:LABO.PAC", size_vanilla,
          len(chunk).to_bytes(4, "little")),
     ]
-
-
-# ---- The full-Lab guard --------------------------------------------------------
-# The free-slot search 0x8011EED8 returns a slot pointer, -1 if the part is
-# already held, or 0 when all eight slots are full. The selection check
-# (0x8011E844) only screens out -1, so with the slots full the purchase at
-# 0x8011EBDC stores the part id to ADDRESS 0. Vanilla can never get there -
-# 40 bolts do not buy nine parts at vanilla prices - but the repriced Lab can.
-# Returning -1 for "full" routes it to "You already have the part" instead.
-# Its only callers are those two (checked 2026-09-24). An interim guard: the
-# shop patch (v1-design P5) takes purchases off the equip path entirely.
-LAB_FULL_RETURN = 0x8011EF1C
-LAB_FULL_GUARD = ("Lab full-slots guard", LAB_FULL_RETURN, REGION_EXE,
-                  (0x00001021).to_bytes(4, "little"),     # addu  v0, zero, zero
-                  (0x2402FFFF).to_bytes(4, "little"))     # addiu v0, zero, -1
 
 
 # ---- The architecture: X5's, fully decoupled (v1-design 5a) -----------------
@@ -585,7 +580,8 @@ INTRO_EXIT_DENIED = ("the intro can never be exited", 0x8011358C, REGION_EXE,
 #
 # skip_intro_videos - X6's option. The movie players (0x800FD30C the Capcom
 # logo, 0x800FD444 ROCK8_n) have exactly six call sites, all direct `jal`s in
-# the EXE; the four on the boot -> title -> new game path go. Each `jal`'s
+# the EXE; the three on the boot -> title -> new game path go, and a fourth
+# edit stops the title's idle countdown so no attract demo starts. Each `jal`'s
 # delay slot is its argument load - harmless without the call. The movie code
 # writes nothing but its own state, and every progression write is in the
 # caller after the call, so skipping leaves the game where playing would.
@@ -1057,6 +1053,17 @@ def routine_addresses() -> dict[str, int]:
     return out
 
 
+def code_layout() -> dict[str, int]:
+    """Where this apworld puts the code a seed's stored hooks jump to: the
+    cave routines and pickupsanity's key table. seed_edits.json bakes these
+    addresses into `jal`s and a `lui` at GENERATION, while the routines are
+    laid out by whichever apworld PATCHES - so a seed made by one version and
+    patched by another whose routines changed size would jump into the middle
+    of other code on every stage clear. The patch records this layout and
+    refuses to apply against a different one (pre-release review M1)."""
+    return {**routine_addresses(), "pickup keys": PICKUP_KEYS}
+
+
 def routine_edits(track1: bytes) -> list[tuple[str, int, str, bytes, bytes]]:
     """The routines written over the dead debug menu, and the hooks that call
     them. The cave's vanilla bytes are read from `track1`, whose md5 is
@@ -1107,7 +1114,8 @@ def ext_check(stamp: int, lab: int, rush: int, processed: int, spare: int = 0) -
 # apply_edits. BASE_EDITS are the same for every seed and need no disc to
 # build; the routines (whose vanilla bytes are read off the disc) and the
 # seed's own edits (the AP block header, the Lab text) are added at patch time.
-# (LAB_FULL_GUARD is gone: P5's search never returns a slot to store through.)
+# (The interim full-Lab guard at 0x8011EF1C is gone: P5's search never returns
+# a slot to store through.)
 BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = (
     price_edits(LAB_PRICE) + a1_edits() + rush_edits() + [BOLT_GRANT, INTRO_EXIT_DENIED]
     + in_place_edits())

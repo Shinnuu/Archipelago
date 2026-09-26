@@ -1,13 +1,10 @@
 # Mega Man 8
 
-> **In development.** A seed builds a patched disc and the BizHawk client
-> plays it; not yet released.
-
 ## What does randomization do to this game?
 
 Every weapon, Rush adapter and Dr. Light's Lab part is shuffled into the
 multiworld, and so are the game's bolts. The Mega Buster is the only thing you
-start with.
+start with (and, with `stage_unlocks`, one stage's Access Codes).
 
 **Every bolt in a stage is a check.** Picking one up sends whatever item is
 there, which may belong to someone else — it no longer adds a bolt to your own
@@ -17,8 +14,14 @@ you come to.
 
 **Dr. Light's Lab is a shop full of checks.** Each of its 17 entries holds an
 item, and its description in the Lab tells you what that item is and whose it
-is, so you know what you are buying. Buying an entry spends bolts and sends
-the check.
+is, so you know what you are buying — the entry's name and picture stay the
+original part's. Buying an entry spends bolts and sends the check.
+
+**Parts are items, and every one you receive works at once.** There is no
+limit of eight and nothing to equip; a part stays on once you have it.
+
+**The Rush mini-bosses still drop their adapters**, which look as they always
+did; touching one sends its check.
 
 ## What is the goal?
 
@@ -35,8 +38,9 @@ randomizer, the weapon a boss would award is somebody else's item.
   the fourth of them sends you **straight into it**: no stage select, no Lab,
   no way out until Duo is beaten. That is always safe: Duo's stage can be
   cleared with the Mega Buster alone, so logic never asks for anything there
-  except its two bolts (Mega Ball and Thunder Claw), which you can come back
-  for — the stage stays on the select afterwards.
+  except for its two bolts, each of which needs both the Mega Ball and Thunder
+  Claw — you can come back for them, as the stage stays on the select
+  afterwards.
 - Sword Man, Aqua Man, Astro Man and Search Man open once Duo's stage is clear.
   Logic also expects the **Mega Ball and Thunder Claw** before sending you
   into them: the base game never lets anyone reach these four without both.
@@ -56,7 +60,7 @@ energy). `stage_unlocks` adds seven Access Codes.
 
 | Option | Effect |
 |---|---|
-| `bolt_bundle_size` (default **5**) | how many bolts one Bolts item is worth |
+| `bolt_bundle_size` (default **5**) | how many bolts one Bolts item is worth, 1-20 |
 | `bolt_surplus` (default **40**) | how many bolts the pool holds beyond the Lab's 40, as a percentage |
 | `text_skip` (default **on**) | story dialogue appears at once and advances by itself |
 | `skip_intro_videos` (default **on**) | boot straight to the title, no attract demos, no movie after GAME START |
@@ -76,9 +80,12 @@ energy). `stage_unlocks` adds seven Access Codes.
 The Lab is repriced: each part costs 2 or 3 bolts, 40 in all — the number of
 bolts in the game, where the original prices added up to 89.
 
-Logic only expects you to shop once you could afford everything the Lab has in
-stock — 21 bolts for the nine entries on sale from the start, 40 once Duo is
-beaten — so no order of purchases can ever leave you stuck.
+Bolts never come back once spent, and the Lab sells whatever is in stock, so
+logic is built so that no order of purchases can leave you stuck. The nine
+entries on sale from the start never hold anything required, and logic
+expects them once you have received 21 bolts. The eight that appear after Duo
+can hold anything, and logic waits until you have received 40 bolts — enough
+for the whole Lab — before expecting those.
 
 ## Known limits
 

@@ -67,6 +67,7 @@ def patched_ram(stamp: int = STAMP) -> FakeRAM:
 class FakeContext:
     def __init__(self, items: list[str] = (), checked: set[int] = frozenset(), goal: int = 0) -> None:
         self.server = object()
+        self.slot = 1
         self.bizhawk_ctx = object()
         self.slot_data = {"goal": goal, "bolt_bundle_size": 5, "seed_stamp": STAMP}
         self.checked_locations = set(checked)
@@ -364,6 +365,128 @@ class TestGrants(ClientTest):
         await self.poll(ram, ctx, client, 2)
         self.assertEqual(ram.get(0x8015E283, 1), bytes([0]))
         self.assertEqual(int.from_bytes(ram.get(disc.AP_PROCESSED, 4), "little"), 0)
+
+
+class RacingRAM(FakeRAM):
+    """RAM the game changes between a poll's read and its write - a frame it
+    ran in between (a death, a pickup, a savestate)."""
+
+    def __init__(self, change) -> None:
+        super().__init__()
+        self.change, self.armed = change, False
+
+    async def read(self, ctx, requests):
+        out = await super().read(ctx, requests)
+        if self.armed:
+            self.armed = False
+            self.change(self)
+        return out
+
+
+class DroppingRAM(FakeRAM):
+    """BizHawk going away during the poll's write."""
+    drop = False
+
+    async def guarded_write(self, ctx, writes, guards):
+        if self.drop:
+            self.drop = False
+            raise mm8_client.bizhawk.RequestFailedError("Connection closed")
+        return await super().guarded_write(ctx, writes, guards)
+
+
+def racing_ram(change) -> RacingRAM:
+    ram = RacingRAM(change)
+    ram.mem[:] = patched_ram().mem
+    ram.put(disc.OVL_BASE, (6).to_bytes(4, "little"))               # in a stage
+    return ram
+
+
+class TestConnection(ClientTest):
+    """Pre-release review B3, B4, M3 - each with its control."""
+
+    async def test_nothing_happens_between_a_reconnect_and_the_login(self):
+        """Reconnecting, ctx.server is set and slot_data survives the last
+        login, but items_received is empty until Connected (ctx.slot None).
+        A poll then stripped every grant and sent checks the server drops.
+        The control is the same poll logged in with no items: it strips."""
+        ram = patched_ram()
+        ctx, client = FakeContext(["Ice Wave"]), MM8Client()
+        await self.poll(ram, ctx, client, 2)
+        ice = disc.WEAPONS + 4 * names.WEAPON_SLOT[names.ICE_WAVE] + 1
+        self.assertEqual(ram.get(ice, 1), b"\x01")
+        ctx.slot, ctx.items_received, ctx.sent_msgs = None, [], []    # the socket is back, no login yet
+        self.kill(ram, names.FROST)
+        await self.poll(ram, ctx, client, 3)
+        self.assertEqual(ram.get(ice, 1), b"\x01")
+        self.assertEqual(ctx.sent_msgs, [])
+        ctx.slot = 1                                                  # control: logged in, no items
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(ice, 1), b"\x00")
+
+    async def test_a_check_is_sent_again_until_the_server_has_it(self):
+        ram = patched_ram()
+        self.kill(ram, names.FROST)
+        ctx, client = FakeContext(), MM8Client()
+        await self.poll(ram, ctx, client, 2)
+        frost = names.boss_location(names.FROST)
+        self.assertIn(frost, ctx.checks())
+        ctx.sent_msgs = []                                            # lost with a dropping socket
+        await self.poll(ram, ctx, client, 1)
+        self.assertIn(frost, ctx.checks())
+        ctx.checked_locations.add(location_table[frost])              # control: the server has it
+        ctx.sent_msgs = []
+        await self.poll(ram, ctx, client, 2)
+        self.assertNotIn(frost, ctx.checks())
+
+    async def test_the_goal_goes_out_again_after_a_new_login(self):
+        ram = patched_ram()
+        for boss in names.ROBOT_MASTERS:
+            self.kill(ram, boss)
+        ctx, client = FakeContext(goal=1), MM8Client()
+        await self.poll(ram, ctx, client, 2)
+        self.assertTrue(ctx.goal_sent())
+        ctx.sent_msgs = []
+        await self.poll(ram, ctx, client, 2)
+        self.assertFalse(ctx.goal_sent(), "latched within a session")
+        client.on_package(ctx, "Connected", {})
+        await self.poll(ram, ctx, client, 1)
+        self.assertTrue(ctx.goal_sent())
+
+    async def test_bizhawk_dropping_mid_write_does_not_end_the_watcher(self):
+        """_bizhawk/context.py calls game_watcher outside its own try, so an
+        escaping RequestFailedError ended polling for the session."""
+        ram = DroppingRAM()
+        ram.mem[:] = patched_ram().mem
+        ctx, client = FakeContext(["Ice Wave"]), MM8Client()
+        ram.drop = True
+        await self.poll(ram, ctx, client, 1)                          # must not raise
+        await self.poll(ram, ctx, client, 1)
+        ice = disc.WEAPONS + 4 * names.WEAPON_SLOT[names.ICE_WAVE] + 1
+        self.assertEqual(ram.get(ice, 1), b"\x01", "the next poll carries on")
+
+    async def test_a_heal_never_lands_on_a_player_who_died_after_the_read(self):
+        def dies(ram):
+            ram.put(0x8015E283, bytes([0]))
+            ram.put(0x8015E23D, bytes([3]))
+        for armed in (True, False):                                   # False: the control
+            ram = racing_ram(dies)
+            ram.put(0x8015E283, bytes([10]))
+            ram.armed = armed
+            await self.poll(ram, FakeContext(["Life Energy"]), MM8Client(), 1)
+            self.assertEqual(ram.get(0x8015E283, 1), bytes([0 if armed else 40]), armed)
+            self.assertEqual(int.from_bytes(ram.get(disc.AP_PROCESSED, 4), "little"), 0 if armed else 1)
+
+    async def test_a_death_between_read_and_write_is_not_undone_by_a_1up(self):
+        def dies(ram):
+            ram.put(0x801C3370, bytes([1]))                           # lives 2 -> 1
+        ram = racing_ram(dies)
+        ram.armed = True
+        ctx, client = FakeContext(["1-Up"]), MM8Client()
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(0x801C3370, 1), bytes([1]), "the death stands")
+        await self.poll(ram, ctx, client, 1)                          # retried on the new count
+        self.assertEqual(ram.get(0x801C3370, 1), bytes([2]))
+        self.assertEqual(int.from_bytes(ram.get(disc.AP_PROCESSED, 4), "little"), 1)
 
 
 class TestRegistration(unittest.TestCase):

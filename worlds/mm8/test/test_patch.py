@@ -71,6 +71,59 @@ class TestPatchFile(unittest.TestCase):
         at = disc.addr_to_disc(disc.INTRO_EXIT_DENIED[1], disc.REGION_EXE)
         self.assertEqual(t1[at:at + 4], disc.INTRO_EXIT_DENIED[4])
 
+    @staticmethod
+    def minimal_patch(path: str, seed: dict) -> None:
+        patch = Rom.MM8ProcedurePatch(player=1, player_name="Tester")
+        patch.write_file("lab.json", json.dumps({p: (f"Item {p}", None, None)
+                                                 for p in range(1, 18)}).encode("utf-8"))
+        patch.write_file("seed.json", json.dumps(seed).encode("utf-8"))
+        patch.write(path)
+
+    def test_a_patch_from_another_code_layout_is_refused(self):
+        """Review M1: the hooks' targets are fixed at generation, the routines
+        laid out at patch time - a mismatch would jump into other code. The
+        control is the same patch with this apworld's layout."""
+        moved = {**disc.code_layout(), "P5 Lab purchase": disc.code_layout()["P5 Lab purchase"] + 8}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(Rom, "get_base_rom_path", return_value=TRACK1):
+            self.minimal_patch(os.path.join(tmp, "old.apmm8"), {"stamp": 0x0BADCAFE, "layout": moved})
+            with self.assertRaisesRegex(ValueError, "different version of the Mega Man 8 apworld"):
+                Rom.MM8ProcedurePatch(os.path.join(tmp, "old.apmm8")).patch(os.path.join(tmp, "old.cue"))
+            self.assertEqual(sorted(os.listdir(tmp)), ["old.apmm8"], "nothing left behind")
+            self.minimal_patch(os.path.join(tmp, "new.apmm8"),
+                               {"stamp": 0x0BADCAFE, "layout": disc.code_layout()})
+            Rom.MM8ProcedurePatch(os.path.join(tmp, "new.apmm8")).patch(os.path.join(tmp, "new.cue"))
+            self.assertIn("new.bin", os.listdir(tmp))
+
+    def test_a_player_name_outside_ascii_and_reusing_a_built_disc(self):
+        """Review M2: the cue was written in the Windows code page - "ö" became
+        a byte no UTF-8 reader resolves, Japanese crashed after the .bin was
+        written and left an empty cue that every retry then reused. And a
+        disc is reused only when it is this seed's: an outdated one is rebuilt."""
+        name = "AP_1_P1_Ivör ロックマン"
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(Rom, "get_base_rom_path", return_value=TRACK1):
+            patch_path = os.path.join(tmp, name + ".apmm8")
+            self.minimal_patch(patch_path, {"stamp": 0x0BADCAFE, "layout": disc.code_layout()})
+            target = os.path.join(tmp, name + ".cue")
+            Rom.MM8ProcedurePatch(patch_path).patch(target)
+            with open(target, "rb") as f:
+                self.assertEqual(f.read().decode("utf-8"), disc.merged_cue(name + ".bin"))
+            bin_path = os.path.join(tmp, name + ".bin")
+            built = os.path.getmtime(bin_path)
+            handler = Rom.MM8ProcedurePatch(patch_path)
+            handler.patch(target)
+            self.assertEqual(os.path.getmtime(bin_path), built, "this seed's disc is reused")
+            self.assertEqual(handler.player_name, "Tester", "the client still gets its slot")
+            stamp_at = disc.addr_to_disc(disc.AP_STAMP, disc.REGION_EXE)
+            with open(bin_path, "r+b") as f:                        # an outdated disc
+                f.seek(stamp_at)
+                f.write((0x11111111).to_bytes(4, "little"))
+            Rom.MM8ProcedurePatch(patch_path).patch(target)
+            with open(bin_path, "rb") as f:
+                f.seek(stamp_at)
+                self.assertEqual(f.read(4), (0x0BADCAFE).to_bytes(4, "little"), "rebuilt")
+
     def test_the_options_ride_the_patch_file(self):
         from .test_options_disc import fake_world
         world = fake_world(text_skip=1, skip_intro_videos=1, exit_stage_anytime=1,

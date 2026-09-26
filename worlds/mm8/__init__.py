@@ -3,7 +3,7 @@
 Generation, logic, the disc patch and the BizHawk client. A seed writes an
 .apmm8 that builds a merged three-track disc (disc.py: every reward handed to
 Archipelago, Mega Man X5's decoupled design, plus the options' edits) and
-client.py plays it. Playtested to the goal; not yet released. Research notes
+client.py plays it. Playtested to the goal. Research notes
 live in the private `mm8-ap-research` repo; the design is
 `ai-docs/plans/2026-09-24_mm8-v1-design.md` there.
 
@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 from BaseClasses import ItemClassification, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
-from worlds.generic.Rules import add_rule
+from worlds.generic.Rules import add_item_rule, add_rule
 
 from . import bolts, damage, music, names, pickups
 from .items import MM8Item, event_table, item_groups, item_table
@@ -28,11 +28,18 @@ from .disc import seed_stamp
 from .Rom import MM8Settings, write_patch
 
 # What the Lab asks for before logic expects a player to shop. Bolts are not
-# renewable - the pool is the only source - so a "the k-th purchase needs the
-# k cheapest prices" rule would let a player buy an expensive entry first and
-# strand a cheap one holding progression. Instead an entry is in logic only
-# once the bolts received cover EVERYTHING in stock at that point, which no
-# purchase order can break. v1-design 4.
+# renewable - the pool is the only source - and the game sells whatever is in
+# stock, in logic or not, so the Lab's logic has to survive ANY purchase order.
+#
+# The start stock (nine entries, 21 bolts) is in logic at 21, but may hold
+# nothing required: once Duo is cleared the Lab also sells the post-Duo stock,
+# and a player holding 21-39 bolts can spend there first and be left unable to
+# afford a start-stock entry - fatal if it held the Mega Ball with every
+# remaining bundle behind it (pre-release review B1, 2026-09-26; it had been
+# in logic at 21 with anything in it). The post-Duo stock may hold anything
+# and is in logic at 40, the whole Lab. Together: everything required in the
+# Lab sits behind 40 bolts received, so logic always reaches 40 bolts without
+# buying a thing, and 40 buys every entry in whatever order. v1-design 4.
 # The patched prices (names.LAB_PRICE), not the vanilla ones.
 START_STOCK_COST = sum(names.LAB_PRICE[p] for p in names.START_STOCK)   # 21
 FULL_STOCK_COST = sum(names.LAB_PRICE.values())                         # 40
@@ -237,7 +244,14 @@ class MM8World(World):
         pool = [self.create_item(name) for name in names.WEAPON_SLOT]
         pool += [self.create_item(name) for name in names.RUSH]
         pool += [self.create_item(name) for name in names.PARTS]
-        pool += [self.create_item(names.BOLTS) for _ in range(self.bolt_bundles())]
+        # Logic counts bolts only up to the whole Lab (FULL_STOCK_COST), so only
+        # the bundles that get there are progression; the surplus is useful -
+        # less for fill to place with the Lab in mind (review B2; fill_hook).
+        needed = math.ceil(FULL_STOCK_COST / self.options.bolt_bundle_size.value)
+        bundles = [self.create_item(names.BOLTS) for _ in range(self.bolt_bundles())]
+        for bundle in bundles[needed:]:
+            bundle.classification = ItemClassification.useful
+        pool += bundles
         if self.options.stage_unlocks:
             for boss in names.ROBOT_MASTERS:
                 codes = self.create_item(names.access_item(boss))
@@ -253,6 +267,23 @@ class MM8World(World):
         pool += [self.create_item(self.get_filler_item_name())
                  for _ in range(unfilled - len(pool))]
         self.multiworld.itempool += pool
+
+    def fill_hook(self, progitempool: list, usefulitempool: list, filleritempool: list,
+                  fill_locations: list) -> None:
+        """Place this world's Bolts items FIRST. Fill places items one at a
+        time with everything unplaced assumed found, and pops each world's
+        items from the end of this list. A Lab entry is only reachable while
+        enough Bolts are still assumed - 21 and 40 of them at bundle size 1 -
+        so with the bundles placed at random points, the Lab's 17 locations
+        closed to everything placed after the bundles thinned out, and small
+        bundle sizes failed fill now and then (1-11 in 100 at sizes 1-3;
+        0 with the Lab's rules removed). With the bundles on the map first,
+        the Lab stays open for the rest: 0 in 2,900 fills at sizes 1-3."""
+        bundles = [item for item in progitempool
+                   if item.player == self.player and item.name == names.BOLTS]
+        for item in bundles:
+            progitempool.remove(item)
+        progitempool.extend(bundles)
 
     def set_rules(self) -> None:
         player = self.player
@@ -333,9 +364,11 @@ class MM8World(World):
         def bolts_held(state) -> int:
             return state.count(names.BOLTS, player) * size
 
+        # See START_STOCK_COST for why the start stock holds nothing required.
         for part in names.START_STOCK:
-            location(names.shop_location(part)).access_rule = \
-                lambda state: bolts_held(state) >= START_STOCK_COST
+            shop = location(names.shop_location(part))
+            shop.access_rule = lambda state: bolts_held(state) >= START_STOCK_COST
+            add_item_rule(shop, lambda item: not item.advancement)
         for part in names.POST_DUO_STOCK:
             location(names.shop_location(part)).access_rule = \
                 lambda state: (state.has(names.DUO_CLEARED, player)

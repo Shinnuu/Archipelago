@@ -53,6 +53,19 @@ class TestText(unittest.TestCase):
         self.assertEqual(disc.lab_description("Stage Access Code", "Bob", "Mega Man X5"),
                          ["Bob's", "Stage Access Code", "(Mega Man X5)"])
 
+    def test_a_name_in_another_script_falls_back_rather_than_vanishing(self):
+        """Review: a wholly Japanese owner, item and game drew "'s" /
+        "Nothing" / "()" - the fallbacks never fired, because "'s" and the
+        brackets were added before sanitising."""
+        self.assertEqual(disc.lab_description("ゼルダの剣", "たろう", "ゼルダの伝説"),
+                         ["Someone's", "Unnamed item"])
+        self.assertEqual(disc.lab_description("Master Sword", "たろう", "Zelda"),
+                         ["Someone's", "Master Sword", "(Zelda)"])
+
+    def test_letters_without_a_decomposition_get_a_stand_in(self):
+        self.assertEqual(disc.lab_sanitize("Łukasz Ætherium Øre Straße"), "Lukasz AEtherium Ore Strasse")
+        self.assertEqual(disc.lab_sanitize('the "Key"'), "the “Key”")
+
     def test_never_more_than_six_lines(self):
         long = "Word " * 40
         for brevity in range(4):

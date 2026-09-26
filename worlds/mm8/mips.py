@@ -45,10 +45,24 @@ def _mem(tok: str) -> tuple[int, int]:
     return int(m.group(1) or "0", 0), _reg(m.group(2))
 
 
+_ZERO_EXTENDED = {"andi", "ori", "xori"}
+
+
 def _s16(value: int, what: str) -> int:
-    if not -0x8000 <= value <= 0xFFFF:
-        raise ValueError(f"{what} {value:#x} does not fit 16 bits")
+    """A SIGNED 16-bit field - branch offsets, load/store offsets, addiu,
+    slti, sltiu. 0x8000-0xFFFF used to be accepted and encoded as negative,
+    so `lw t0, 0x8000(t1)` silently became -0x8000 (review minor)."""
+    if not -0x8000 <= value <= 0x7FFF:
+        raise ValueError(f"{what} {value:#x} does not fit a signed 16-bit field")
     return value & 0xFFFF
+
+
+def _u16(value: int, what: str) -> int:
+    """A 16-bit field taken as it is: lui's upper half, and the
+    zero-extended andi / ori / xori."""
+    if not 0 <= value <= 0xFFFF:
+        raise ValueError(f"{what} {value:#x} does not fit an unsigned 16-bit field")
+    return value
 
 
 def _encode(mnem: str, ops: list[str], pc: int, labels: dict[str, int]) -> int:
@@ -61,10 +75,11 @@ def _encode(mnem: str, ops: list[str], pc: int, labels: dict[str, int]) -> int:
     if mnem == "nop":
         return 0
     if mnem == "lui":
-        return (0x0F << 26) | (_reg(ops[0]) << 16) | _s16(_imm(ops[1]), "lui")
+        return (0x0F << 26) | (_reg(ops[0]) << 16) | _u16(_imm(ops[1]), "lui")
     if mnem in _I_ALU:
         rt, rs, imm = _reg(ops[0]), _reg(ops[1]), _imm(ops[2])
-        return (_I_ALU[mnem] << 26) | (rs << 21) | (rt << 16) | _s16(imm, mnem)
+        field = _u16 if mnem in _ZERO_EXTENDED else _s16
+        return (_I_ALU[mnem] << 26) | (rs << 21) | (rt << 16) | field(imm, mnem)
     if mnem in _LOADS or mnem in _STORES:
         op = _LOADS.get(mnem, _STORES.get(mnem))
         offset, base = _mem(ops[1])
@@ -153,6 +168,22 @@ def assemble(source: str, base: int) -> list[int]:
             labels[label] = pc
         if mnem:
             pc += 4
+    # A load in a BRANCH's delay slot is also followed by the branch target
+    # when the branch is taken; the sequential check below only sees the
+    # fall-through (review minor). Jumps to code outside the routine (jal,
+    # jr) cannot be followed here.
+    code = [(mnem, ops, raw) for _label, mnem, ops, raw in lines if mnem]
+    at = {base + 4 * i: i for i in range(len(code))}
+    for i, (mnem, ops, raw) in enumerate(code[:-1]):
+        slot_mnem, slot_ops, slot_raw = code[i + 1]
+        if mnem not in _TRANSFERS or mnem in ("jal", "jr", "jalr") or slot_mnem not in _LOADS:
+            continue
+        loaded = _reg(slot_ops[0])
+        target = at.get(labels.get(ops[-1].strip(), -1))
+        if loaded and target is not None and loaded in _reads(code[target][0], code[target][1]):
+            raise ValueError(f"load delay hazard at a branch target: {slot_raw.strip()!r} "
+                             f"in the delay slot of {raw.strip()!r}, then {code[target][2].strip()!r}")
+
     words, pc, prev = [], base, None
     for label, mnem, ops, raw in lines:
         if not mnem:

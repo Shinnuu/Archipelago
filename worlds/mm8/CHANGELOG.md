@@ -1,6 +1,6 @@
 # Mega Man 8 apworld — changelog
 
-## 0.1.0 — 2026-09-26
+## 0.1.0 — 2026-09-28
 
 First distributable release.
 

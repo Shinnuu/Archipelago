@@ -88,7 +88,7 @@ class TestWeaponDamage(unittest.TestCase):
         no-effect, deflect, pass-through, harmless-hit and kill cells are the
         same, and so is every "which weapon breaks what" fact."""
         vanilla = damage.DAMAGE_TABLES_VANILLA
-        for mode in damage.DAMAGE_RANGES:
+        for mode in damage.BAND_WIDTH:
             for seed in range(25):
                 scaled, _ = self.tables(mode, seed)
                 for i, (v, s) in enumerate(zip(vanilla, scaled)):
@@ -121,6 +121,46 @@ class TestWeaponDamage(unittest.TestCase):
         self.assertEqual(sorted(ids + list(damage.NEVER_SCALED_IDS)), list(range(damage.DAMAGE_IDS)))
 
 
+class TestTheRoll(unittest.TestCase):
+    """0.2.0 (Ivor, 2026-09-29): every setting of the three randomizers is a
+    WIDTH, centred on normal and even both ways - not X5's direction bands,
+    where 'weak' boss HP started every bar short, every seed."""
+
+    def test_bands_are_symmetric_in_ratio(self):
+        for mode in damage.BAND_WIDTH:
+            low, high = damage.band(mode)
+            self.assertAlmostEqual(low * high, 1.0)
+        self.assertEqual([round(damage.band(m)[1], 2) for m in (1, 2, 3, 4)], [1.25, 1.5, 1.75, 2.0])
+
+    def test_rolls_stay_in_band_and_split_evenly(self):
+        import random
+        rng = random.Random(29)
+        for mode in damage.BAND_WIDTH:
+            low, high = damage.band(mode)
+            rolls = [damage.roll(mode, rng) for _ in range(4000)]
+            self.assertTrue(all(low <= r <= high for r in rolls), mode)
+            above = sum(r > 1 for r in rolls) / len(rolls)
+            self.assertAlmostEqual(above, 0.5, delta=0.03, msg=mode)
+
+    def test_a_plain_uniform_roll_would_not(self):
+        # The control: uniform over the same band leans low (a third above
+        # at the widest), which is why roll() is even in ratio terms.
+        import random
+        rng = random.Random(29)
+        low, high = damage.band(4)
+        above = sum(rng.uniform(low, high) > 1 for _ in range(4000)) / 4000
+        self.assertAlmostEqual(above, 2 / 3, delta=0.03)
+
+    def test_the_old_names_still_load(self):
+        from ..options import BossDamage, BossHPRandomization, WeaponDamage
+        for option in (WeaponDamage, BossHPRandomization, BossDamage):
+            for old, new in (("weak", "mild"), ("regular", "moderate"), ("strong", "wild"),
+                             ("chaotic", "extreme")):
+                with self.subTest(option=option.__name__, name=old):
+                    self.assertEqual(option.from_any(old).value, option.from_any(new).value)
+                    self.assertEqual(option.from_any(old).current_key, new)
+
+
 class TestBossHp(unittest.TestCase):
     def test_each_site_moves_to_the_roll(self):
         factors = {boss: 1.5 for boss in damage.BOSS_HP_SITES}      # 40 -> 60
@@ -142,8 +182,10 @@ class TestBossHp(unittest.TestCase):
     def test_bounds(self):
         self.assertEqual(damage.scaled_hp(40, 0.001), 1)       # never 0: unhittable
         self.assertEqual(damage.scaled_hp(40, 10), 127)        # the signed survival test
-        for mode, (low, high) in damage.BOSS_HP_RANGES.items():
+        for mode in damage.BAND_WIDTH:
+            low, high = damage.band(mode)
             self.assertGreaterEqual(damage.scaled_hp(32, low), 1)
+            self.assertLessEqual(damage.scaled_hp(40, high), 80)   # the option text's 20-80
 
     def test_each_site_is_declared_once(self):
         wheres = [(region, where) for sites in damage.BOSS_HP_SITES.values() for region, where, _r, _v in sites]
@@ -261,7 +303,7 @@ class TestMaxLife(unittest.TestCase):
 def fake_world(**options) -> SimpleNamespace:
     """What Rom.seed_edits reads off a world."""
     opts = {name: 0 for name in ALL_QOL + ("weapon_damage", "boss_hp_randomization", "pickupsanity",
-                                           "boss_damage")}
+                                           "boss_damage", "stage_order")}
     opts["max_life"] = disc.PLAYER_MAX_HP
     opts.update(options)
     rng = random.Random(8)
@@ -280,7 +322,7 @@ class TestSeedEdits(unittest.TestCase):
     def test_round_trip(self):
         edits = Rom.seed_edits(fake_world(text_skip=1, skip_intro_videos=1, exit_stage_anytime=1,
                                           weapon_damage=4, boss_hp_randomization=4, boss_damage=4, pickupsanity=1,
-                           max_life=80))
+                           max_life=80, stage_order=2))
         self.assertEqual(Rom.decode_edits(Rom.encode_edits(edits)), edits)
 
 
@@ -299,7 +341,7 @@ class TestOptionsAgainstTheDump(unittest.TestCase):
     def test_every_declared_vanilla_word_is_on_the_disc(self):
         world = fake_world(text_skip=1, skip_intro_videos=1, exit_stage_anytime=1,
                            weapon_damage=4, boss_hp_randomization=4, boss_damage=4, pickupsanity=1,
-                           max_life=80)
+                           max_life=80, stage_order=2)
         for label, where, region, vanilla, _payload in Rom.seed_edits(world) + [disc.INTRO_EXIT_DENIED]:
             self.assertEqual(self.read(where, region, len(vanilla)), vanilla, label)
 
@@ -316,7 +358,7 @@ class TestOptionsAgainstTheDump(unittest.TestCase):
         this proves the whole set is consistent on the real disc."""
         world = fake_world(text_skip=1, skip_intro_videos=1, exit_stage_anytime=1,
                            weapon_damage=4, boss_hp_randomization=4, boss_damage=4, pickupsanity=1,
-                           max_life=80)
+                           max_life=80, stage_order=2)
         edits = (list(disc.BASE_EDITS) + disc.routine_edits(self.track1)
                  + disc.ap_block_edits(1) + Rom.seed_edits(world))
         patched = disc.apply_edits(self.track1, edits)
@@ -330,6 +372,145 @@ class TestOptionsAgainstTheDump(unittest.TestCase):
         gate = disc.addr_to_disc(0x801E160C, "ovl:STAGE04")
         hp = damage.scaled_hp(40, world.boss_hp_factors["Grenade Man"])
         self.assertEqual(patched[gate], hp)
+
+
+@unittest.skipUnless(have_dump, "vanilla Mega Man 8 dump not present")
+class TestStageOrderExecuted(unittest.TestCase):
+    """stage_order (0.2.0), executed: the game's OWN code, as the SHIPPED disc
+    has it, on the test R3000 - built the way Rom builds a player's disc (the
+    base edits, the cave routines, the AP block, and Rom.seed_edits for the
+    order, exit_stage_anytime on and off), so a stage_order edit dropped from
+    disc.py or from Rom.seed_edits fails here (0.2.0 review M4). The stage-clear
+    routine (0x8010123C..0x80101458) runs with its exit hook and the cave's exit
+    guard; its calls out - the first call's leaf, the weapon-get demo, ROCK8_3,
+    0x801017A4, the save prompt - are stubbed. Only the words run are kept, not
+    the discs (0.2.0 review m6: the images held ~1 GB for the whole run)."""
+    CLEAR, END = 0x8010123C, 0x80101458
+    STUBS = (0x8010BBB8, 0x8011C944, 0x800FD444, 0x801017A4, 0x801218C0)
+    PHASE, STAGE, FLAGS, ENDED = 0x801C336C, 0x801C336E, 0x80170555, 0x801B2995
+    SELECT_INIT = (0x800FFABC, 0x800FFACC)            # phase < 2 -> +3 "page switch forbidden"
+    SELECT_CURSOR = (0x800FFE58, 0x800FFE84)          # phase < 2 -> refuse position 12
+    SET_1, SET_2 = names.SET_1, names.SET_2
+
+    @classmethod
+    def setUpClass(cls):
+        with open(TRACK1, "rb") as f:
+            track1 = f.read()
+        base = list(disc.BASE_EDITS) + disc.routine_edits(track1) + disc.ap_block_edits(1)
+        cls.code = {}
+        for mode in disc.STAGE_ORDERS:
+            for exit_anytime in (0, 1):
+                image = disc.apply_edits(track1, base + Rom.seed_edits(
+                    fake_world(stage_order=mode, exit_stage_anytime=exit_anytime)))
+
+                def words(first, last, image=image):
+                    return [int.from_bytes(bytes(image[disc.addr_to_disc(a + i, disc.REGION_EXE)]
+                                                 for i in range(4)), "little")
+                            for a in range(first, last + 4, 4)]
+                code = {first: words(first, last) for first, last in
+                        ((cls.CLEAR, cls.END), (disc.CAVE_START & ~3, disc.CAVE_END - 4),
+                         cls.SELECT_INIT, cls.SELECT_CURSOR)}
+                code["table"] = [image[disc.addr_to_disc(0x80137B2B + i, disc.REGION_EXE)] for i in range(16)]
+                cls.code[mode, exit_anytime] = code
+                del image
+
+    def machine(self, mode: int, exit_anytime: int) -> R3000:
+        m = R3000()
+        code = self.code[mode, exit_anytime]
+        for first, words in code.items():
+            if first != "table":
+                m.load_code(first, words)
+        for i, b in enumerate(code["table"]):                # the stage -> weapon-slot table
+            m.wb(0x80137B2B + i, b)
+        for stub in self.STUBS:
+            m.load_code(stub, [mips.word("jr ra", stub), 0])
+        m.r[29] = 0x801FF000
+        return m
+
+    def clear(self, mode: int, stage: str, phase: int, beaten: list[str],
+              exit_anytime: int = 1, ended: int = 1) -> tuple[int, int]:
+        m = self.machine(mode, exit_anytime)
+        m.wb(self.PHASE, phase)
+        m.wb(self.STAGE, names.STAGE_INDEX[stage])
+        m.wb(self.ENDED, ended)                           # 1 a clear, 2 an Exit
+        m.wb(self.FLAGS, 2)
+        for boss in beaten:
+            m.wb(disc.WEAPONS + 4 * names.WEAPON_SLOT[names.BOSS_WEAPON[boss]], 1)
+        m.run(self.CLEAR)
+        return m.rb(self.PHASE), m.rb(self.FLAGS)
+
+    def test_open_duo_after_set_2_opens_wily(self):
+        for exit_anytime in (0, 1):
+            with self.subTest(exit_stage_anytime=exit_anytime):
+                self.assertEqual(self.clear(1, names.DUO, 3, self.SET_1 + self.SET_2, exit_anytime), (5, 0x0A))
+                self.assertEqual(self.clear(1, names.DUO, 3, self.SET_1 + self.SET_2[:3], exit_anytime)[0], 4)
+                self.assertEqual(self.clear(1, names.DUO, 3, self.SET_1, exit_anytime)[0], 4)   # vanilla order
+
+    def test_vanilla_strands_wily_there(self):
+        # The control: the vanilla order's disc, the same Duo clear with set 2 done.
+        self.assertEqual(self.clear(0, names.DUO, 3, self.SET_1 + self.SET_2), (4, 6))
+
+    def test_open_set_2_early_keeps_phase_1(self):
+        # Live 2026-09-29: Aqua Man cleared at phase 1, phase stayed 1.
+        self.assertEqual(self.clear(1, names.AQUA, 1, [names.FROST, names.CLOWN])[0], 1)
+        self.assertEqual(self.clear(1, names.SWORD, 1, self.SET_1[:3] + self.SET_2[1:])[0], 1)
+        # ...and set 1's fourth still forces Duo, whatever set 2 holds.
+        self.assertEqual(self.clear(1, names.GRENADE, 1, self.SET_1[:3] + [names.SWORD])[0], 2)
+
+    def test_any_four_forces_duo_on_any_fourth_kill(self):
+        three_of_set_2 = [names.AQUA, names.ASTRO, names.SWORD]
+        self.assertEqual(self.clear(2, names.SWORD, 1, [names.AQUA, names.ASTRO])[0], 1)   # 3 with his
+        self.assertEqual(self.clear(2, names.SEARCH, 1, three_of_set_2)[0], 2)             # the 4th
+        self.assertEqual(self.clear(2, names.FROST, 1, [names.SEARCH, names.TENGU, names.AQUA])[0], 2)
+        # The control: the vanilla gate ignores set 2 and keeps phase 1.
+        self.assertEqual(self.clear(0, names.SEARCH, 1, three_of_set_2)[0], 1)
+
+    def test_any_four_opens_wily_only_on_all_eight(self):
+        everyone = self.SET_1 + self.SET_2
+        seven = [b for b in everyone if b != names.FROST]
+        self.assertEqual(self.clear(2, names.FROST, 4, seven[:-1])[0], 4)                 # 7 with his
+        self.assertEqual(self.clear(2, names.FROST, 4, seven), (5, 0x0A))                 # the 8th
+
+    def test_any_four_duo_clear_runs_the_count(self):
+        # Duo's clear jumps into the gate, which under open_any_four counts.
+        everyone = self.SET_1 + self.SET_2
+        self.assertEqual(self.clear(2, names.DUO, 3, everyone), (5, 0x0A))
+        self.assertEqual(self.clear(2, names.DUO, 3, everyone[:7])[0], 4)
+        self.assertEqual(self.clear(2, names.DUO, 3, [names.AQUA, names.ASTRO, names.SWORD, names.FROST])[0], 4)
+
+    def test_an_exit_changes_nothing(self):
+        # exit_stage_anytime's hook sends an Exit (2) past the gates, whatever
+        # the order; the control is the same stage CLEARED.
+        everyone = self.SET_1 + self.SET_2
+        for mode in disc.STAGE_ORDERS:
+            with self.subTest(mode=mode):
+                self.assertEqual(self.clear(mode, names.FROST, 4, everyone, ended=2)[0], 4)
+                self.assertEqual(self.clear(mode, names.FROST, 4, everyone, ended=1)[0], 5)
+
+    def select(self, mode: int, slice_: tuple[int, int], cursor: int = 0) -> tuple[int, int]:
+        """Run one of the select's phase tests at phase 1 on an object at
+        0x80180000 (its +5 = the cursor; s1 = where the cursor came from), and
+        return the object's +3 and +5 afterwards."""
+        m = self.machine(mode, 1)
+        for stop in (slice_[1] + 4, 0x800FFE88, 0x800FFE9C):   # every way out of the two tests
+            m.load_code(stop, [mips.word("jr ra", stop), 0])
+        obj = 0x80180000
+        m.wb(self.PHASE, 1)
+        m.wb(obj + 3, 0xAA)
+        m.wb(obj + 5, cursor)
+        m.r[16], m.r[17] = obj, 7                       # s0 = the object, s1 = the old position
+        m.run(slice_[0])
+        return m.rb(obj + 3), m.rb(obj + 5)
+
+    def test_page_2_opens_at_phase_1(self):
+        # The select init: +3 ("page switch forbidden") = phase < 2.
+        self.assertEqual(self.select(0, self.SELECT_INIT)[0], 1)          # vanilla: forbidden
+        self.assertEqual(self.select(1, self.SELECT_INIT)[0], 0)
+        self.assertEqual(self.select(2, self.SELECT_INIT)[0], 0)
+        # The cursor: vanilla sends it back off the page button (12) at phase 1.
+        self.assertEqual(self.select(0, self.SELECT_CURSOR, cursor=12)[1], 7)
+        self.assertEqual(self.select(1, self.SELECT_CURSOR, cursor=12)[1], 12)
+        self.assertEqual(self.select(2, self.SELECT_CURSOR, cursor=12)[1], 12)
 
 
 class TestExitPartUnderTheOption(MM8TestBase):

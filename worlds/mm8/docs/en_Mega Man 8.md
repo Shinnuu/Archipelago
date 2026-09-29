@@ -15,10 +15,13 @@ you come to.
 **Dr. Light's Lab is a shop full of checks.** Each of its 17 entries holds an
 item, and its description in the Lab tells you what that item is and whose it
 is, so you know what you are buying — the entry's name and picture stay the
-original part's. Buying an entry spends bolts and sends the check.
+original part's. When the item is one of your own parts, the description also
+says what it does. Buying an entry spends bolts and sends the check.
 
-**Parts are items, and every one you receive works at once.** There is no
-limit of eight and nothing to equip; a part stays on once you have it.
+**Parts are items, and every one you receive works at once** (Energy Saver
+from your next life). There is no limit of eight and nothing to equip; a part
+stays on once you have it. When a part arrives while the BizHawk Client is
+connected, the client says in a few words what it does.
 
 **The Rush mini-bosses still drop their adapters**, which look as they always
 did; touching one sends its check.
@@ -31,7 +34,8 @@ did; touching one sends its check.
 ## How do stages open?
 
 As in the base game, but on **bosses beaten** rather than weapons held — in a
-randomizer, the weapon a boss would award is somebody else's item.
+randomizer, the weapon a boss would award is somebody else's item. With the
+default `stage_order: vanilla`:
 
 - Frost Man, Clown Man, Tengu Man and Grenade Man are open after the intro.
 - Duo's stage opens once those four are beaten — and, as in the base game,
@@ -47,6 +51,26 @@ randomizer, the weapon a boss would award is somebody else's item.
 - The Wily stages open once all eight are beaten. Logic also expects all eight
   weapons.
 
+`stage_order: open` opens all eight Robot Master stages from the start. The
+game still sends you to Duo once Frost, Clown, Tengu and Grenade Man are
+beaten, whatever else you have done. `stage_order: open_any_four` sends you to
+Duo after **any** four. Either way the second four still want the Mega Ball
+and Thunder Claw in logic, and Wily opens once all eight are beaten and Duo is
+cleared. Duo's stage stays shut on the stage select until his turn **while the
+BizHawk Client is connected** — the client applies that lock.
+
+**Sword Man's stage has four trials** (whatever the stage order), one for each
+of the first four Robot Masters' weapons. A row of pillars past the stage's
+hub only opens once all four are done, and everything after it is behind
+them: the Rush mini-boss, Sword Man and the stage's last bolt, and with
+`pickupsanity` the capsules in the pillars' corridor and in the lava room.
+Logic expects **Tornado Hold, Thunder Claw, Ice Wave and Flash Bomb** for all
+of those.
+
+**Search Man's stage has doors only Tornado Hold opens** — the last one just
+before his shutter — so logic expects **Tornado Hold** for Search Man as well
+as for his bolts.
+
 ## Items and locations
 
 **75 locations:** 40 bolts, the Lab's 17 entries, the 8 Robot Masters, the 4
@@ -61,14 +85,15 @@ energy). `stage_unlocks` adds seven Access Codes.
 | Option | Effect |
 |---|---|
 | `bolt_bundle_size` (default **5**) | how many bolts one Bolts item is worth, 1-20 |
-| `bolt_surplus` (default **40**) | how many bolts the pool holds beyond the Lab's 40, as a percentage |
+| `bolt_surplus` (default **40**) | extra bolts on top of the Lab's 40, as a percentage, rounded up to whole Bolts items: with bundles of 5, 0 gives 40, 40 gives 60 (twelve items), 100 gives 80 |
 | `text_skip` (default **on**) | story dialogue appears at once and advances by itself |
 | `skip_intro_videos` (default **on**) | boot straight to the title, no attract demos, no movie after GAME START |
 | `exit_stage_anytime` (default **on**) | Exit from the pause menu in every stage but the intro, without the Exit part - and it never counts as clearing the stage |
-| `weapon_damage` | off / weak / regular / strong / chaotic - each of your weapons rolls a damage multiplier |
-| `boss_hp_randomization` | off / weak / regular / strong / chaotic - each Robot Master (and his rematch and Rush mini-boss) rolls his HP |
-| `boss_damage` | off / weak / regular / strong / chaotic - each Robot Master rolls how hard his whole move set hits you |
+| `weapon_damage` | off / mild / moderate / wild / extreme - each of your weapons rolls a damage multiplier |
+| `boss_hp_randomization` | off / mild / moderate / wild / extreme - each Robot Master (and his rematch and Rush mini-boss) rolls his HP |
+| `boss_damage` | off / mild / moderate / wild / extreme - each Robot Master rolls how hard his whole move set hits you |
 | `max_life` (default **40**) | Mega Man's maximum life, 1-127. **The life bar does not grow**: it stays its normal size and shows at most 40, so life above 40 is real but invisible on the bar |
+| `stage_order` (default **vanilla**) | vanilla / open / open_any_four - which Robot Master stages are open from the start, and when the game sends you to Duo (above) |
 | `stage_unlocks` | one of the first four Robot Master stages open; each other needs its "Access Codes" item |
 | `pickupsanity` | the 42 capsules placed in the stages (energy and 1-UPs) become checks |
 | `rematch_checks` | the eight rematches in Wily Stage 4 become checks |
@@ -77,15 +102,46 @@ energy). `stage_unlocks` adds seven Access Codes.
 | `stage_music` | shuffle the stage themes between stages; everything else keeps its music |
 | `randomize_options` | the seed picks the gameplay options for you |
 
+The three randomizers above share their settings, and each setting is a
+**width**, centred on normal — a roll is as likely to land above normal as
+below it: mild 80-125%, moderate 67-150%, wild 57-175%, extreme 50-200%. Boss
+HP therefore spans 20-80 at its widest (normal is 40; the 32-HP Rush
+mini-bosses 16-64). Mega Man X5's settings pick a direction instead: its
+`weak` is always below normal and its `strong` always above. The old names
+(`weak`, `regular`, `strong`, `chaotic`) still work and mean mild, moderate,
+wild and extreme. Damage is a whole number, so small hits move in steps: a
+1-damage hit can go up but never down.
+
 The Lab is repriced: each part costs 2 or 3 bolts, 40 in all — the number of
 bolts in the game, where the original prices added up to 89.
 
 Bolts never come back once spent, and the Lab sells whatever is in stock, so
-logic is built so that no order of purchases can leave you stuck. The nine
-entries on sale from the start never hold anything required, and logic
-expects them once you have received 21 bolts. The eight that appear after Duo
-can hold anything, and logic waits until you have received 40 bolts — enough
-for the whole Lab — before expecting those.
+logic is built so that no order of purchases can leave you stuck: any of the
+17 entries can hold anything, and logic waits until you have received 40
+bolts — enough for the whole Lab — before expecting any of them. The eight
+that appear after Duo also need Duo cleared.
+
+## The Lab parts
+
+| Part | What it does |
+|---|---|
+| Energy Saver | Special weapons use about a third less energy. |
+| Power Shield | No knockback when hit, and you stay invincible longer after. |
+| Energy Balancer | Energy you pick up with the Buster out (or while the weapon in hand is full) fills your emptiest weapon. |
+| Exit | Leave a cleared stage from the pause menu (with `exit_stage_anytime` on, it does nothing — every stage but the intro already allows it). |
+| Super Recover | Health and weapon energy pickups restore more. |
+| High Speed Charge | The charge shot charges faster. |
+| Shooting Part | Up to 5 Buster shots on screen at once, not 3. |
+| Spare Extra | A Game Over or a loaded save gives you at least 4 lives, not 2 (and Spare Charger refills to 4). |
+| Boost Part | Buster shots fly faster. |
+| Rapid Part | Each press fires three Buster shots. |
+| Laser Shot | Charge shot becomes a piercing laser. Pick it in the pause menu. |
+| Arrow Shot | Charge shot becomes a powerful arrow. Pick it in the pause menu. |
+| Auto Shoot | Once charged, holding fire keeps firing, instead of a charge shot. Pick it in the pause menu. |
+| Spare Charger | Entering a stage refills your lives to 2 (4 with Spare Extra). |
+| Hyper Slider | You slide faster. |
+| Exchanger | At full life, health pickups refill the special weapon you hold (with Energy Balancer, your emptiest weapon, even with the Buster out). |
+| Step Booster | You climb ladders faster. |
 
 ## Known limits
 

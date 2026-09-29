@@ -70,28 +70,19 @@ class BoltBundleSize(Range):
 
 
 class BoltSurplus(Range):
-    """How many bolts the item pool holds beyond what the Lab costs, as a
+    """Extra bolts in your item pool, on top of what the Lab costs, as a
     percentage.
 
-    Every one of the Lab's 17 entries is a check, and the randomizer prices
-    them so that together they cost 40 bolts - the number of bolts in the
-    game. Bolts never come back once spent, and the Lab sells whatever is in
-    stock whether logic expects you there or not, so logic is built to
-    survive buying in ANY order: the nine entries on sale from the start never
-    hold anything required, and logic expects them once you have received 21
-    bolts; the eight that appear after Duo can hold anything, and logic waits
-    until you have received 40 - the whole Lab - before expecting those.
+    The whole Lab costs 40 bolts. Your pool gets those 40 plus this
+    percentage, rounded up to whole Bolts items. With the default bundles of
+    5: 0 gives 40 bolts, the default 40 gives 60 (twelve items), and 100
+    gives 80. Other bundle sizes can round up by nearly one bundle more.
+    Extra bolts let you buy Lab entries sooner - logic never counts on them.
 
-    The surplus is how much slack you get on top: at 40 the pool holds 60
-    bolts (twelve bundles of 5). Logic counts the first 40; the other bundles
-    are extra spending money.
-
-    The pool has limited room. With small bundles and a big surplus the
-    Bolts items may not fit; generation then stops and says so rather than
-    silently dropping items - raise the bundle size, lower the surplus, or
-    turn on Pickupsanity.
+    With small bundles and a large surplus the bolts may not fit in the
+    item pool; generation stops and tells you what to change.
     """
-    display_name = "Bolt Surplus"
+    display_name = "Extra Bolts (%)"
     range_start = 0
     range_end = 100
     default = 40
@@ -161,16 +152,22 @@ class ExitStageAnytime(DefaultOnToggle):
 
 
 class WeaponDamage(Choice):
-    """Randomize how much damage YOUR weapons do.
+    """Randomize how much damage YOUR weapons do. Unlike Mega Man X5's, the
+    setting picks how WIDE the roll is, not which way it goes: every setting
+    is centred on normal, and a weapon's roll is as likely to land above
+    normal as below.
 
     Each weapon is rolled once and keeps that roll for the whole seed, so
     part of the run is finding out which of your weapons came out strong.
 
     off: unchanged
-    weak: 50-90% of normal
-    regular: 80-130% of normal
-    strong: 120-200% of normal
-    chaotic: 25-250% of normal
+    mild: 80-125% of normal
+    moderate: 67-150% of normal
+    wild: 57-175% of normal
+    extreme: 50-200% of normal
+
+    weak, regular, strong and chaotic (the settings before 0.2.0) still work,
+    and mean mild, moderate, wild and extreme.
 
     The Mega Buster rolls ONCE for all its shots - plain, half charge, full
     charge, and the Laser and Arrow charge shots - so a charged shot never
@@ -183,39 +180,57 @@ class WeaponDamage(Choice):
     behind a breakable wall needs the same weapons as before. Nothing rolls
     to zero.
 
+    Damage is a whole number, so small hits move in steps: a 1-damage hit can
+    go up but never down, and at mild most of the Mega Buster's hits do not
+    change at all.
+
     Stacks with Boss HP Randomization.
 
     Changes the disc.
     """
     display_name = "Weapon Damage"
     option_off = 0
-    option_weak = 1
-    option_regular = 2
-    option_strong = 3
-    option_chaotic = 4
+    option_mild = 1
+    option_moderate = 2
+    option_wild = 3
+    option_extreme = 4
+    alias_weak = 1
+    alias_regular = 2
+    alias_strong = 3
+    alias_chaotic = 4
     default = 0
 
 
 class BossHPRandomization(Choice):
-    """Randomize how much HP the eight Robot Masters have.
+    """Randomize how much HP the eight Robot Masters have. Three
+    differences from Mega Man X5's: the setting picks how WIDE the roll is,
+    not which way it goes (every setting is centred on normal, and a boss is
+    as likely to have more HP as less); only the Robot Masters and their Rush
+    mini-bosses roll; and the health bar shows at most 40, so about half the
+    bosses start with a full bar that only begins to fall once their health
+    drops to 40.
 
-    Only the Robot Masters and their Rush mini-bosses, unlike Mega Man X5's,
-    which also rolls its other mid-bosses and endgame fights: the intro
-    stage's boss, Duo and the Wily stages' own bosses keep their normal HP.
+    The intro stage's boss, Duo and the Wily stages' own bosses keep their
+    normal HP (Mega Man X5's also rolls its other mid-bosses and endgame
+    fights).
 
     Each Robot Master rolls once for the seed, and the roll covers his own
     stage, his rematch in Wily's fourth stage, and the Rush mini-boss in his
     stage where there is one. Normal is 40 (the mini-bosses 32 or 40).
 
     off: unchanged
-    weak: 40-80% of normal
-    regular: 70-130% of normal
-    strong: 120-200% of normal
-    chaotic: 25-250% of normal
+    mild: 80-125% of normal (32-50)
+    moderate: 67-150% of normal (27-60)
+    wild: 57-175% of normal (23-70)
+    extreme: 50-200% of normal (20-80)
 
-    The health bar shows at most 40. A boss rolled above that fills the bar,
-    and the bar only starts to fall once his health drops to 40 - the extra
-    is real, the bar just cannot show it. The most any roll gives is 100.
+    The mini-bosses with 32 roll 26-40, 21-48, 18-56 and 16-64.
+
+    weak, regular, strong and chaotic (the settings before 0.2.0) still work,
+    and mean mild, moderate, wild and extreme.
+
+    A boss rolled above 40 fills the bar, and the bar only starts to fall once
+    his health drops to 40 - the extra is real, the bar just cannot show it.
 
     A boss with little HP can start below the point where he changes tactics,
     so a low roll may open straight into his late-fight behaviour.
@@ -224,15 +239,22 @@ class BossHPRandomization(Choice):
     """
     display_name = "Boss HP Randomization"
     option_off = 0
-    option_weak = 1
-    option_regular = 2
-    option_strong = 3
-    option_chaotic = 4
+    option_mild = 1
+    option_moderate = 2
+    option_wild = 3
+    option_extreme = 4
+    alias_weak = 1
+    alias_regular = 2
+    alias_strong = 3
+    alias_chaotic = 4
     default = 0
 
 
 class BossDamage(Choice):
-    """Randomize how much damage the eight Robot Masters do to YOU.
+    """Randomize how much damage the eight Robot Masters do to YOU. Unlike
+    Mega Man X5's, the setting picks how WIDE the roll is, not which way it
+    goes: every setting is centred on normal, and a boss's roll is as likely
+    to land above normal as below.
 
     The mirror of Weapon Damage. Each Robot Master rolls once and keeps the
     shape of his own move set, so his light attacks stay light next to his
@@ -240,12 +262,16 @@ class BossDamage(Choice):
     covers his rematch in Wily's fourth stage too.
 
     off: unchanged
-    weak: 50-90% of normal
-    regular: 80-130% of normal
-    strong: 120-200% of normal
-    chaotic: 25-250% of normal
+    mild: 80-125% of normal
+    moderate: 67-150% of normal
+    wild: 57-175% of normal
+    extreme: 50-200% of normal
 
-    Nothing rolls to zero. Separate from Boss HP Randomization: that one
+    weak, regular, strong and chaotic (the settings before 0.2.0) still work,
+    and mean mild, moderate, wild and extreme.
+
+    Nothing rolls to zero, and damage is a whole number, so a 1-damage hit
+    can go up but never down. Separate from Boss HP Randomization: that one
     changes how long a fight lasts, this one how badly it hurts.
 
     One exception, to be exact about it: some of Sword Man's sword swings keep
@@ -256,10 +282,14 @@ class BossDamage(Choice):
     """
     display_name = "Boss Damage"
     option_off = 0
-    option_weak = 1
-    option_regular = 2
-    option_strong = 3
-    option_chaotic = 4
+    option_mild = 1
+    option_moderate = 2
+    option_wild = 3
+    option_extreme = 4
+    alias_weak = 1
+    alias_regular = 2
+    alias_strong = 3
+    alias_chaotic = 4
     default = 0
 
 
@@ -292,6 +322,36 @@ class MaxLife(Range):
     default = 40
 
 
+class StageOrder(Choice):
+    """Which Robot Master stages are open, and when.
+
+    vanilla: the game's own order. Frost, Clown, Tengu and Grenade Man first;
+    once all four are beaten the game sends you to Duo's stage; after him,
+    Sword, Aqua, Astro and Search Man.
+
+    open: all eight stages open from the start. The game still sends you to
+    Duo once Frost, Clown, Tengu and Grenade Man are all beaten, whatever
+    else you have done by then.
+
+    open_any_four: all eight open from the start, and the game sends you to
+    Duo after ANY four.
+
+    Either way Wily's castle opens once all eight are beaten and Duo is
+    cleared, as in the game, and Duo's stage stays shut on the stage select
+    until his turn - while the BizHawk Client is connected, which applies that
+    lock. Logic still expects the Mega Ball and Thunder Claw for the second
+    four's stages, all four of the first four's weapons for Sword Man's
+    trials, and Tornado Hold for Search Man's doors.
+
+    Changes the disc.
+    """
+    display_name = "Stage Order"
+    option_vanilla = 0
+    option_open = 1
+    option_open_any_four = 2
+    default = 0
+
+
 class StageUnlocks(Toggle):
     """Lock the eight Robot Master stages behind items.
 
@@ -300,9 +360,10 @@ class StageUnlocks(Toggle):
     always one of those first four, chosen by the seed - and each of the
     other seven needs its own "<Boss> Access Codes" item.
 
-    The game's own structure stays: the second four still only appear after
-    Duo, so each of those needs Duo beaten AND its codes. Duo's stage, the
-    Lab and the Wily stages are never locked.
+    The game's own structure stays: unless Stage Order opens them, the second
+    four still only appear after Duo, so each of those needs Duo beaten AND
+    its codes. This option never locks Duo's stage, the Lab or the Wily
+    stages (an open Stage Order keeps Duo's slot shut until his turn).
 
     A locked stage still shows on the stage select and the cursor still moves
     onto it; pressing confirm simply does nothing until you hold its codes.
@@ -419,6 +480,7 @@ class MM8Options(PerGameCommonOptions):
     boss_hp_randomization: BossHPRandomization
     boss_damage: BossDamage
     max_life: MaxLife
+    stage_order: StageOrder
     stage_unlocks: StageUnlocks
     pickupsanity: PickupSanity
     rematch_checks: RematchChecks

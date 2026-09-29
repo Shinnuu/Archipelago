@@ -48,7 +48,17 @@ class TestStructure(MM8TestBase):
             self.remove(collected)
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
         for boss in names.SET_2:
-            self.assertTrue(self.can_reach_location(names.boss_location(boss)), boss)
+            self.assertTrue(self.can_reach_region(boss), boss)
+            if boss not in (names.SWORD, names.SEARCH):
+                self.assertTrue(self.can_reach_location(names.boss_location(boss)), boss)
+        # Sword Man also sits past his stage's four trials, Search Man past
+        # doors only Tornado Hold opens (test_soft_locks).
+        self.assertFalse(self.can_reach_location(names.boss_location(names.SWORD)))
+        self.assertFalse(self.can_reach_location(names.boss_location(names.SEARCH)))
+        self.collect_by_name([names.SEARCH_DOORS])
+        self.assertTrue(self.can_reach_location(names.boss_location(names.SEARCH)))
+        self.collect_by_name([w for w in names.SWORD_TRIALS if w != names.SEARCH_DOORS])
+        self.assertTrue(self.can_reach_location(names.boss_location(names.SWORD)))
 
     def test_wily_needs_all_eight_weapons(self):
         self.collect_by_name(names.MEGA_BALL)
@@ -71,27 +81,26 @@ class TestLab(MM8TestBase):
         # 40 * 1.4 = 56 -> 12 bundles of 5
         self.assertEqual(len(self.get_items_by_name(names.BOLTS)), 12)
 
-    def test_start_stock_needs_21(self):
+    def test_start_stock_needs_the_whole_lab(self):
+        """0.2.0: the start stock is in logic at 40, not its own 21 - the price
+        of letting it hold anything (review B1; TestLabPurchaseOrder)."""
         entry = names.shop_location(names.EXIT)
         bundles = self.get_items_by_name(names.BOLTS)
-        need = -(-START_STOCK_COST // 5)                       # 5 bundles
+        need = -(-FULL_STOCK_COST // 5)                        # 8 bundles
+        self.assertGreater(need, -(-START_STOCK_COST // 5))    # more than 0.1.0's 5
         self.collect(bundles[:need - 1])
         self.assertFalse(self.can_reach_location(entry))
         self.collect(bundles[need - 1])
         self.assertTrue(self.can_reach_location(entry))
 
-    def test_start_stock_holds_nothing_required(self):
-        """Review B1: after Duo the Lab also sells the post-Duo stock, so a
-        start-stock entry in logic at 21 can be left unaffordable - it may
-        hold nothing required. The post-Duo stock (behind 40) may."""
+    def test_every_entry_may_hold_anything(self):
+        """0.2.0 (Ivor, 2026-09-29): the start stock may hold Access Codes and
+        other progression, like the post-Duo stock always could."""
         required, spare = self.world.create_item(names.MEGA_BALL), self.world.create_item(names.EXTRA_LIFE)
-        for part in names.START_STOCK:
-            entry = self.multiworld.get_location(names.shop_location(part), self.player)
-            self.assertFalse(entry.item_rule(required), part)
-            self.assertTrue(entry.item_rule(spare), part)
-        for part in names.POST_DUO_STOCK:
+        for part in names.PARTS:
             entry = self.multiworld.get_location(names.shop_location(part), self.player)
             self.assertTrue(entry.item_rule(required), part)
+            self.assertTrue(entry.item_rule(spare), part)
 
     def test_only_the_bundles_logic_counts_are_progression(self):
         """Review B2: logic counts bolts up to 40 - eight bundles of 5; the
@@ -148,9 +157,12 @@ class TestRobotMastersGoal(MM8TestBase):
     options = {"goal": "robot_masters"}
 
     def test_goal_without_wily(self):
-        # Set 2 needs Duo (free once set 1 is) plus Mega Ball + Thunder Claw.
+        # Set 2 needs Duo (free once set 1 is) plus Mega Ball + Thunder Claw,
+        # and Sword Man his four trials' weapons.
         self.assertBeatable(False)
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
+        self.assertBeatable(False)
+        self.collect_by_name([names.TORNADO_HOLD, names.ICE_WAVE, names.FLASH_BOMB])
         self.assertBeatable(True)
 
 

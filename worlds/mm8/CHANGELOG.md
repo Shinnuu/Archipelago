@@ -1,5 +1,60 @@
 # Mega Man 8 apworld — changelog
 
+## 0.2.0 — 2026-09-29
+
+From the first testers' run of 0.1.0.
+
+**Updating from 0.1.0 mid-seed: just open your `.apmm8` again** (with BizHawk
+closed). The patcher now compares the disc it would make with the one you have
+and rebuilds it whenever they differ, so your 0.1.0 disc is replaced by one
+with the fixes below; memory-card saves carry over. The logic fixes (Sword
+Man, Search Man) apply to new seeds only. Use **MM8-Unpatcher v1.1**: v1.0 refuses 0.2.0
+discs.
+
+- **Lab prices show as numbers.** 0.1.0's 2- and 3-bolt prices drew as the
+  confirm dialog's NO and CANCEL: the game counts along a strip of pictures
+  laid out for its original prices, 4 to 7, and 2 and 3 landed on the
+  dialog's labels. The price now uses the bolt counter's digits.
+- **Sword Man's trials are in logic.** His stage has four trials, one for each
+  of the first four Robot Masters' weapons, and a row of pillars past the
+  stage's hub only opens once all four are done. 0.1.0 asked only for Thunder
+  Claw (and Flash Bomb for the last bolt), so about one seed in eight put
+  Tornado Hold past the trials, where it cannot be reached. Logic now expects
+  Tornado Hold, Thunder Claw, Ice Wave and Flash Bomb for everything past the
+  pillars: the Rush mini-boss, Sword Man, the stage's last bolt and, with
+  `pickupsanity`, the two capsules there.
+- **Search Man needs Tornado Hold in logic.** His stage's second half has doors
+  only Tornado Hold opens, the last just before his shutter; 0.1.0 asked for
+  it for his bolts but not for him, so about one seed in fourteen put Tornado
+  Hold on Search Man himself or behind him.
+- **A 0.1.0 seed stuck at either needs the host to send the weapon**
+  (`/send <player> <item>` in the server console): the logic fixes apply to
+  new seeds only.
+- **New option `stage_order`**: `vanilla` (default), `open` (all eight Robot
+  Master stages open from the start; Duo still comes after Frost, Clown, Tengu
+  and Grenade Man) or `open_any_four` (all eight open; Duo after any four).
+  Wily still opens once all eight are beaten and Duo is cleared. While the
+  BizHawk Client is connected, Duo's stage stays shut on the stage select
+  until his turn.
+- **The Lab's first nine entries can hold anything**, Access Codes included.
+  Logic now expects every entry once you have received 40 bolts, the whole
+  Lab's price (0.1.0: 21 for the first nine, which then could hold nothing
+  required). No order of purchases can leave you stuck.
+- **`weapon_damage`, `boss_hp_randomization` and `boss_damage` roll evenly
+  around normal.** The settings are now `mild`, `moderate`, `wild` and
+  `extreme`: 80-125%, 67-150%, 57-175% and 50-200%, as likely above normal as
+  below. 0.1.0's (Mega Man X5's) settings picked a direction instead - `weak`
+  boss HP started every health bar short. The old names still load, as
+  mild, moderate, wild and extreme, but no longer mean weaker or stronger.
+- **Parts say what they do.** When a Lab part arrives while the client is
+  connected, the client log says so in a few words ("Boost Part - faster
+  shots"); your own parts' Lab entries describe them; the game page lists all
+  17.
+- **`bolt_surplus` is explained plainly**, shown as "Extra Bolts (%)".
+- **Re-opening a patch always gives the right disc** (above). The client also
+  says so if the Lab on screen comes from a disc made before 0.2.0, and the
+  0.1.0 apworld now refuses a 0.2.0 patch instead of half-applying it.
+
 ## 0.1.0 — 2026-09-28
 
 First distributable release.

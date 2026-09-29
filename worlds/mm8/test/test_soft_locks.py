@@ -26,14 +26,16 @@ from test.general import setup_multiworld
 from worlds.AutoWorld import call_all
 
 from . import MM8TestBase
-from .. import MM8World, names
+from .. import MM8World, bolts, names
 
-# (stage_unlocks, pickupsanity, rematch_checks) x goal: every combination that
-# changes the location graph. The other options only touch the disc.
-SWEEP = [dict(zip(("stage_unlocks", "pickupsanity", "rematch_checks", "goal"), combo))
+# (stage_unlocks, pickupsanity, rematch_checks) x goal x stage_order: every
+# combination that changes the location graph. The other options only touch
+# the disc.
+SWEEP = [dict(zip(("stage_unlocks", "pickupsanity", "rematch_checks", "goal", "stage_order"), combo))
          for combo in itertools.product((False, True), (False, True), (False, True),
-                                        ("wily", "robot_masters"))]
-SEEDS_PER_COMBINATION = 10     # a fill takes ~10 ms: 160 seeds in a couple of seconds
+                                        ("wily", "robot_masters"),
+                                        ("vanilla", "open", "open_any_four"))]
+SEEDS_PER_COMBINATION = 10     # a fill takes ~10 ms: 480 seeds (48 combinations) in seconds
 
 
 def generate(seed: int, options: dict, players: int = 1):
@@ -236,20 +238,23 @@ class TestLabPurchaseOrder(unittest.TestCase):
                     self.assertEqual(losing_orders(generate(seed, options), 1, rng), [])
 
     def test_the_old_rule_loses_seeds(self) -> None:
-        """The control: with the start stock free to hold anything (the old
-        rule), the same search finds losing orders - still, with the bundles
-        placed first (fill_hook): 22 of 25 seeds at surplus 0, 6 of 25 at the
-        defaults. Not at surplus 100, whose spare bundles now mask it - so the
-        item rule is the guarantee, the fill order only makes it rarer."""
+        """The control: with the start stock free to hold anything but in
+        logic at its own 21 (the rule review B1 caught), the same search finds
+        losing orders - still, with the bundles placed first (fill_hook): 22 of
+        25 seeds at surplus 0, 6 of 25 at the defaults. 0.1.0 fixed it by
+        keeping progression out of the start stock; 0.2.0 by the 40-bolt
+        threshold. Either way the rule is the guarantee, not the fill order."""
         import random
         from unittest import mock
+        from .. import START_STOCK_COST
         original = MM8World.set_rules
 
         def old_rules(world):
             original(world)
+            size = world.options.bolt_bundle_size.value
             for part in names.START_STOCK:
-                world.multiworld.get_location(names.shop_location(part), world.player).item_rule = \
-                    lambda item: True
+                world.multiworld.get_location(names.shop_location(part), world.player).access_rule = \
+                    lambda state, p=world.player: state.count(names.BOLTS, p) * size >= START_STOCK_COST
 
         rng = random.Random(8)
         with mock.patch.object(MM8World, "set_rules", old_rules):
@@ -288,6 +293,165 @@ class TestSmallBundlesFill(unittest.TestCase):
         self.assertGreater(failed, 0)
 
 
+class TestSwordTrials(MM8TestBase):
+    """Sword Man's stage has four trials, one per set-1 weapon, all needed to
+    go on (names.SWORD_TRIALS). 0.1.0 asked only for Thunder Claw (via set 2's
+    entrance), and on its own fills about 1 seed in 8 put Tornado Hold past the
+    trials - often on Sword Man himself - and 1 in 3 left Ice Wave or Flash
+    Bomb there (tester report, 2026-09-29)."""
+    options = {"pickupsanity": True}
+
+    def everything_but(self, missing: str) -> CollectionState:
+        state = CollectionState(self.multiworld)
+        for item in self.multiworld.itempool:
+            if item.player == self.player and item.name != missing:
+                state.collect(item, True)
+        state.sweep_for_advancements()
+        return state
+
+    def test_past_the_trials_needs_all_four(self) -> None:
+        past = self.world.sword_past_trials()
+        # The hub corridor's pillars rise only once all four trials are done,
+        # so the Rush mini-boss and capsule P20 beyond them count too (review
+        # B1: 0.2.0 as first built had them in "the opening").
+        self.assertEqual(set(past), {names.midboss_location(names.SWORD), names.boss_location(names.SWORD),
+                                     names.beaten(names.SWORD), bolts.BOLT_LOCATIONS[21],
+                                     names.SWORD_HUB_CAPSULE, names.SWORD_LAVA_CAPSULE})
+        for weapon in names.SWORD_TRIALS:
+            state = self.everything_but(weapon)
+            for name in past:
+                with self.subTest(missing=weapon, location=name):
+                    self.assertFalse(self.multiworld.get_location(name, self.player).can_reach(state))
+
+    def test_inside_the_trials_does_not(self) -> None:
+        # The control: the locations INSIDE the trials - bolt 19 (the Flash
+        # Bomb trial's first room), bolt 20 and capsule P21 (the Thunder Claw
+        # trial) - need neither of the two trial weapons set 2's entrance and
+        # the stage's own rules leave out. (P21, like every Sword capsule,
+        # carries the stage's unpinned-bolt Flash Bomb - 0.1.0's rule.)
+        inside = [bolts.BOLT_LOCATIONS[19], bolts.BOLT_LOCATIONS[20], "Sword Man - Large Life Energy 2"]
+        for name in inside:
+            for weapon in (names.TORNADO_HOLD, names.ICE_WAVE):
+                with self.subTest(missing=weapon, location=name):
+                    self.assertTrue(self.multiworld.get_location(name, self.player)
+                                    .can_reach(self.everything_but(weapon)))
+        state = self.everything_but("nothing")
+        for name in self.world.sword_past_trials():
+            self.assertTrue(self.multiworld.get_location(name, self.player).can_reach(state), name)
+
+    def test_without_pickupsanity_the_capsules_are_not_asked_for(self) -> None:
+        world = self.world
+        world.options.pickupsanity.value = False
+        try:
+            past = world.sword_past_trials()
+        finally:
+            world.options.pickupsanity.value = True
+        self.assertNotIn(names.SWORD_HUB_CAPSULE, past)
+        self.assertNotIn(names.SWORD_LAVA_CAPSULE, past)
+        self.assertIn(names.midboss_location(names.SWORD), past)
+
+
+def trial_weapons_past_the_trials(multiworld, player: int) -> list[str]:
+    world = multiworld.worlds[player]
+    return [f"{loc.item.name} at {loc.name}" for loc in multiworld.get_locations(player)
+            if loc.name in world.sword_past_trials() and loc.item is not None
+            and loc.item.player == player and loc.item.name in names.SWORD_TRIALS]
+
+
+class TestSwordTrialsFill(unittest.TestCase):
+    OPTIONS = [dict(), dict(pickupsanity=True), dict(stage_unlocks=True, pickupsanity=True)]
+
+    def test_no_trial_weapon_past_the_trials(self) -> None:
+        for options in self.OPTIONS:
+            for seed in range(30):
+                with self.subTest(seed=seed, **options):
+                    self.assertEqual(trial_weapons_past_the_trials(generate(seed, options), 1), [])
+
+    def test_the_0_1_0_rule_put_them_there(self) -> None:
+        """The control: without the trials rule the same fills do it."""
+        from unittest import mock
+        original = MM8World.set_rules
+
+        def rules_0_1_0(world):
+            # Exactly 0.1.0's rules: the boss, his event and the Rush mini-boss
+            # had none of their own (the entrance only); bolt 21 and the
+            # capsules carried the stage's unpinned-bolt requirement.
+            original(world)
+            requirement = bolts.stage_requirement(names.SWORD)
+            for name in world.sword_past_trials():
+                location = world.multiworld.get_location(name, world.player)
+                if name in (names.boss_location(names.SWORD), names.beaten(names.SWORD),
+                            names.midboss_location(names.SWORD)):
+                    location.access_rule = lambda state: True
+                else:
+                    location.access_rule = lambda state, r=requirement, p=world.player: \
+                        all(state.has_any(clause, p) for clause in r)
+
+        with mock.patch.object(MM8World, "set_rules", rules_0_1_0):
+            placed = sum(bool(trial_weapons_past_the_trials(generate(seed, dict()), 1))
+                         for seed in range(30))
+        self.assertGreater(placed, 0)
+
+
+class TestSearchDoors(MM8TestBase):
+    """Search Man's second half has three doors only Tornado Hold opens, the
+    last just before his shutter (names.SEARCH_DOORS). His bolts and capsules
+    already asked for it; he and his Beaten event did not (found by the audit
+    after the 0.2.0 review's B1: ~1 seed in 14 put Tornado Hold behind them)."""
+
+    def without(self, missing: str) -> CollectionState:
+        state = CollectionState(self.multiworld)
+        for item in self.multiworld.itempool:
+            if item.player == self.player and item.name != missing:
+                state.collect(item, True)
+        state.sweep_for_advancements()
+        return state
+
+    def test_search_man_needs_tornado_hold(self) -> None:
+        state = self.without(names.TORNADO_HOLD)
+        for name in self.world.search_past_doors():
+            with self.subTest(name):
+                self.assertFalse(self.multiworld.get_location(name, self.player).can_reach(state))
+
+    def test_nothing_else_about_him_changed(self) -> None:
+        # The controls: with everything he is reachable, and another set-2
+        # boss with no Tornado Hold door needs no Tornado Hold.
+        for name in self.world.search_past_doors():
+            self.assertTrue(self.multiworld.get_location(name, self.player).can_reach(self.without("nothing")))
+        self.assertTrue(self.multiworld.get_location(names.boss_location(names.ASTRO), self.player)
+                        .can_reach(self.without(names.TORNADO_HOLD)))
+
+
+class TestSearchDoorsFill(unittest.TestCase):
+    OPTIONS = [dict(), dict(pickupsanity=True), dict(stage_order="open_any_four")]
+
+    @staticmethod
+    def behind_the_doors(multiworld) -> list[str]:
+        return [loc.name for loc in multiworld.get_locations(1)
+                if loc.name in MM8World.search_past_doors() and loc.item is not None
+                and loc.item.player == 1 and loc.item.name == names.TORNADO_HOLD]
+
+    def test_tornado_hold_never_behind_them(self) -> None:
+        for options in self.OPTIONS:
+            for seed in range(30):
+                with self.subTest(seed=seed, **options):
+                    self.assertEqual(self.behind_the_doors(generate(seed, options)), [])
+
+    def test_without_the_rule_fill_puts_it_there(self) -> None:
+        """The control: 0.2.0 as first built (Search Man on the entrance alone)."""
+        from unittest import mock
+        original = MM8World.set_rules
+
+        def without_the_doors(world):
+            original(world)
+            for name in world.search_past_doors():
+                world.multiworld.get_location(name, world.player).access_rule = lambda state: True
+
+        with mock.patch.object(MM8World, "set_rules", without_the_doors):
+            placed = sum(bool(self.behind_the_doors(generate(seed, dict()))) for seed in range(60))
+        self.assertGreater(placed, 0)
+
+
 class ForcedDuo:
     """At the moment the game forces Duo, the player has beaten set 1 and may
     hold NOTHING else - items arrive in any order, and the Lab and the set-1
@@ -324,3 +488,64 @@ class TestForcedDuo(ForcedDuo, MM8TestBase):
 
 class TestForcedDuoWithStageUnlocks(ForcedDuo, MM8TestBase):
     options = {"stage_unlocks": True}
+
+
+class TestForcedDuoOpen(ForcedDuo, MM8TestBase):
+    """`open` keeps the game's own trigger: set 1."""
+    options = {"stage_order": "open"}
+
+
+class TestForcedDuoAnyFour(MM8TestBase):
+    """`open_any_four`: the disc's counting gate forces Duo on ANY fourth
+    kill, so his clear must be in logic from any four Beaten events and
+    nothing else."""
+    options = {"stage_order": "open_any_four"}
+
+    def state_with(self, bosses) -> CollectionState:
+        state = CollectionState(self.multiworld)
+        for boss in bosses:
+            state.collect(self.world.create_item(names.beaten(boss)), True)
+        return state
+
+    def test_any_four_clears_him(self) -> None:
+        for four in itertools.combinations(names.ROBOT_MASTERS, 4):
+            with self.subTest(beaten=four):
+                self.assertTrue(self.multiworld.get_location(names.DUO_CLEAR, self.player)
+                                .can_reach(self.state_with(four)))
+
+    def test_not_three(self) -> None:
+        # The control: no fourth kill, no Duo.
+        for three in itertools.combinations(names.ROBOT_MASTERS, 3):
+            with self.subTest(beaten=three):
+                self.assertFalse(self.multiworld.get_location(names.DUO_CLEAR, self.player)
+                                 .can_reach(self.state_with(three)))
+
+
+class TestOpenOrder(MM8TestBase):
+    """`open`: set 2 needs its own items, not Duo."""
+    options = {"stage_order": "open"}
+
+    def test_set_2_without_duo(self) -> None:
+        state = CollectionState(self.multiworld)
+        for name in (names.MEGA_BALL, names.THUNDER_CLAW) + names.SWORD_TRIALS:
+            state.collect(self.world.create_item(name), True)
+        self.assertFalse(state.has(names.DUO_CLEARED, self.player))
+        for boss in names.SET_2:
+            with self.subTest(boss=boss):
+                self.assertTrue(self.multiworld.get_location(names.boss_location(boss), self.player)
+                                .can_reach(state))
+
+    def test_the_vanilla_order_needs_him(self) -> None:
+        # The control: the same state on the vanilla order reaches none of them.
+        self.world.options.stage_order.value = 0
+        try:
+            self.world.set_rules()
+            state = CollectionState(self.multiworld)
+            for name in (names.MEGA_BALL, names.THUNDER_CLAW) + names.SWORD_TRIALS:
+                state.collect(self.world.create_item(name), True)
+            for boss in names.SET_2:
+                self.assertFalse(self.multiworld.get_location(names.boss_location(boss), self.player)
+                                 .can_reach(state), boss)
+        finally:
+            self.world.options.stage_order.value = 1
+            self.world.set_rules()

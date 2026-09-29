@@ -21,6 +21,8 @@ way - rewrite each fill's immediates on the disc - with X6's discipline:
 every site is a whole instruction whose vanilla word is asserted, and each
 was proven by what consumes it, not by its immediate.
 """
+import math
+
 from . import mips  # noqa: F401  (kept beside disc for the tests' loader)
 from .disc import REGION_EXE
 
@@ -82,13 +84,36 @@ WEAPON_FAMILIES: dict[str, tuple[int, ...]] = {
 # Id 3 is NOT a player weapon: a hitbox enemies carry. Never scaled.
 NEVER_SCALED_IDS = (3,)
 
-# X5/X6's bands, unchanged.
-DAMAGE_RANGES = {
-    1: (0.50, 0.90),    # weak
-    2: (0.80, 1.30),    # regular
-    3: (1.20, 2.00),    # strong
-    4: (0.25, 2.50),    # chaotic
+# ---- The roll every randomizer here shares (0.2.0) ---------------------------
+# NOT X5/X6's bands. Theirs pick a DIRECTION - weak is always below normal,
+# strong always above (40-80% boss HP put every bar short, every seed). Ivor,
+# 2026-09-29: "make it like the damage ranges that just scale the width of the
+# roll" - each setting widens the roll evenly around normal instead, up and
+# down by the same factor ("even both ways"): mild x1.25 either way (80-125%),
+# moderate x1.5 (67-150%), wild x1.75 (57-175%), extreme x2 (50-200%). The roll
+# is even in RATIO terms (log-uniform), so a result is as likely above normal
+# as below it; a plain uniform roll over 50-200% lands below only a third of
+# the time. The old names load as aliases (options.py).
+BAND_WIDTH = {
+    1: 1.25,    # mild
+    2: 1.50,    # moderate
+    3: 1.75,    # wild
+    4: 2.00,    # extreme
 }
+
+
+def band(mode: int) -> tuple[float, float]:
+    """The lowest and highest factor a setting can roll."""
+    width = BAND_WIDTH[mode]
+    return 1 / width, width
+
+
+def roll(mode: int, random) -> float:
+    """One factor, even in ratio terms across band(mode)."""
+    spread = math.log(BAND_WIDTH[mode])
+    return math.exp(random.uniform(-spread, spread))
+
+
 # 1..0x7E. Floor 1, not 0, because 0 is a REAL value here - a hit that does
 # nothing - so rounding a hit to 0 would quietly disarm it. Ceiling 0x7E:
 # 0x7F kills anything (object HP is at most 127) and 0x80+ are the no-effect,
@@ -104,8 +129,7 @@ def weapon_damage_tables(mode: int, random, vanilla: bytes = b"") -> tuple[bytes
     charged buster at least as strong as the plain shot in every table.
     """
     out = bytearray(vanilla or DAMAGE_TABLES_VANILLA)
-    low, high = DAMAGE_RANGES[mode]
-    factors = {family: random.uniform(low, high) for family in WEAPON_FAMILIES}
+    factors = {family: roll(mode, random) for family in WEAPON_FAMILIES}
     for family, ids in WEAPON_FAMILIES.items():
         for table in range(len(out) // DAMAGE_TABLE_STRIDE):
             for dmg_id in ids:
@@ -189,13 +213,8 @@ MIDBOSS_HP: dict[str, tuple[int, int]] = {
     "Aqua Man": (0x801393B4 + 63 * 4 + 1, 40),
 }
 
-# X5's bands, as multipliers of each boss's vanilla HP.
-BOSS_HP_RANGES = {
-    1: (0.40, 0.80),    # weak
-    2: (0.70, 1.30),    # regular
-    3: (1.20, 2.00),    # strong
-    4: (0.25, 2.50),    # chaotic
-}
+# Multipliers of each boss's vanilla HP come from roll() (above): 20-80 for a
+# Robot Master at the widest setting.
 # 1..127. At 0 a boss can never be hit (ContactWeapon returns early on HP 0),
 # and above 127 the signed survival test kills it on any hit. There is no
 # art floor: the bar is a quad min(hp, 40) pixels tall, so every value draws.
@@ -205,8 +224,7 @@ BOSS_HP_MIN, BOSS_HP_MAX = 1, 127
 def boss_hp_rolls(mode: int, random) -> dict[str, float]:
     """One multiplier per Robot Master - shared by the stage fight, its Wily 4
     refight and the stage's Rush mini-boss."""
-    low, high = BOSS_HP_RANGES[mode]
-    return {boss: random.uniform(low, high) for boss in BOSS_HP_SITES}
+    return {boss: roll(mode, random) for boss in BOSS_HP_SITES}
 
 
 def scaled_hp(vanilla: int, factor: float) -> int:
@@ -425,13 +443,11 @@ BOSS_DAMAGE_SITES: dict[str, list[tuple[str, int, str, int]]] = {
     ],
 }
 
-BOSS_DAMAGE_RANGES = DAMAGE_RANGES          # X5's bands (its BOSS_DAMAGE_RANGES are the same)
 _ORI_ZERO_MASK, _ORI_ZERO = 0xFFE00000, 0x34000000     # opcode + rs: `ori rt, zero, ...`
 
 
 def boss_damage_rolls(mode: int, random) -> dict[str, float]:
-    low, high = BOSS_DAMAGE_RANGES[mode]
-    return {boss: random.uniform(low, high) for boss in BOSS_DAMAGE_SITES}
+    return {boss: roll(mode, random) for boss in BOSS_DAMAGE_SITES}
 
 
 def scaled_damage(value: int, factor: float) -> int:

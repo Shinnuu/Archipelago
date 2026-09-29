@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 from BaseClasses import ItemClassification, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
-from worlds.generic.Rules import add_item_rule, add_rule
+from worlds.generic.Rules import add_rule
 
 from . import bolts, damage, music, names, pickups
 from .items import MM8Item, event_table, item_groups, item_table
@@ -31,16 +31,17 @@ from .Rom import MM8Settings, write_patch
 # renewable - the pool is the only source - and the game sells whatever is in
 # stock, in logic or not, so the Lab's logic has to survive ANY purchase order.
 #
-# The start stock (nine entries, 21 bolts) is in logic at 21, but may hold
-# nothing required: once Duo is cleared the Lab also sells the post-Duo stock,
-# and a player holding 21-39 bolts can spend there first and be left unable to
-# afford a start-stock entry - fatal if it held the Mega Ball with every
-# remaining bundle behind it (pre-release review B1, 2026-09-26; it had been
-# in logic at 21 with anything in it). The post-Duo stock may hold anything
-# and is in logic at 40, the whole Lab. Together: everything required in the
-# Lab sits behind 40 bolts received, so logic always reaches 40 bolts without
-# buying a thing, and 40 buys every entry in whatever order. v1-design 4.
-# The patched prices (names.LAB_PRICE), not the vanilla ones.
+# Every entry is in logic at 40 bolts received, the whole Lab, and any entry
+# may hold anything - so logic reaches 40 without buying a thing, and 40 buys
+# every entry in whatever order (the post-Duo eight also need Duo, since the
+# game only stocks them after him). 0.1.0 put the start stock (nine entries,
+# 21 bolts) in logic at 21 instead, which is only safe if it holds nothing
+# required: after Duo a player holding 21-39 can spend on the post-Duo stock
+# first and be left unable to afford a start-stock entry (pre-release review
+# B1, 2026-09-26). 0.2.0 trades that early-but-empty start stock for one that
+# can hold Access Codes and the like (Ivor, 2026-09-29: "yes to the lab
+# entries as long as it doesnt softlock anything" - TestLabPurchaseOrder is the
+# guard). The patched prices (names.LAB_PRICE), not the vanilla ones.
 START_STOCK_COST = sum(names.LAB_PRICE[p] for p in names.START_STOCK)   # 21
 FULL_STOCK_COST = sum(names.LAB_PRICE.values())                         # 40
 
@@ -145,7 +146,9 @@ class MM8World(World):
                 f"`rematch_checks` (+{len(names.ROBOT_MASTERS)}).")
 
         # stage_unlocks: the one stage open from the start. Always in set 1 -
-        # set 2 only exists after Duo, and Duo needs all of set 1.
+        # under the vanilla order set 2 only exists after Duo; under an open
+        # one its stages still want the Mega Ball and Thunder Claw, so a set-2
+        # start would leave only the intro in reach.
         self.starting_stage = self.random.choice(names.SET_1) if self.options.stage_unlocks else None
 
         # The disc's randomized numbers, rolled once here so the patch and the
@@ -273,8 +276,9 @@ class MM8World(World):
         """Place this world's Bolts items FIRST. Fill places items one at a
         time with everything unplaced assumed found, and pops each world's
         items from the end of this list. A Lab entry is only reachable while
-        enough Bolts are still assumed - 21 and 40 of them at bundle size 1 -
-        so with the bundles placed at random points, the Lab's 17 locations
+        enough Bolts are still assumed - 40 of them at bundle size 1 (21 for
+        the start stock, before 0.2.0) - so with the bundles placed at random
+        points, the Lab's 17 locations
         closed to everything placed after the bundles thinned out, and small
         bundle sizes failed fill now and then (1-11 in 100 at sizes 1-3;
         0 with the Lab's rules removed). With the bundles on the map first,
@@ -313,21 +317,36 @@ class MM8World(World):
         # (Ivor, 2026-09-25), so they can be collected later.
         # test_soft_locks.ForcedDuo is the guard: nothing may be added to
         # Duo's clear that a player forced in might not hold.
+        #
+        # stage_order (0.2.0) opens all eight from the start (disc.
+        # stage_order_edits). Duo is still forced: by set 1 under `open`, by
+        # any four kills under `open_any_four` (the disc's counting gate) -
+        # either way his clear still needs nothing, and ForcedDuo guards it.
         set_1_beaten = [names.beaten(b) for b in names.SET_1]
-        entrance(f"Stage Select -> {names.DUO}").access_rule = \
-            lambda state: state.has_all(set_1_beaten, player)
+        all_beaten = [names.beaten(b) for b in names.ROBOT_MASTERS]
+        order = self.options.stage_order
+        if order == order.option_open_any_four:
+            entrance(f"Stage Select -> {names.DUO}").access_rule = \
+                lambda state: state.has_from_list(all_beaten, player, 4)
+        else:
+            entrance(f"Stage Select -> {names.DUO}").access_rule = \
+                lambda state: state.has_all(set_1_beaten, player)
 
-        # Set 2 opens on Duo's clear, and ALSO needs Mega Ball + Thunder
-        # Claw. Until 2026-09-25 those came through Duo's entrance; they stay
-        # here explicitly, because in vanilla set 2 is only ever played
-        # holding the Mega Ball and all four set-1 weapons, so a set-2 route
-        # may assume any of them, and nobody has checked. Stricter only
-        # narrows placement. (The other three set-1 weapons were never asked
-        # for - an open question, not a finding.)
+        # Set 2 opens on Duo's clear (vanilla order) or at once (open), and
+        # ALSO needs Mega Ball + Thunder Claw. Until 2026-09-25 those came
+        # through Duo's entrance; they stay here explicitly, because in
+        # vanilla set 2 is only ever played holding the Mega Ball and all four
+        # set-1 weapons, so a set-2 route may assume any of them. Stricter
+        # only narrows placement. The other three set-1 weapons turned out to
+        # matter in exactly one place, Sword Man's trials (SWORD_TRIALS).
         for boss in names.SET_2:
-            entrance(f"Stage Select -> {boss}").access_rule = \
-                lambda state: (state.has(names.DUO_CLEARED, player)
-                               and state.has_all((names.MEGA_BALL, names.THUNDER_CLAW), player))
+            if order == order.option_vanilla:
+                entrance(f"Stage Select -> {boss}").access_rule = \
+                    lambda state: (state.has(names.DUO_CLEARED, player)
+                                   and state.has_all((names.MEGA_BALL, names.THUNDER_CLAW), player))
+            else:
+                entrance(f"Stage Select -> {boss}").access_rule = \
+                    lambda state: state.has_all((names.MEGA_BALL, names.THUNDER_CLAW), player)
 
         # stage_unlocks: each Robot Master stage also needs its codes - on top
         # of the game's own structure, never instead of it.
@@ -339,7 +358,6 @@ class MM8World(World):
         # The Wily stages open on all eight bosses. Also asking for all eight
         # WEAPONS is deliberately stricter than the game - nobody has checked
         # what the Wily stages demand, and strict only narrows placement.
-        all_beaten = [names.beaten(b) for b in names.ROBOT_MASTERS]
         entrance(f"Stage Select -> {names.WILY_1}").access_rule = \
             lambda state: (state.has_all(all_beaten, player)
                            and state.has_all(names.WEAPONS, player))
@@ -360,15 +378,33 @@ class MM8World(World):
                 if requirement:
                     location(name).access_rule = meets(requirement)
 
+        # Sword Man's four trials (names.SWORD_TRIALS) stand between his
+        # stage's hub and everything after it: the pillars past the hub rise
+        # only once all four are done (names.py). Past them: the capsule in
+        # that corridor (P20), the Rush mini-boss, and the second half - Sword
+        # Man himself (and the Beaten event the Wily gate counts), the stage's
+        # last bolt (subId 21: after the lava raft, behind a Flash Bomb
+        # ceiling) and the capsule in that lava room. Inside the trials, and
+        # keeping the stage's own rules: bolt 19 (the Flash Bomb trial's first
+        # room), bolt 20 and capsule P21 (the Thunder Claw trial - the stage's
+        # only hook tiles, which set 2's entrance already covers). 0.2.0 as
+        # first built put the mini-boss and P20 in "the opening" (review B1).
+        for name in self.sword_past_trials():
+            add_rule(location(name), lambda state: state.has_all(names.SWORD_TRIALS, player))
+        # Search Man's doors (names.SEARCH_DOORS): the last stands before his
+        # shutter, and only Tornado Hold opens it. His bolts and capsules
+        # already ask for it (the stage's requirement, above).
+        for name in self.search_past_doors():
+            add_rule(location(name), lambda state: state.has(names.SEARCH_DOORS, player))
+
         # --- The Lab ---------------------------------------------------------
         def bolts_held(state) -> int:
             return state.count(names.BOLTS, player) * size
 
-        # See START_STOCK_COST for why the start stock holds nothing required.
+        # See START_STOCK_COST: every entry at the whole Lab's 40.
         for part in names.START_STOCK:
-            shop = location(names.shop_location(part))
-            shop.access_rule = lambda state: bolts_held(state) >= START_STOCK_COST
-            add_item_rule(shop, lambda item: not item.advancement)
+            location(names.shop_location(part)).access_rule = \
+                lambda state: bolts_held(state) >= FULL_STOCK_COST
         for part in names.POST_DUO_STOCK:
             location(names.shop_location(part)).access_rule = \
                 lambda state: (state.has(names.DUO_CLEARED, player)
@@ -380,6 +416,20 @@ class MM8World(World):
         else:
             self.multiworld.completion_condition[player] = \
                 lambda state: state.has(names.VICTORY, player)
+
+    def sword_past_trials(self) -> list[str]:
+        """This seed's locations past Sword Man's trials (set_rules)."""
+        past = [names.midboss_location(names.SWORD), names.boss_location(names.SWORD),
+                names.beaten(names.SWORD), bolts.BOLT_LOCATIONS[21]]
+        if self.options.pickupsanity:
+            past += [names.SWORD_HUB_CAPSULE, names.SWORD_LAVA_CAPSULE]
+        return past
+
+    @staticmethod
+    def search_past_doors() -> list[str]:
+        """The locations behind Search Man's Tornado Hold doors that the
+        stage's own requirement does not already cover (set_rules)."""
+        return [names.boss_location(names.SEARCH), names.beaten(names.SEARCH)]
 
     def seed_stamp(self) -> int:
         """Names this seed and slot on the disc and in the save (disc.seed_stamp)."""
@@ -422,6 +472,12 @@ class MM8World(World):
             "stage_unlocks": self.options.stage_unlocks.value,
             "pickupsanity": self.options.pickupsanity.value,
             "rematch_checks": self.options.rematch_checks.value,
+            # The Exit part does nothing with it on; the client says so when
+            # the part arrives (client._describe_parts).
+            "exit_stage_anytime": self.options.exit_stage_anytime.value,
+            # An open order: the client keeps Duo's select slot shut until
+            # phase 4 (client.select_table).
+            "stage_order": self.options.stage_order.value,
             # What the disc's fills and pickups now stop at (disc.max_life_edits);
             # the client's Life Energy fills to it.
             "max_life": self.options.max_life.value,

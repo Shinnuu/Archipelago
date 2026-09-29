@@ -166,6 +166,37 @@ class TestAgainstTheDump(unittest.TestCase):
             b = patched[s * disc.SECTOR_RAW:(s + 1) * disc.SECTOR_RAW]
             self.assertEqual(a, b, f"sector {s} changed but no edit touches it")
 
+    def _anim0_frames(self, gfx: int) -> int:
+        """How many steps animation 0 of sprite set `gfx` has: the EXE's
+        set table 0x8014FF74 -> animation table -> 4-byte steps, the last
+        with bit 15 set (0x801048DC's walk)."""
+        table = self._word(self.track1, 0x8014FF74 + 4 * gfx)
+        step, count = self._word(self.track1, table), 0
+        while True:
+            count += 1
+            if self._word(self.track1, step) & 0x8000:
+                return count
+            step += 4
+
+    def test_lab_price_draws_from_the_digit_set(self):
+        """0.2.0 (a tester's report, live 2026-09-29). The price is frame
+        price + 20 of set 0x76, which has glyphs only where vanilla's 4-7 land;
+        LAB_PRICE's 2 and 3 fell on the dialog's NO / CANCEL. The patch draws it
+        as frame price + 61 of the bolt counter's set 0x61."""
+        self.assertEqual(self._anim0_frames(0x76), 28)
+        vanilla_prices = set(disc.VANILLA_PRICE.values())
+        self.assertEqual(20 + max(vanilla_prices), 27)              # vanilla's range ends the strip
+        self.assertEqual(20 + min(vanilla_prices), 24)
+        self.assertTrue(all(20 + p < 24 for p in set(disc.LAB_PRICE.values())))   # the bug
+        self.assertGreaterEqual(self._anim0_frames(0x61), disc.LAB_PRICE_DIGIT_BASE + 10)
+        # The vanilla words the patch replaces, and what it leaves them as.
+        self.assertEqual(self._word(self.track1, 0x801DAD6C, "ovl:DEMO"), 0x90C62859)   # lbu +9
+        patched = self._patched()
+        self.assertEqual(patched[disc.addr_to_disc(0x801DC039, "ovl:DEMO")], 0x61)
+        self.assertEqual(self._word(patched, 0x801DAD74, "ovl:DEMO"), 0x24C6003D)
+        self.assertEqual(self.track1[disc.addr_to_disc(0x801DC038, "ovl:DEMO")], 0x61,
+                         "subtype 8, the bolt counter, already uses set 0x61")
+
     def _patched(self) -> bytes:
         if not hasattr(type(self), "_base"):
             type(self)._base = disc.apply_edits(self.track1, disc.BASE_EDITS)

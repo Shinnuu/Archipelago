@@ -30,6 +30,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger()
 
 HASH_TRACK1 = disc.TRACK_MD5[0]
+# What a patch file can ask of the apworld that applies it, beyond the code
+# layout. 1: 0.1.0. 2: 0.2.0 - stage_order's seed edits, which need this
+# client's lock on Duo's select slot. Stored inside seed.json's "layout",
+# which 0.1.0 compares whole, so 0.1.0 refuses a format-2 patch (review m3).
+PATCH_FORMAT = 2
 
 
 class MM8Settings(settings.Group):
@@ -81,7 +86,12 @@ class MM8PatchExtension(APPatchExtension):
                    in json.loads(caller.get_file("lab.json").decode("utf-8")).items()}
         seed = json.loads(caller.get_file("seed.json").decode("utf-8"))
         # A patch without a layout predates this check; none left this machine.
-        if seed.get("layout", disc.code_layout()) != disc.code_layout():
+        # The layout carries the patch format too (PATCH_FORMAT): 0.1.0
+        # compares the whole dict, so it refuses a newer patch instead of
+        # half-applying it (review m3); this apworld refuses a newer format.
+        layout = dict(seed.get("layout", disc.code_layout()))
+        patch_format = layout.pop("format", 1)
+        if layout != disc.code_layout() or patch_format > PATCH_FORMAT:
             raise ValueError(
                 "Mega Man 8: this .apmm8 was made by a different version of the Mega Man 8 "
                 "apworld than the one installed, and the two lay out the disc's added code "
@@ -90,8 +100,16 @@ class MM8PatchExtension(APPatchExtension):
             options = decode_edits(caller.get_file("seed_edits.json"))
         except KeyError:
             options = []       # a patch from before the options existed
+        # What each of the player's own parts does, in its Lab entry - built
+        # here at patch time, so a seed from an older apworld gets it too.
+        # Exit's line depends on exit_stage_anytime, read off the seed's edits
+        # by the one it always carries (an address and payload, not a label -
+        # labels are frozen inside old patch files).
+        from . import names
+        effects = names.part_effects(any((where, payload) == disc.EXIT_ANYTIME_MARK
+                                         for _label, where, _region, _vanilla, payload in options))
         edits = (list(disc.BASE_EDITS) + disc.routine_edits(rom)
-                 + disc.lab_text_edits(rom, entries) + disc.ap_block_edits(seed["stamp"])
+                 + disc.lab_text_edits(rom, entries, effects) + disc.ap_block_edits(seed["stamp"])
                  + options)
         return disc.apply_edits(rom, edits)
 
@@ -162,54 +180,102 @@ class MM8ProcedurePatch(APProcedurePatch):
 
     def patch(self, target: str) -> None:
         """Write "<name>.bin" (patched Track 1 + Tracks 2 and 3) and
-        "<name>.cue". The .bin is assembled under a temporary name and only
-        renamed into place once complete, so an interrupted patch never
-        leaves a half-disc that the "already exists" check would accept."""
+        "<name>.cue" - or leave them alone when they already are exactly the
+        disc this patch makes.
+
+        Opening a patch always ends with the disc THIS apworld and THIS
+        host.yaml make (Ivor, 2026-09-29: "as idiot proof as possible"). The
+        disc is built in memory every time and compared with the one on file:
+        identical, it is left untouched (so an EmuHawk that has it open is no
+        problem); different in any way - made by an older apworld, a colour
+        changed in host.yaml since, a damaged or half-copied file - it is
+        rewritten. 0.1.0 reused any disc whose AP header matched, which an
+        apworld update does not change, so a tester re-opening a 0.1.0 seed
+        on 0.2.0 kept the old disc and its NO/CANCEL Lab prices (0.2.0 review
+        M1). The .bin is assembled under a temporary name and only renamed
+        into place once complete, so an interrupted patch never leaves a
+        half-disc."""
         # Read first, always: Patch.create_rom_file hands the client the
-        # server and slot from here, and the reuse check needs the stamp.
+        # server and slot from here.
         self.read()
         file_name = target[:-len(self.result_file_ending)]
         bin_path, cue_path = file_name + ".bin", file_name + ".cue"
-        if self._already_built(bin_path, cue_path):
-            logger.info("Patched disc + CUE already exist!")
-            return
+        track1 = self._build_track1()
         track2, track3 = disc.find_audio_tracks(get_base_rom_path())
-
-        super().patch(target)              # the patched Track 1, at `target`
+        cue = disc.merged_cue(os.path.basename(bin_path))
+        if self._on_file(bin_path, cue_path, cue, track1, (track2, track3)):
+            logger.info("Mega Man 8: the patched disc is already up to date: %s", bin_path)
+            return
         partial = bin_path + ".partial"
-        with open(partial, "wb") as out:
-            for path in (target, track2, track3):
-                with open(path, "rb") as f:
-                    shutil.copyfileobj(f, out, 1 << 20)
-        os.remove(target)
-        os.replace(partial, bin_path)
-        # UTF-8, named explicitly: the file name carries the player's name,
-        # and the platform default (cp1252 here) turned "ö" into a byte no
-        # UTF-8 reader resolves and crashed outright on Japanese (review M2).
-        # Via a temporary name, so a failure can never leave a cue behind.
-        with open(cue_path + ".partial", "w", encoding="utf-8", newline="\n") as f:
-            f.write(disc.merged_cue(os.path.basename(bin_path)))
-        os.replace(cue_path + ".partial", cue_path)
+        try:
+            with open(partial, "wb") as out:
+                out.write(track1)
+                for path in (track2, track3):
+                    with open(path, "rb") as f:
+                        shutil.copyfileobj(f, out, 1 << 20)
+            _replace(partial, bin_path)
+            # UTF-8, named explicitly: the file name carries the player's name,
+            # and the platform default (cp1252 here) turned "ö" into a byte no
+            # UTF-8 reader resolves and crashed outright on Japanese (review
+            # M2). Via a temporary name, so a failure can never leave a cue.
+            with open(cue_path + ".partial", "w", encoding="utf-8", newline="\n") as f:
+                f.write(cue)
+            _replace(cue_path + ".partial", cue_path)
+        finally:
+            for leftover in (partial, cue_path + ".partial"):
+                if os.path.exists(leftover):
+                    os.remove(leftover)
 
-    def _already_built(self, bin_path: str, cue_path: str) -> bool:
-        """A disc this very patch already made: its cue names its .bin, and
-        the .bin's AP block carries this patch format and this seed's stamp.
-        A disc from an older apworld or another seed, or a cue a failed run
-        left, is rebuilt rather than reused."""
-        if not (os.path.exists(bin_path) and os.path.exists(cue_path)):
-            return False
+    def _build_track1(self) -> bytes:
+        """The patched Track 1, in memory: the patch's procedure, run the way
+        APProcedurePatch.patch runs it (every step is ours)."""
+        data = self.get_source_data_with_cache()
+        for step, args in self.procedure:
+            extension = getattr(MM8PatchExtension, step, None)
+            if extension is None:
+                raise NotImplementedError(f"Unknown procedure {step} for {self.game}.")
+            data = extension(self, data, *args)
+        return data
+
+    @staticmethod
+    def _on_file(bin_path: str, cue_path: str, cue: str, track1: bytes,
+                 audio: tuple[str, str]) -> bool:
+        """Whether `bin_path` + `cue_path` already hold exactly this disc,
+        every byte compared."""
         try:
             with open(cue_path, encoding="utf-8") as f:
-                if f.read() != disc.merged_cue(os.path.basename(bin_path)):
+                if f.read() != cue:
                     return False
-            stamp = json.loads(self.get_file("seed.json").decode("utf-8"))["stamp"]
+            expected = len(track1) + sum(os.path.getsize(path) for path in audio)
+            if os.path.getsize(bin_path) != expected:
+                return False
+            chunk = 1 << 20
             with open(bin_path, "rb") as f:
-                f.seek(disc.addr_to_disc(disc.AP_BLOCK, disc.REGION_EXE))
-                header = f.read(12)
-        except (OSError, UnicodeDecodeError, ValueError, KeyError):
+                view = memoryview(track1)
+                for at in range(0, len(track1), chunk):
+                    piece = view[at:at + chunk]
+                    if f.read(len(piece)) != piece:
+                        return False
+                for path in audio:
+                    with open(path, "rb") as track:
+                        while block := track.read(chunk):
+                            if f.read(len(block)) != block:
+                                return False
+        except (OSError, UnicodeDecodeError):
             return False
-        return header == (disc.AP_SIGNATURE + disc.AP_VERSION.to_bytes(4, "little")
-                          + stamp.to_bytes(4, "little"))
+        return True
+
+
+def _replace(source: str, destination: str) -> None:
+    """os.replace, with the one failure a player can cause and fix named: the
+    old disc open in BizHawk (Windows will not replace a file in use)."""
+    try:
+        os.replace(source, destination)
+    except PermissionError as error:
+        raise PermissionError(
+            f"Mega Man 8: {os.path.basename(destination)} has to be rebuilt (it is not the disc this "
+            f"patch makes - an older apworld's, or one with a colour since changed), but another "
+            f"program has it open. Close BizHawk, then open the .apmm8 again.") from error
 
 
 def lab_entries(world: "MM8World") -> dict[int, tuple[str, str | None, str | None]]:
@@ -245,6 +311,7 @@ def seed_edits(world: "MM8World") -> list[tuple[str, int, str, bytes, bytes]]:
     if world.options.pickupsanity:
         edits += disc.pickup_edits(pickups.KEYS)
     edits += disc.max_life_edits(int(world.options.max_life))     # none at 40
+    edits += disc.stage_order_edits(int(world.options.stage_order))     # none for vanilla
     return edits
 
 
@@ -265,7 +332,8 @@ def write_patch(world: "MM8World", output_directory: str) -> str:
                               player_name=world.multiworld.player_name[world.player])
     patch.write_file("lab.json", json.dumps(lab_entries(world)).encode("utf-8"))
     patch.write_file("seed.json", json.dumps({"stamp": world.seed_stamp(),
-                                              "layout": disc.code_layout()}).encode("utf-8"))
+                                              "layout": {**disc.code_layout(), "format": PATCH_FORMAT}})
+                     .encode("utf-8"))
     patch.write_file("seed_edits.json", encode_edits(seed_edits(world)))
     # Resolved HERE so `random` is rolled once, at generation, and recorded.
     patch.write_file("palettes.json", json.dumps({

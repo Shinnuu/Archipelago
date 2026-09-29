@@ -74,6 +74,69 @@ class TestStageUnlocks(ClientTest):
             self.assertEqual(locked, acts, garbage)
 
 
+class TestDuoSlotUnderAnOpenOrder(ClientTest):
+    """stage_order (0.2.0): the disc opens page 2 from phase 1, so Duo's slot
+    is shut by the client until his turn (phase 4) and opens for revisits."""
+    PHASE = 0x801C336C
+    DUO = SELECT + names.SELECT_DUO_POSITION
+
+    async def at_phase(self, phase: int, **slot_data) -> bytes:
+        ram = in_stage()
+        ram.put(self.PHASE, bytes([phase]))
+        await self.poll(ram, OptionContext([], **slot_data), MM8Client())
+        return ram.get(SELECT, 12)
+
+    async def test_shut_until_phase_4(self):
+        for phase in (1, 2, 3):
+            table = await self.at_phase(phase, stage_order=1)
+            self.assertEqual(table[names.SELECT_DUO_POSITION], 0xFF, phase)
+            self.assertEqual(table[:8] + table[9:], (names.SELECT_TABLE_VANILLA[:8]
+                                                     + names.SELECT_TABLE_VANILLA[9:]), phase)
+
+    async def test_open_from_phase_4(self):
+        for phase in (4, 5, 6):
+            self.assertEqual(await self.at_phase(phase, stage_order=2), names.SELECT_TABLE_VANILLA, phase)
+
+    async def test_it_reopens_once_his_turn_comes(self):
+        ram, client = in_stage(), MM8Client()
+        ram.put(self.PHASE, b"\x01")
+        await self.poll(ram, OptionContext([], stage_order=1), client)
+        self.assertEqual(ram.get(self.DUO, 1), b"\xff")
+        ram.put(self.PHASE, b"\x04")
+        await self.poll(ram, OptionContext([], stage_order=1), client)
+        self.assertEqual(ram.get(self.DUO, 1), bytes([names.STAGE_INDEX[names.DUO]]))
+
+    async def test_the_vanilla_order_never_touches_it(self):
+        # The control: phase 1 with the vanilla order leaves the table alone.
+        self.assertEqual(await self.at_phase(1, stage_order=0), names.SELECT_TABLE_VANILLA)
+
+    async def test_with_stage_unlocks_both_locks_hold(self):
+        table = await self.at_phase(1, stage_order=1, stage_unlocks=1)
+        self.assertEqual(table[names.SELECT_DUO_POSITION], 0xFF)
+        for boss, pos in names.SELECT_POSITION.items():
+            self.assertEqual(table[pos], 0xFF, boss)
+
+    async def test_the_worlds_own_slot_data_drives_it(self):
+        """0.2.0 review m6: the tests above type the slot-data keys by hand.
+        Here they come from a generated world's fill_slot_data, so a key
+        renamed on either side fails (renaming both passed every test)."""
+        from test.general import setup_multiworld
+        from .. import MM8World
+        from .test_client import STAMP
+        for order, exit_anytime, locked, moot in (("open", False, True, False), ("vanilla", True, False, True)):
+            world = setup_multiworld([MM8World], seed=1, options={
+                "stage_order": order, "exit_stage_anytime": exit_anytime}).worlds[1]
+            ctx = OptionContext([])
+            ctx.slot_data.update(world.fill_slot_data())
+            ctx.slot_data["seed_stamp"] = STAMP                 # the fake disc's
+            ram = in_stage()
+            ram.put(self.PHASE, b"\x01")
+            await self.poll(ram, ctx, MM8Client())
+            with self.subTest(stage_order=order):
+                self.assertEqual(ram.get(self.DUO, 1) == b"\xff", locked)
+                self.assertEqual(MM8Client._exit_moot(ctx, 0b010), moot)
+
+
 class TestRematches(ClientTest):
     async def test_a_won_refight_in_wily_4_sends_its_check(self):
         ram = in_stage(stage=13, overlay=0x13)

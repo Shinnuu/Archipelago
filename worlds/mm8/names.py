@@ -77,6 +77,38 @@ BOSS_WEAPON = {
 }
 WEAPONS = [BOSS_WEAPON[b] for b in ROBOT_MASTERS]
 
+# Sword Man's stage: after its opening, a hub of four teleporters, one trial
+# per set-1 weapon (any order). Four pillars block the hub's corridor on
+# (STAGE05 item 24, subIds 128-131, x 2328-2460, y 936): pillar k stays down
+# until k + 1 trials are done - the count is 0x801C3378's low nibble, +1 at
+# each trial's end switch (0x801E3DD8), tested by the pillar at 0x801E3FC0.
+# So ALL FOUR trials stand before everything past the hub: the capsule in that
+# corridor, the Rush mini-boss (his drop is the only way on, 0x801DF1E8) and
+# the whole second half. Thunder Claw's pole swing and Tornado Hold's second
+# room have no way round; Ice Wave's magma (a precise damage boost) and Flash
+# Bomb's colour order (guessing) do, but logic takes no tricks. What lies past
+# them is MM8World.sword_past_trials(). Which trial wants which weapon is
+# walkthroughs + the disc map; the pillars are the disc (research repo:
+# tester-feedback record item 8, and the 0.2.0 review's B1, which found them).
+# Vanilla always reaches this stage holding all four, so nothing marked it.
+SWORD_TRIALS = (TORNADO_HOLD, THUNDER_CLAW, ICE_WAVE, FLASH_BOMB)
+# pickupsanity's two capsules past them (pickups.PICKUPS): record 1 at x 2512,
+# y 952, in the pillars' corridor; record 49 at x 2928, y 5816, in the lava room
+# of the stage's last bolt.
+SWORD_HUB_CAPSULE = f"{SWORD} - Large Life Energy 1"
+SWORD_LAVA_CAPSULE = f"{SWORD} - Large Life Energy 3"
+
+# Search Man's second half: three doors only Tornado Hold opens (STAGE08 item
+# 48, spawn records 105-107; the last at x 5888, just before his shutter).
+# Shut, each is solid (0x80107BF4 at 0x801E0984) and fills its corridor's
+# 64-px gap; it opens only on a hit 0x80109804 reports as 3 - weapon object 5,
+# Tornado Hold (0x80109864; object ids by weapon slot at 0x80138900). The
+# stage's bolts and capsules already carry Tornado Hold (bolts.
+# stage_requirement); Search Man himself and his Beaten event did not, and ~1
+# seed in 14 put Tornado Hold behind the doors. The audit that followed the
+# 0.2.0 review's B1, same class; MM8World.search_past_doors().
+SEARCH_DOORS = TORNADO_HOLD
+
 # ---- Rush --------------------------------------------------------------------
 # Index = byte offset from the live adapter block 0x8016D300 (persistent copy
 # at 0x801C3352). Each is awarded by one Robot Master stage's mid-boss: the
@@ -136,6 +168,79 @@ PART_COST = {
 # total exactly 40, the game's own bolt count.
 LAB_PRICE = {name: disc.LAB_PRICE[PART_ID[name]] for name in PARTS}
 
+# What each part does, because a player never sees it otherwise: the Lab's own
+# description is replaced by the AP item's name, and the pause parts row stays
+# empty. Worded from the game's text (the pause menu's part descriptions, plain
+# ASCII in every STAGExx.PAC, e.g. STAGE00.PAC 0x26006), corrected where the
+# EXE says the words mislead in a randomizer (research repo, tester-feedback
+# record items 5-6; checked part by part against the EXE in the 0.2.0 review):
+# Energy Saver swaps in a cost table ~2/3 of normal (0x8010BE20), read at
+# spawn, so from the next life; Spare Extra is a lives FLOOR of 4 instead of 2 -
+# at the Game Over restart (0x801213C4, called by the death handler at
+# 0x80100FF4 with no lives left), in the save's pack and unpack (0x80120ED8,
+# 0x80120FF4) and in Spare Charger's refill at stage entry (0x80100B80..BE0) -
+# not a one-off gift at the start of a game. Power Shield also lengthens the
+# post-hit invincibility, 90 -> 120 frames (0x8010CFC8). Energy Balancer only
+# redirects energy with the Buster out or the weapon in hand full (0x8012908C),
+# and with the Buster out and no Balancer a weapon capsule is not even taken.
+# Exchanger hands full-life health to that same routine (0x80128FFC ->
+# 0x80129044), so with the Buster out and no Balancer it does nothing - and
+# the capsule is used up anyway. Auto Shoot fires only once fully charged,
+# every 4th frame (0x8010FA10..2C), and gives up the charge shot (0x8010F880).
+# PART_EFFECT_SHORT is the client's line when a part arrives (Ivor: "a couple
+# words if possible"); PART_EFFECT is for the Lab text and the game page.
+PART_EFFECT_SHORT = {
+    ENERGY_SAVER: "weapons cost less",
+    POWER_SHIELD: "no knockback",
+    ENERGY_BALANCER: "refills lowest weapon",
+    EXIT: "exit cleared stages",
+    SUPER_RECOVER: "stronger pickups",
+    HIGH_SPEED_CHARGE: "faster charging",
+    SHOOTING_PART: "5 shots on screen",
+    SPARE_EXTRA: "4-life restarts",
+    BOOST_PART: "faster shots",
+    RAPID_PART: "3-shot bursts",
+    LASER_SHOT: "laser charge shot",
+    ARROW_SHOT: "arrow charge shot",
+    AUTO_SHOOT: "auto-fire once charged",
+    SPARE_CHARGER: "lives refill",
+    HYPER_SLIDER: "faster sliding",
+    EXCHANGER: "full-life health to weapon",
+    STEP_BOOSTER: "faster ladders",
+}
+PART_EFFECT = {
+    ENERGY_SAVER: "Special weapons use about a third less energy.",
+    POWER_SHIELD: "No knockback when hit, and you stay invincible longer after.",
+    ENERGY_BALANCER: "Energy you pick up with the Buster out fills your emptiest weapon.",
+    EXIT: "Leave a cleared stage from the pause menu.",
+    SUPER_RECOVER: "Health and weapon energy pickups restore more.",
+    HIGH_SPEED_CHARGE: "The charge shot charges faster.",
+    SHOOTING_PART: "Up to 5 Buster shots on screen at once, not 3.",
+    SPARE_EXTRA: "A Game Over or a loaded save gives you at least 4 lives, not 2.",
+    BOOST_PART: "Buster shots fly faster.",
+    RAPID_PART: "Each press fires three Buster shots.",
+    LASER_SHOT: "Charge shot becomes a piercing laser. Pick it in the pause menu.",
+    ARROW_SHOT: "Charge shot becomes a powerful arrow. Pick it in the pause menu.",
+    AUTO_SHOOT: "Once charged, holding fire keeps firing. Pick it in the pause menu.",
+    SPARE_CHARGER: "Entering a stage refills your lives to 2 (4 with Spare Extra).",
+    HYPER_SLIDER: "You slide faster.",
+    EXCHANGER: "At full life, health pickups refill the special weapon you hold.",
+    STEP_BOOSTER: "You climb ladders faster.",
+}
+# With exit_stage_anytime on, every stage but the intro has Exit and the part does
+# nothing (create_item makes it filler), so it says so instead.
+EXIT_EFFECT_WITH_OPTION_SHORT = "no effect (Exit Stage Anytime is on)"
+EXIT_EFFECT_WITH_OPTION = "No effect. Exit Stage Anytime lets you leave all but the intro."
+
+
+def part_effects(exit_stage_anytime: bool) -> dict[str, str]:
+    """PART_EFFECT for the Lab text, with Exit's line matching the seed."""
+    effects = dict(PART_EFFECT)
+    if exit_stage_anytime:
+        effects[EXIT] = EXIT_EFFECT_WITH_OPTION
+    return effects
+
+
 # The nine the Lab sells from the start; the other eight appear after Duo.
 START_STOCK = [
     POWER_SHIELD, SPARE_EXTRA, SHOOTING_PART, ENERGY_BALANCER, EXIT,
@@ -159,6 +264,7 @@ FILLER_WEIGHTS = [(EXTRA_LIFE, 2), (LIFE_ENERGY, 3), (WEAPON_ENERGY, 3)]
 # A position holding 0xFF confirms to nothing; 0 would load stage 0 (ram-notes 9f).
 SELECT_TABLE_VANILLA = bytes.fromhex("0301000e02040705090a0806")
 SELECT_POSITION = {boss: SELECT_TABLE_VANILLA.index(STAGE_INDEX[boss]) for boss in ROBOT_MASTERS}
+SELECT_DUO_POSITION = SELECT_TABLE_VANILLA.index(STAGE_INDEX[DUO])     # 8, on page 2
 
 
 def access_item(boss: str) -> str:

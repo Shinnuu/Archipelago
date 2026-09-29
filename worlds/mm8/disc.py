@@ -272,18 +272,27 @@ def _cut(lines: list[str], n: int) -> list[str]:
 
 
 def lab_description(item: str, owner: str | None = None, game: str | None = None,
-                    brevity: int = 0) -> list[str]:
+                    brevity: int = 0, effect: str | None = None) -> list[str]:
     """The lines a Lab entry shows for the item it holds: the item alone when
     it is the player's own, else whose it is, the item, and the game.
 
+    `effect` - what the item does, for the player's own Lab parts - follows
+    the name after a blank row, in whatever lines are left (0.2.0: a player
+    otherwise never sees what a part does).
+
     `brevity` trades detail for room: 0 as much as six lines allow, 1 no game,
-    2 the item on at most two lines, 3 one line each for owner and item."""
+    2 the item on at most two lines and no effect, 3 one line each for owner
+    and item."""
     # Each name is checked for anything drawable BEFORE "'s" or the brackets
     # join it: a name wholly in another script sanitises to nothing, and
     # "'s" / "()" alone used to stand in for it.
     item_lines = lab_wrap(item) or ["Unnamed item"]
     if owner is None:
-        return _cut(item_lines, (LAB_LINES, LAB_LINES, 2, 1)[brevity])
+        lines = _cut(item_lines, (LAB_LINES, LAB_LINES, 2, 1)[brevity])
+        room = LAB_LINES - len(lines) - 1          # a blank row between
+        if effect and brevity <= 1 and room >= 1:
+            lines = lines + [""] + _cut(lab_wrap(effect), room)
+        return lines
     head = lab_wrap(f"{owner}'s") if lab_sanitize(owner) else ["Someone's"]
     if brevity >= 3:
         return _cut(head, 1) + _cut(item_lines, 1)
@@ -296,12 +305,17 @@ def lab_description(item: str, owner: str | None = None, game: str | None = None
 
 
 def lab_fit(entries: dict[int, tuple[str, str | None, str | None]],
-            vanilla_chunk: bytes) -> dict[int, list[str]]:
+            vanilla_chunk: bytes, effects: dict[str, str] | None = None) -> dict[int, list[str]]:
     """Descriptions for `entries` ({part id: (item, owner or None, game)}) at
     the most detail that still fits the chunk - every entry shortened
-    together, so the Lab reads consistently."""
-    for brevity in range(4):
-        lines = {p: lab_description(*e, brevity=brevity) for p, e in entries.items()}
+    together, so the Lab reads consistently. `effects` ({item name: what it
+    does}) describes the player's OWN items only - and those descriptions go
+    before any name is cut (0.2.0 review m9)."""
+    effects = effects or {}
+    for brevity, describe in ((0, True), (1, True), (1, False), (2, False), (3, False)):
+        lines = {p: lab_description(item, owner, game, brevity,
+                                    effects.get(item) if owner is None and describe else None)
+                 for p, (item, owner, game) in entries.items()}
         try:
             lab_text_chunk(vanilla_chunk, lines)
             return lines
@@ -352,15 +366,17 @@ def lab_vanilla_chunk(track1: bytes) -> bytes:
                  for i in range(LAB_TEXT_VANILLA_SIZE))
 
 
-def lab_text_edits(track1: bytes, entries: dict[int, tuple[str, str | None, str | None]]) -> list[tuple[str, int, str, bytes, bytes]]:
+def lab_text_edits(track1: bytes, entries: dict[int, tuple[str, str | None, str | None]],
+                   effects: dict[str, str] | None = None) -> list[tuple[str, int, str, bytes, bytes]]:
     """Edits writing the rebuilt text chunk and its size into LABO.PAC, for
-    `entries` ({part id: (item, owner or None, game)}). The vanilla bytes are
+    `entries` ({part id: (item, owner or None, game)}), describing the
+    player's own items from `effects` (lab_fit). The vanilla bytes are
     read from `track1`, whose md5 is checked before any patch runs;
     everything past the new chunk up to 0x800 is zeroed."""
     def read(where: int, n: int) -> bytes:
         return bytes(track1[addr_to_disc(where + i, "pack:LABO.PAC")] for i in range(n))
     vanilla = read(LAB_TEXT_OFFSET, LAB_TEXT_ROOM)
-    descriptions = lab_fit(entries, vanilla[:LAB_TEXT_VANILLA_SIZE])
+    descriptions = lab_fit(entries, vanilla[:LAB_TEXT_VANILLA_SIZE], effects)
     chunk = lab_text_chunk(vanilla[:LAB_TEXT_VANILLA_SIZE], descriptions)
     payload = chunk + bytes(LAB_TEXT_ROOM - len(chunk))
     size_vanilla = read(LAB_TEXT_SIZE_FIELD, 4)
@@ -555,6 +571,26 @@ INTRO_EXIT_DENIED = ("the intro can never be exited", 0x8011358C, REGION_EXE,
                      _w(0x10600017), _w(0x10600026))   # beqz v1 -> 0x801135EC ; -> 0x80113628
 
 
+# ---- The Lab's price, in the bolt counter's digits (0.2.0) ---------------------
+# The Lab draws a part's price as a SPRITE, not text: DEMO's price object
+# (subtype 9, handler 0x801DAD2C) steps animation 0 of sprite set 0x76 to
+# frame price + 20 (0x801DAD6C reads the menu's +9, 0x801DAD74 adds 20). That
+# set has exactly 28 frames, and 24-27 are the digits 4-7 - the only prices
+# vanilla charges. LAB_PRICE charges 2 and 3, which land on frames 22/23: the
+# confirm dialog's NO and CANCEL (a tester's report; live 2026-09-29: 3 drew
+# CANCEL, 2 drew NO). The bolt counter's set 0x61, on the same screen, has
+# every digit at frame 61 + d (0x801DACFC). Pointing the price object at it
+# drew a clean 2 and 3 live, 2026-09-29, in the object's own CLUT 13. The
+# object's init (0x801DA48C) reads its set from the per-subtype table
+# 0x801DC030, so every price object the Lab spawns picks the new one up.
+LAB_PRICE_DIGIT_BASE = 61
+LAB_PRICE_DIGITS = [
+    ("Lab price: the bolt counter's sprite set", 0x801DC039, "ovl:DEMO", bytes([0x76]), bytes([0x61])),
+    ("Lab price: its digit frames (price + 61)", 0x801DAD74, "ovl:DEMO",
+     _w(0x24C60014), _w(0x24C60000 | LAB_PRICE_DIGIT_BASE)),     # addiu a2, a2, 20 -> 61
+]
+
+
 # ---- QoL disc options (X5/X6's, ported) ------------------------------------------
 # Each is a list of (label, where, region, vanilla, payload), emitted only when
 # its option is on - so a seed without it runs vanilla code there. Research
@@ -628,6 +664,10 @@ clear:                            ;   the save prompt, then the router
     nop
 """
 EXIT_HOOK = 0x80101244            # stage clear's `jal 0x8010BBB8`; delay slot `sw s0, 16(sp)` stays
+# The word that says a disc has exit_stage_anytime: "mark it an exit (2)"
+# below. Nothing else writes it, and it is in every such seed's edits since
+# 0.1.0 - Rom reads the option off a patch by it, the client off the disc.
+EXIT_ANYTIME_MARK = (0x801135EC, _w(0x34020002))
 
 
 def exit_edits() -> list[tuple[str, int, str, bytes, bytes]]:
@@ -644,7 +684,8 @@ def exit_edits() -> list[tuple[str, int, str, bytes, bytes]]:
         # store (the delay slot's `ori v0, zero, 9` is overwritten there). The
         # intro was already turned away above it.
         ("exit anytime: every stage", 0x80113594, REGION_EXE, _w(0x1040000D), _w(0x10000015)),
-        ("exit anytime: mark it an exit (2)", 0x801135EC, REGION_EXE, _w(0x34020001), _w(0x34020002)),
+        ("exit anytime: mark it an exit (2)", EXIT_ANYTIME_MARK[0], REGION_EXE, _w(0x34020001),
+         EXIT_ANYTIME_MARK[1]),
         # The pause close recognises the Exit by value: 1 -> 2, so it closes the
         # way vanilla's Exit does (gameMode2 3, no fade step, music stopped).
         ("exit anytime: pause close knows it", 0x80113AA4, REGION_EXE, _w(0x34020001), _w(0x34020002)),
@@ -829,6 +870,95 @@ def max_life_edits(max_life: int) -> list[tuple[str, int, str, bytes, bytes]]:
               mips.to_bytes(list(MAX_LIFE_FILL_VANILLA)), mips.to_bytes(fill))]
     for what, where, vanilla, cleared, plus in MAX_LIFE_SITES:
         edits.append((f"max life: {what}", where, REGION_EXE, _w(vanilla), _w(cleared | (max_life + plus))))
+    return edits
+
+
+# ---- stage_order: every Robot Master stage open from the start (0.2.0) ----------
+# Vanilla's 4 / Duo / 4 is three things, all keyed on the phase byte
+# 0x801C336C (ram-notes 3a, 9f; research repo tester-feedback record, items 3
+# and 11):
+#  1. The stage select will not flip to page 2 (Astro, Sword, Duo, Wily,
+#     Search, Aqua) below phase 2: its init writes +3 "page switch forbidden" =
+#     `sltiu v0, phase, 2` at 0x800FFAC8, and the cursor refuses the page
+#     button (position 12) on the same test at 0x800FFE64. Both become 0.
+#     [L 2026-09-29, RAM edits on a 0.1.0 disc: page 2 drew correctly at
+#     phase 1; Aqua Man loaded, played and cleared; phase stayed 1.]
+#  2. Duo's page-2 slot would then accept at phase 1 - the confirm sends every
+#     stage below 10 to a commit (0x800FFCA0..0x800FFD3C), with no room for a
+#     phase test. The client locks the slot until phase 4 (client.select_table).
+#     Offline his stage just has no Duo in it: his fighter builds only at
+#     phase 3 and otherwise deletes itself (STAGE09 0x801D9710, ram-notes 10b).
+#  3. Set 2's gate (phase 4 -> 5) runs only on a stage clear AT phase 4, and
+#     Duo's clear writes 4 and jumps straight past it (0x801013FC), so set 2
+#     beaten before Duo would strand Wily. The jump goes into the gate
+#     (0x80101338, past its phase test) instead. Executed on the game's own
+#     stage-clear routine: set 2 all beaten -> phase 5 and 0x80170555 = 0x0A,
+#     what vanilla's own 4 -> 5 leaves when the Lab has not been visited since
+#     Duo (bits 0-1 are "a Lab message is waiting", cleared by the Lab at
+#     0x8011ED90, so vanilla leaves 0x08 after a visit) - here the post-Duo
+#     message is still to come; otherwise phase 4, as before.
+# open_any_four also swaps each gate's four fixed tests for a count of all
+# eight kill records (slots 2-9, stride 4 from 0x801B1EB4; +0 is the kill
+# record A1 keeps game-written): four or more forces Duo, all eight opens
+# Wily. In place, in the words the fixed tests used - no cave routine, so
+# code_layout() does not change.
+STAGE_ORDER_OPEN = [
+    ("open stages: page 2 at any phase (select init)", 0x800FFAC8, REGION_EXE,
+     _w(0x2C420002), _w(0x00001021)),                    # sltiu v0, v0, 2 -> addu v0, zero, zero
+    ("open stages: page 2 at any phase (cursor)", 0x800FFE64, REGION_EXE,
+     _w(0x2C420002), _w(0x00001021)),
+    ("open stages: Duo's clear runs set 2's gate", 0x801013FC, REGION_EXE,
+     _w(0x0804050A), _w(0x080404CE)),                    # j 0x80101428 -> j 0x80101338
+]
+# The gates' fixed tests, as the disc has them: four times {lui v0, 0x801B;
+# lbu v0, slot(v0); nop; beq v0, zero, 0x80101428} with the nop between.
+GATE_SET_1 = (0x801012D8, (0x3C02801B, 0x90421EB4, 0, 0x10400050, 0,
+                           0x3C02801B, 0x90421EB8, 0, 0x1040004B, 0,
+                           0x3C02801B, 0x90421EBC, 0, 0x10400046, 0,
+                           0x3C02801B, 0x90421EC0, 0, 0x10400041))   # falls to 0x80101324: phase 2
+GATE_SET_2 = (0x80101338, (0x3C02801B, 0x90421EC4, 0, 0x10400038, 0,
+                           0x3C02801B, 0x90421EC8, 0, 0x10400033, 0,
+                           0x3C02801B, 0x90421ECC, 0, 0x1040002E, 0,
+                           0x3C02801B, 0x90421ED0, 0, 0x10400029))   # falls to 0x80101384: phase 5
+KILL_COUNT = """
+    lui   t0, 0x801B
+    addiu t0, t0, 0x1EB4          ; slot 2's kill record
+    ori   t1, zero, 8             ; slots 2-9: every Robot Master
+    addu  t2, zero, zero
+count:
+    lbu   v0, 0(t0)
+    addiu t1, t1, -1
+    sltu  v0, zero, v0            ; beaten -> 1
+    addu  t2, t2, v0
+    bne   t1, zero, count
+    addiu t0, t0, 4
+    sltiu v0, t2, {need}
+    bne   v0, zero, 0x80101428    ; fewer: nothing changes (the routine's tail)
+    nop
+"""
+STAGE_ORDERS = {0: "vanilla", 1: "open", 2: "open_any_four"}
+
+
+def kill_count_gate(gate: tuple[int, tuple[int, ...]], need: int) -> tuple[str, int, str, bytes, bytes]:
+    """A gate's fixed tests replaced by KILL_COUNT, padded with nops to the
+    same length so it falls through where the last test did."""
+    from . import mips
+    where, vanilla = gate
+    code = mips.assemble(KILL_COUNT.format(need=need), where)
+    assert len(code) <= len(vanilla), "the count outgrew the gate"
+    code += [0] * (len(vanilla) - len(code))
+    return (f"open stages: the {'Duo' if need < 8 else 'Wily'} gate counts {need} of 8",
+            where, REGION_EXE, mips.to_bytes(list(vanilla)), mips.to_bytes(code))
+
+
+def stage_order_edits(mode: int) -> list[tuple[str, int, str, bytes, bytes]]:
+    """stage_order's disc edits: none for vanilla; page 2 and Duo's-clear
+    hook for both open orders; and the two counting gates for open_any_four."""
+    if STAGE_ORDERS[mode] == "vanilla":
+        return []
+    edits = list(STAGE_ORDER_OPEN)
+    if STAGE_ORDERS[mode] == "open_any_four":
+        edits += [kill_count_gate(GATE_SET_1, 4), kill_count_gate(GATE_SET_2, 8)]
     return edits
 
 
@@ -1118,7 +1248,7 @@ def ext_check(stamp: int, lab: int, rush: int, processed: int, spare: int = 0) -
 # a slot to store through.)
 BASE_EDITS: list[tuple[str, int, str, bytes, bytes]] = (
     price_edits(LAB_PRICE) + a1_edits() + rush_edits() + [BOLT_GRANT, INTRO_EXIT_DENIED]
-    + in_place_edits())
+    + LAB_PRICE_DIGITS + in_place_edits())
 
 
 def apply_edits(track1: bytes, edits: Iterable[tuple[str, int, str, bytes, bytes]]) -> bytes:

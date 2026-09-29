@@ -43,7 +43,9 @@ Policies, each with its reason. Read these before changing anything.
 6. OPTIONS THAT LIVE HERE (parity plan). stage_unlocks writes 0xFF over a
    locked Robot Master's slot in the select's position table (0x801379A8,
    EXE data) - never 0, which is stage 0 and is accepted - and only over a
-   table it recognises. rematch_checks reads the game's own Wily 4 refight
+   table it recognises. An open stage_order locks Duo's slot the same way
+   until phase 4 (the disc opens page 2 at phase 1; vanilla never shows
+   Duo's slot before his turn). rematch_checks reads the game's own Wily 4 refight
    record 0x801C3378, only in Wily 4 with the player alive (the byte is
    other stages' scratch, and the game revokes a win if the player dies
    before the warp). death_link is X5's shape with MM8's kill: HP 0, which
@@ -56,6 +58,7 @@ Policies, each with its reason. Read these before changing anything.
    10, several seconds of retreat and dialogue), read from the object array only while STAGE0C is
    resident. A win the client misses is replayed by playing Wily 3 again.
 """
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -127,6 +130,16 @@ PAUSED_ADDR = _ram(0x80170338)          # non-zero while the pause menu is open
 SELECT_TABLE_ADDR = _ram(0x801379A8)
 SELECT_LOCKED = 0xFF
 
+# A disc from an older apworld (0.2.0 review M1): the Lab's price code, in the
+# DEMO overlay (resident at the Lab and the stage select, at the stage
+# overlays' base), still adding vanilla's 20 - 0.1.0's prices drew as NO /
+# CANCEL. DEMO is known by two words no stage overlay has there: the price
+# read `lbu a2, 0x2859(a2)` and its state table's first entry, the init.
+LAB_PRICE_CODE_ADDR = _ram(0x801DAD6C)  # the price read; +8 = disc.LAB_PRICE_DIGITS' addiu
+LAB_PRICE_READ = 0x90C62859
+LAB_STATES_ADDR = _ram(0x801DC050)
+LAB_STATES_FIRST = 0x801DA48C
+
 # rematch_checks: 0x801C3378 is also scratch in Sword Man's and Wily 3's
 # stages, so it is read only in Wily 4 with its overlay resident.
 WILY_4_STAGE, WILY_4_OVERLAY = 13, 0x13
@@ -178,6 +191,11 @@ class MM8Client(BizHawkClient):
 
     def __init__(self) -> None:
         super().__init__()
+        # _describe_parts: the Lab parts already accounted for, None while a
+        # login's reply is being read (its items become the baseline). Kept
+        # here, not in _reset: a disc reload re-validates the ROM, and that
+        # must not make every owned part "new".
+        self.parts_known: frozenset[str] | None = None
         self._reset()
 
     def _reset(self) -> None:
@@ -193,6 +211,7 @@ class MM8Client(BizHawkClient):
         self.pending_death_link = False
         self.sending_death_link = True
         self.unlocked_logged: frozenset[str] = frozenset()
+        self.stale_disc_logged = False       # _warn_stale_disc says it once
 
     def _refuse(self, reason: str, grace: float = 0.0) -> None:
         """Do nothing this poll; say why once the reason has lasted `grace`
@@ -207,6 +226,19 @@ class MM8Client(BizHawkClient):
         if not self.refusal_logged and now - self.refusal_since >= grace:
             self.refusal_logged = True
             logger.warning(f"Mega Man 8: {reason} - the client is doing nothing.")
+
+    def _warn_stale_disc(self, lab_code: bytes, lab_states: bytes) -> None:
+        """Say once, while the Lab or the stage select is up, that this disc
+        was made by an older apworld (LAB_PRICE_CODE_ADDR) - 0.1.0 and 0.2.0
+        share the AP block's format, so nothing else tells the two apart.
+        Opening the .apmm8 again rebuilds it (Rom.patch compares every byte)."""
+        if self.stale_disc_logged or _u32(lab_code) != LAB_PRICE_READ or _u32(lab_states) != LAB_STATES_FIRST:
+            return
+        if lab_code[8:12] == disc.LAB_PRICE_DIGITS[1][3]:           # vanilla's `addiu a2, a2, 20`
+            self.stale_disc_logged = True
+            logger.warning("Mega Man 8: this Lab comes from a disc made by an older Mega Man 8 apworld (or a "
+                           "savestate taken on one), so its prices show as NO / CANCEL. Close BizHawk and open "
+                           "your .apmm8 again - that rebuilds the disc.")
 
     def _accept(self) -> None:
         if self.refusal_logged:
@@ -234,6 +266,20 @@ class MM8Client(BizHawkClient):
             # StatusUpdate lost with the old socket would otherwise never go
             # out again; the server ignores a repeat.
             self.victory_sent = False
+            # The login's reply is ONE websocket frame, [Connected,
+            # ReceivedItems?] - the ReceivedItems only if the slot has items
+            # (MultiServer's Connect). CommonClient reads a frame with no
+            # await between the two on_package calls, so a callback queued
+            # now runs only once the frame is done: whatever the login
+            # brought is the baseline, and an empty login leaves it empty.
+            self.parts_known = None
+            try:
+                asyncio.get_running_loop().call_soon(self._end_login_frame)
+            except RuntimeError:
+                pass           # no loop (called directly): the next batch is the baseline
+            return
+        if cmd == "ReceivedItems":
+            self._describe_parts(ctx)
             return
         if cmd != "Bounced" or "DeathLink" not in args.get("tags", []):
             return
@@ -242,6 +288,49 @@ class MM8Client(BizHawkClient):
         if (args.get("data") or {}).get("source") == ctx.player_names.get(ctx.slot):
             return
         self.pending_death_link = True
+
+    def _end_login_frame(self) -> None:
+        if self.parts_known is None:
+            self.parts_known = frozenset()      # the login brought no items
+
+    def _describe_parts(self, ctx: "BizHawkClientContext") -> None:
+        """One short line per Lab part as it arrives, beside the server's
+        "found their ..." (names.PART_EFFECT_SHORT) - the only place a player
+        learns what a part does. New arrivals only (Ivor: "not important for
+        reconnects"): the parts a login brings are the baseline, and after
+        that every part not yet known gets its line once, from
+        ctx.items_received (which core has already updated).
+
+        Not from the batch's index: 0.2.0 as first built stayed silent on an
+        index-0 batch, taking it for a login's or a Sync's resend - but the
+        server also numbers a slot's very FIRST items from 0 when the login
+        brought none (send_index starts at 0), which is every fresh default
+        seed (0.2.0 review m1)."""
+        owned = [(item, ctx.item_names.lookup_in_game(item.item)) for item in ctx.items_received]
+        parts = frozenset(name for _item, name in owned if name in names.PART_EFFECT_SHORT)
+        if self.parts_known is None:
+            self.parts_known = parts            # a login's items: silent
+            return
+        known = set(self.parts_known or ())
+        for item, name in owned:
+            if name not in names.PART_EFFECT_SHORT or name in known:
+                continue
+            known.add(name)
+            effect = names.PART_EFFECT_SHORT[name]
+            if name == names.EXIT and self._exit_moot(ctx, item.flags):
+                effect = names.EXIT_EFFECT_WITH_OPTION_SHORT
+            logger.info(f"Mega Man 8: {name} - {effect}")
+        self.parts_known = frozenset(known)
+
+    @staticmethod
+    def _exit_moot(ctx: "BizHawkClientContext", flags: int) -> bool:
+        """Whether exit_stage_anytime is on, so the Exit part does nothing. A
+        0.1.0 seed's slot data does not say (0.2.0 review m2); its Exit item
+        does - the option makes it filler (create_item), else it is useful."""
+        option = (ctx.slot_data or {}).get("exit_stage_anytime")
+        if option is not None:
+            return bool(option)
+        return not flags & 0b011
 
     def _drop_death_link(self, why: str) -> None:
         """A received death that can no longer land where it was meant to -
@@ -290,14 +379,20 @@ class MM8Client(BizHawkClient):
     # ---- detection ---------------------------------------------------------
 
     @staticmethod
-    def select_table(received: dict[str, int]) -> bytes:
-        """The stage select's position -> stage table for stage_unlocks: a
-        Robot Master whose codes have not arrived confirms to nothing.
-        Everything else (stage 0, the Lab, Duo, Wily) stays vanilla."""
+    def select_table(received: dict[str, int], stage_unlocks: bool = True,
+                     duo_locked: bool = False) -> bytes:
+        """The stage select's position -> stage table. stage_unlocks: a Robot
+        Master whose codes have not arrived confirms to nothing. `duo_locked`
+        (an open stage_order before phase 4): Duo's page-2 slot, which the
+        vanilla order never shows before his turn, confirms to nothing either.
+        Everything else (stage 0, the Lab, Wily) stays vanilla."""
         table = bytearray(names.SELECT_TABLE_VANILLA)
-        for boss, position in names.SELECT_POSITION.items():
-            if not received.get(names.access_item(boss)):
-                table[position] = SELECT_LOCKED
+        if stage_unlocks:
+            for boss, position in names.SELECT_POSITION.items():
+                if not received.get(names.access_item(boss)):
+                    table[position] = SELECT_LOCKED
+        if duo_locked:
+            table[names.SELECT_DUO_POSITION] = SELECT_LOCKED
         return bytes(table)
 
     @staticmethod
@@ -447,7 +542,7 @@ class MM8Client(BizHawkClient):
     async def _poll(self, ctx: "BizHawkClientContext") -> None:
         try:
             (ap, weapons, live, persist_rush, progress, demo, overlay, hp, mirror, cur_weapon, sig,
-             mode, player, control, paused, select) = await bizhawk.read(
+             mode, player, control, paused, select, lab_code, lab_states) = await bizhawk.read(
                 ctx.bizhawk_ctx, [
                     (AP_ADDR, AP_LEN, "MainRAM"),
                     (WEAPONS_ADDR, WEAPONS_LEN, "MainRAM"),
@@ -465,6 +560,8 @@ class MM8Client(BizHawkClient):
                     (CONTROL_ADDR, CONTROL_LEN, "MainRAM"),
                     (PAUSED_ADDR, 1, "MainRAM"),
                     (SELECT_TABLE_ADDR, len(names.SELECT_TABLE_VANILLA), "MainRAM"),
+                    (LAB_PRICE_CODE_ADDR, 12, "MainRAM"),
+                    (LAB_STATES_ADDR, 4, "MainRAM"),
                 ])
         except bizhawk.RequestFailedError:
             return
@@ -488,6 +585,7 @@ class MM8Client(BizHawkClient):
             self._drop_death_link("with another seed's disc running")
             return
         self._accept()
+        self._warn_stale_disc(lab_code, lab_states)
 
         # Policy 2: the demo.
         if _u32(demo):
@@ -586,11 +684,18 @@ class MM8Client(BizHawkClient):
         # stage_unlocks: re-asserted every poll (a savestate can carry another
         # table), and only over bytes that are vanilla or locked - anything
         # else means this is not the table we think it is.
-        if ctx.slot_data.get("stage_unlocks"):
-            table = self.select_table(received)
+        # stage_order: an open order shows Duo's slot from phase 1; it stays
+        # shut until the game's own turn for him (phase 4, his clear) - then
+        # it opens for revisits, as vanilla's does.
+        stage_unlocks = bool(ctx.slot_data.get("stage_unlocks"))
+        open_order = bool(ctx.slot_data.get("stage_order"))
+        if stage_unlocks or open_order:
+            table = self.select_table(received, stage_unlocks,
+                                      duo_locked=open_order and progress[0] < PHASE_DUO_CLEARED)
             if select != table and all(b in (v, SELECT_LOCKED)
                                        for b, v in zip(select, names.SELECT_TABLE_VANILLA)):
                 writes.append((SELECT_TABLE_ADDR, table, "MainRAM"))
+        if stage_unlocks:
             unlocked = frozenset(b for b in names.ROBOT_MASTERS if received.get(names.access_item(b)))
             if unlocked != self.unlocked_logged:
                 self.unlocked_logged = unlocked

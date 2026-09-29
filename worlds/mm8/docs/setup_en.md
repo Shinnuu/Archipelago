@@ -72,9 +72,15 @@ player produces a disc that does not match the seed.
    The `.bin` holds all three tracks; your original dump is never modified.
 
 **Patch a new disc for every seed.** The disc carries a stamp naming its seed,
-and the client will not act on a disc patched for another one. Opening the
-same `.apmm8` again reuses the disc it already made — unless that disc is
-outdated (made by an older apworld), which it rebuilds.
+and the client will not act on a disc patched for another one.
+
+**Opening the same `.apmm8` again always gives you the right disc.** The
+patcher builds the disc in memory and compares it with the one already beside
+the patch: if they match, it leaves the file alone; if anything differs (you
+updated the apworld, changed a colour in `host.yaml`, or the file is damaged),
+it rebuilds it. So after updating the apworld, just open your patch again. If
+it says the disc is in use, close BizHawk first — Windows will not replace a
+file BizHawk has open. Your memory-card saves carry over to the rebuilt disc.
 
 ## Mega Man's colour (optional)
 
@@ -88,9 +94,8 @@ teal, cyan, azure, blue, indigo, violet, magenta, rose, silver, black, white.
 spoiler; it can land on vanilla.
 
 To change it without a new seed, name a colour as `mega_man_palette` under
-`mm8_options` in Archipelago's `host.yaml`, **delete the `.bin` and `.cue` you
-made before** (the patcher reuses a disc it already made for this seed), and
-open the same `.apmm8` again. Archipelago writes `unset` there by itself, and
+`mm8_options` in Archipelago's `host.yaml` and open the same `.apmm8` again
+(close BizHawk first): the patcher rebuilds the disc with the new colour. Archipelago writes `unset` there by itself, and
 `unset` or `vanilla` there leaves your YAML in charge — so to play in the
 original colours, choose `vanilla` in your YAML.
 
@@ -137,13 +142,15 @@ go.
   what came after the last write.
 - **Bolts you pick up are checks.** They no longer add to your count; your
   bolts come from **Bolts** items. Each Lab entry's description names the item
-  it holds and whose it is — the entry's name and picture above it stay the
-  original part's.
+  it holds and whose it is — and, for your own parts, what the part does. The
+  entry's name and picture above it stay the original part's.
 - **Every part you receive works at once, all together.** There is no limit
   of eight and nothing to equip: buying a Lab entry sends its check and equips
   nothing, and a part stays on once you have it. The Lab's "equipped" panel
   and the pause screen's parts row stay empty. Laser, Arrow and Auto Shoot
-  are picked on the pause screen as usual.
+  are picked on the pause screen as usual. (Energy Saver takes effect from
+  your next life.) When a part arrives while the client is connected, the
+  client log says in a few words what it does.
 - **A Rush mini-boss still drops its adapter**, looking as it always did;
   touching it sends the check. The adapter itself is an item like any other.
 - **Weapons work the moment they arrive**, with full energy — even in the
@@ -171,6 +178,10 @@ go.
 - **With `stage_unlocks`, a locked stage still shows on the stage select**;
   pressing confirm on it simply does nothing. The client log lists your open
   stages each time a new one arrives.
+- **With `stage_order` open, the stage select's second page is there from the
+  start** — move to the page button at the bottom to flip to it. Duo's stage
+  shows on it but does nothing until his turn; that lock is the client's, so
+  keep the client connected.
 
 ## Troubleshooting
 
@@ -180,12 +191,23 @@ is not running in BizHawk, or your BizHawk is older than 2.7.
 **The client says "this is not a disc patched by this version of the Mega Man 8
 apworld".** Either a savestate from the original game (or an older disc) is
 loaded — reset, or load one of this seed's states — or the disc itself is the
-original or outdated: open your `.apmm8` again, which rebuilds an outdated
-disc, and load the `.cue` it makes.
+original or outdated: close BizHawk, open your `.apmm8` again (it rebuilds an
+outdated disc), and load the `.cue` it makes.
+
+**The client says the Lab "comes from a disc made by an older Mega Man 8
+apworld", or the Lab prices show NO / CANCEL.** You are playing a disc made
+before 0.2.0 (or a savestate taken on one). Close BizHawk and open your
+`.apmm8` again: the patcher rebuilds the disc, and your memory-card saves
+carry over.
+
+**The patcher says the disc "has to be rebuilt ... but another program has it
+open".** BizHawk still has the old disc loaded. Close BizHawk, then open the
+`.apmm8` again.
 
 **The patcher says the `.apmm8` "was made by a different version of the Mega
 Man 8 apworld".** The seed was generated with another apworld version than the
-one you have installed. Install the version the seed was generated with.
+one you have installed — usually a newer one. Install the version the seed was
+generated with (a newer apworld also opens older seeds' patches).
 
 **The client says "this disc was patched for a different seed or slot".** You
 loaded another seed's disc or one of its savestates. Load this seed's `.cue`,
@@ -199,6 +221,7 @@ format.
 **I no longer have my clean dump.** Download the standalone
 **MM8-Unpatcher** from the
 [Mega Man 8 releases](https://github.com/Shinnuu/Archipelago/releases?q=mm8)
+— the newest one: an older unpatcher refuses a disc made by a newer apworld —
 and drag a patched `.bin` (or its `.cue`) onto it. It rebuilds the three
 original track files and their `.cue` in an "(unpatched)" folder beside the
 disc, checks all three against the Redump hashes before it writes anything,
@@ -209,7 +232,6 @@ that was merged into a single `.bin` back into its three tracks.
 **The game does not respond to any button.** The controller is set to analog.
 Switch BizHawk's PS1 pad to digital.
 
-**I changed a colour and nothing happened.** The patcher reused the disc it
-had already made for this seed — delete the old `.bin`/`.cue` pair and open
-the patch again — or an entry under `mm8_options` in `host.yaml` is overriding
-your YAML.
+**I changed a colour and nothing happened.** Open the `.apmm8` again (with
+BizHawk closed) and load the `.cue` it makes — or an entry under
+`mm8_options` in `host.yaml` is overriding your YAML.

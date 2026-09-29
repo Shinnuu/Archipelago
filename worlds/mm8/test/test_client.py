@@ -501,3 +501,30 @@ class TestRegistration(unittest.TestCase):
         bizhawk_components = [c for c in components if c.script_name == "BizHawkClient"]
         self.assertTrue(bizhawk_components)
         self.assertIn(".apmm8", bizhawk_components[0].file_identifier.suffixes)
+
+
+class TestStaleDisc(ClientTest):
+    """A disc from an older apworld (0.2.0 review M1): 0.1.0 and 0.2.0 share
+    the AP block's format, so the client accepts both - but 0.1.0's Lab drew
+    its prices as NO / CANCEL. With the Lab's code up, the client says once
+    that opening the .apmm8 again rebuilds the disc."""
+
+    @staticmethod
+    def lab(ram: FakeRAM, addiu: bytes) -> None:
+        ram.put(0x801DAD6C, (0x90C62859).to_bytes(4, "little") + bytes(4) + addiu)
+        ram.put(0x801DC050, (0x801DA48C).to_bytes(4, "little"))
+
+    async def test_an_old_lab_is_reported_once(self):
+        vanilla, patched = disc.LAB_PRICE_DIGITS[1][3], disc.LAB_PRICE_DIGITS[1][4]
+        ram = patched_ram()
+        self.lab(ram, vanilla)
+        with self.assertLogs("Client", level="WARNING") as logs:
+            await self.poll(ram, FakeContext(), MM8Client(), 3)
+        self.assertEqual(len([line for line in logs.output if "older Mega Man 8 apworld" in line]), 1)
+        # The controls: this apworld's Lab, and a stage overlay in DEMO's place.
+        for why, setup in (("0.2.0's Lab", lambda r: self.lab(r, patched)),
+                           ("no Lab up", lambda r: r.put(0x801DAD6C, bytes(12)))):
+            ram = patched_ram()
+            setup(ram)
+            with self.subTest(why), self.assertNoLogs("Client", level="WARNING"):
+                await self.poll(ram, FakeContext(), MM8Client(), 3)

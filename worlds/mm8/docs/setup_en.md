@@ -136,6 +136,9 @@ go.
     seed**, and save over an old slot.
   - **Savestates carry the memory card too**, so loading an old state rolls
     back any saves you made after it.
+  - **Do not load an Archipelago save in the original game.** It gets the
+    parts and bolts Archipelago gave you, and with eight parts already held,
+    the original Lab's next purchase runs into a bug of the game's own.
 - **Save your memory card to disk.** BizHawk writes it on a clean close, when
   you press **Flush SaveRAM** (`Ctrl+S` by default), or every few minutes if
   autosave is on under `Config → Customize → Advanced`. An unclean exit loses
@@ -146,11 +149,12 @@ go.
   entry's name and picture above it stay the original part's.
 - **Every part you receive works at once, all together.** There is no limit
   of eight and nothing to equip: buying a Lab entry sends its check and equips
-  nothing, and a part stays on once you have it. The Lab's "equipped" panel
-  and the pause screen's parts row stay empty. Laser, Arrow and Auto Shoot
-  are picked on the pause screen as usual. (Energy Saver takes effect from
-  your next life.) When a part arrives while the client is connected, the
-  client log says in a few words what it does.
+  nothing, and a part stays on once you have it. The pause screen's parts
+  row (and the Lab's "equipped" panel) shows the first eight parts you
+  received - the client fills it - and every part works whether shown or
+  not. Laser, Arrow and Auto Shoot are picked on the pause screen as usual.
+  (Energy Saver takes effect from your next life.) When a part arrives while
+  the client is connected, the client log says in a few words what it does.
 - **A Rush mini-boss still drops its adapter**, looking as it always did;
   touching it sends the check. The adapter itself is an item like any other.
 - **Weapons work the moment they arrive**, with full energy — even in the

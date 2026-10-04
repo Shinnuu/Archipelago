@@ -28,15 +28,18 @@ class TestStructure(MM8TestBase):
         self.assertTrue(self.multiworld.state.has(names.DUO_CLEARED, self.player))
 
     def test_duo_bolts_need_mega_ball_and_thunder_claw(self):
+        """Bolt 1 the Mega Ball; bolt 2, past bolt 1's ladder, both (0.2.1:
+        the guide gives bolt 2 only what it adds)."""
         self.multiworld.state.sweep_for_advancements()
-        duo_bolts = [s for s, stage in bolts.BOLT_STAGE.items() if stage == names.DUO]
-        for items in ([], [names.MEGA_BALL], [names.THUNDER_CLAW]):
+        first, second = bolts.PLAY_ORDER[names.DUO]
+        self.assertFalse(self.can_reach_location(bolt(first)))
+        for items in ([names.MEGA_BALL], [names.THUNDER_CLAW]):
             collected = self.collect_by_name(items)
-            for sub_id in duo_bolts:
-                self.assertFalse(self.can_reach_location(bolt(sub_id)), (sub_id, items))
+            self.assertFalse(self.can_reach_location(bolt(second)), items)
+            self.assertEqual(self.can_reach_location(bolt(first)), items == [names.MEGA_BALL], items)
             self.remove(collected)
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
-        for sub_id in duo_bolts:
+        for sub_id in (first, second):
             self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
 
     def test_set_2_needs_duo_mega_ball_and_thunder_claw(self):
@@ -139,18 +142,58 @@ class TestBoltRules(MM8TestBase):
         for sub_id in (11, 12, 13):
             self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
 
-    def test_clown_over_gated_on_rush_bike(self):
-        """Which Clown bolt needs the Rush Bike is not known yet, so all of
-        them do."""
-        everything_else = [names.MEGA_BALL, names.FLAME_SWORD, names.TORNADO_HOLD]
-        self.collect_by_name(everything_else)
-        for sub_id, stage in bolts.BOLT_STAGE.items():
-            if stage == names.CLOWN:
-                self.assertFalse(self.can_reach_location(bolt(sub_id)), sub_id)
+    def test_clown_with_the_tester_s_flame_sword_and_tornado_hold(self):
+        """The report behind 0.2.1: with Flame Sword + Tornado Hold, 0.2.0
+        held every Clown bolt back for the Rush Bike and the Mega Ball. Now
+        bolt 2 is free and bolt 4 (the lift room's top) is in on Tornado Hold;
+        bolt 3 still wants the guide's Mega Ball, and bolt 5 the Mega Ball the
+        0.2.1 review added (its room is walled in on the map)."""
+        self.multiworld.state.sweep_for_advancements()
+        b1, b2, b3, b4, b5 = bolts.PLAY_ORDER[names.CLOWN]
+        self.assertTrue(self.can_reach_location(bolt(b2)))
+        for sub_id in (b1, b3, b4, b5):
+            self.assertFalse(self.can_reach_location(bolt(sub_id)), sub_id)
+        self.collect_by_name([names.FLAME_SWORD, names.TORNADO_HOLD])
+        for sub_id in (b2, b4):
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+        for sub_id in (b1, b3, b5):
+            self.assertFalse(self.can_reach_location(bolt(sub_id)), sub_id)
+        self.collect_by_name(names.MEGA_BALL)
+        for sub_id in (b3, b5):
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+        self.assertFalse(self.can_reach_location(bolt(b1)))
         self.collect_by_name(names.RUSH_BIKE)
-        for sub_id, stage in bolts.BOLT_STAGE.items():
-            if stage == names.CLOWN:
-                self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+        self.assertTrue(self.can_reach_location(bolt(b1)))
+
+    def test_clown_bolt_4_on_either_climb(self):
+        self.multiworld.state.sweep_for_advancements()
+        b4 = bolts.PLAY_ORDER[names.CLOWN][3]
+        for item in (names.MEGA_BALL, names.TORNADO_HOLD):
+            collected = self.collect_by_name(item)
+            self.assertTrue(self.can_reach_location(bolt(b4)), item)
+            self.remove(collected)
+
+    def test_frost_without_astro_crush(self):
+        """The other report: every Frost bolt waited on Astro Crush. Now
+        only bolt 5, under a floor only Astro Crush opens, does; bolt 6's
+        block also breaks to Flame Sword or Flash Bomb; the first two need
+        nothing and the next two the Mega Ball."""
+        self.multiworld.state.sweep_for_advancements()
+        b1, b2, b3, b4, b5, b6 = bolts.PLAY_ORDER[names.FROST]
+        for sub_id in (b1, b2):
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+        self.collect_by_name(names.MEGA_BALL)
+        for sub_id in (b3, b4):
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
+        for sub_id in (b5, b6):
+            self.assertFalse(self.can_reach_location(bolt(sub_id)), sub_id)
+        flame = self.collect_by_name(names.FLAME_SWORD)
+        self.assertTrue(self.can_reach_location(bolt(b6)))
+        self.assertFalse(self.can_reach_location(bolt(b5)))
+        self.remove(flame)
+        self.collect_by_name(names.ASTRO_CRUSH)
+        for sub_id in (b5, b6):
+            self.assertTrue(self.can_reach_location(bolt(sub_id)), sub_id)
 
 
 class TestRobotMastersGoal(MM8TestBase):

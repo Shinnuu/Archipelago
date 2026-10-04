@@ -23,12 +23,13 @@ Policies, each with its reason. Read these before changing anything.
    polls (X5's rule: a single poll can land mid-load or mid-swap).
 
 3. GRANTS ARE ABSOLUTE wherever the state allows (X6's policy 2): weapon
-   capability (+1 of each entry), Rush, parts and the bolt counter are
-   computed from the items received and written whole, so a reconnect or a
-   savestate is a no-op. A weapon's capability arriving also fills its energy
-   (the game fills only at a spawn). Bolts = bundles received x bundle size - the price
-   of every Lab entry the player BOUGHT (AP_LAB, set by the purchase itself),
-   which needs no counter at all.
+   capability (+1 of each entry), Rush, parts (and the pause menu's parts
+   row) and the bolt counter are computed from the items received and
+   written whole, so a reconnect or a savestate is a no-op. A weapon's
+   capability arriving also fills its energy (the game fills only at a
+   spawn). Bolts = bundles received x bundle size - the price of every Lab
+   entry the player BOUGHT (AP_LAB, set by the purchase itself), which needs
+   no counter at all.
 
 4. CONSUMABLES ARE COUNTED (X5's rule): 1-Ups and energy cannot be absolute,
    so they are applied from a cursor into the received items - AP_PROCESSED,
@@ -158,6 +159,13 @@ BASS_ID = 0x5D
 BASS_DEFEATED_STATES = (8, 10)
 
 OFF_BOLTS, OFF_SHOT_SELECT, OFF_BOLT_FIELD, OFF_LIVE_RUSH = 0x00, 0x0A, 0x0B, 0x10
+# The game's 8 equip slots, 0x8016D2F2..F9: a part id (1-17) or 0. On an AP
+# disc nothing in the game fills them (P5: a purchase equips nothing) and no
+# effect reads them (P6: the mirror) - only displays do: the pause menu's
+# 8-icon parts row (0x80114374) and its description viewer, the Lab's
+# "equipped" panel, and the save. The client shows the player's parts there
+# (2026-10-03; ram-notes 12e, the reader scan in the v0.2.1 items record).
+OFF_PART_SLOTS, PART_SLOTS = 0x02, 8
 # 0x8016D2FA, the buster mode the pause screen picks: 0 normal, then Laser,
 # Arrow, Auto Shoot = part ids 11-13 (R5). Saved with the live block.
 SHOT_PART_ID = {1: 11, 2: 12, 3: 13}
@@ -360,6 +368,18 @@ class MM8Client(BizHawkClient):
             if received.get(name):
                 out[slot] = 1
         return bytes(out)
+
+    @staticmethod
+    def part_slots(received_in_order: list[str]) -> bytes:
+        """The 8 equip slots the pause menu draws: the first eight parts
+        received, in the order they arrived (Ivor, 2026-10-03: "showing first
+        8 is fine"), so the row never reshuffles. A seed can hold all 17; the
+        row has room for 8."""
+        first: list[str] = []
+        for name in received_in_order:
+            if name in names.PART_ID and name not in first:
+                first.append(name)
+        return bytes(names.PART_ID[p] for p in first[:PART_SLOTS]).ljust(PART_SLOTS, bytes(1))
 
     @staticmethod
     def parts_mask(received: dict[str, int]) -> int:
@@ -651,6 +671,9 @@ class MM8Client(BizHawkClient):
                 # the game otherwise refreshes only at the next stage start.
                 writes.append((LIVE_ADDR + OFF_LIVE_RUSH + k, bytes([want]), "MainRAM"))
                 writes.append((PERSIST_RUSH_ADDR + k, bytes([want]), "MainRAM"))
+        slots = self.part_slots([ctx.item_names.lookup_in_game(item.item) for item in ctx.items_received])
+        if live[OFF_PART_SLOTS:OFF_PART_SLOTS + PART_SLOTS] != slots:
+            writes.append((LIVE_ADDR + OFF_PART_SLOTS, slots, "MainRAM"))
         parts = self.parts_mask(received)
         if _u32(ap, AP_OFF_PARTS) != parts:
             writes.append((AP_ADDR + AP_OFF_PARTS, parts.to_bytes(4, "little"), "MainRAM"))

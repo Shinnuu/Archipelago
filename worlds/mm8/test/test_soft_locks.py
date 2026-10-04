@@ -375,9 +375,10 @@ class TestSwordTrialsFill(unittest.TestCase):
         def rules_0_1_0(world):
             # Exactly 0.1.0's rules: the boss, his event and the Rush mini-boss
             # had none of their own (the entrance only); bolt 21 and the
-            # capsules carried the stage's unpinned-bolt requirement.
+            # capsules carried the stage-wide bolt rule - Sword's one guide
+            # entry, the Flash Bomb.
             original(world)
-            requirement = bolts.stage_requirement(names.SWORD)
+            requirement = bolts.req((names.FLASH_BOMB,))
             for name in world.sword_past_trials():
                 location = world.multiworld.get_location(name, world.player)
                 if name in (names.boss_location(names.SWORD), names.beaten(names.SWORD),
@@ -395,9 +396,10 @@ class TestSwordTrialsFill(unittest.TestCase):
 
 class TestSearchDoors(MM8TestBase):
     """Search Man's second half has three doors only Tornado Hold opens, the
-    last just before his shutter (names.SEARCH_DOORS). His bolts and capsules
-    already asked for it; he and his Beaten event did not (found by the audit
-    after the 0.2.0 review's B1: ~1 seed in 14 put Tornado Hold behind them)."""
+    last just before his shutter (names.SEARCH_DOORS). He and his Beaten event
+    did not ask for it (found by the audit after the 0.2.0 review's B1: ~1 seed
+    in 14 put Tornado Hold behind them); since 0.2.1 the stage's last bolt,
+    whose guide entry is Thunder Claw alone, is behind them too."""
 
     def without(self, missing: str) -> CollectionState:
         state = CollectionState(self.multiworld)
@@ -412,6 +414,14 @@ class TestSearchDoors(MM8TestBase):
         for name in self.world.search_past_doors():
             with self.subTest(name):
                 self.assertFalse(self.multiworld.get_location(name, self.player).can_reach(state))
+
+    def test_the_stage_s_last_bolt_is_behind_them(self) -> None:
+        """0.2.1: bolt 37 keeps its guide entry's Thunder Claw, and the doors
+        give it the Tornado Hold the stage-wide rule used to (a direct check,
+        so dropping it from search_past_doors fails here)."""
+        location = self.multiworld.get_location(bolts.BOLT_LOCATIONS[37], self.player)
+        self.assertFalse(location.can_reach(self.without(names.TORNADO_HOLD)))
+        self.assertTrue(location.can_reach(self.without("nothing")))
 
     def test_nothing_else_about_him_changed(self) -> None:
         # The controls: with everything he is reachable, and another set-2

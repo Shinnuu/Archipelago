@@ -1,5 +1,45 @@
 # Mega Man 8 apworld — changelog
 
+## 0.2.1 — 2026-10-04
+
+From the testers' run of 0.2.0.
+
+**Updating from 0.2.0 mid-seed: just open your `.apmm8` again** (with BizHawk
+closed); the patcher rebuilds the disc and memory-card saves carry over. The
+logic changes and the new capsule apply to new seeds only; the pause screen's
+parts row fills on any seed once the 0.2.1 client is connected. The 0.2.0
+apworld refuses a 0.2.1 patch rather than half-applying it. Use
+**MM8-Unpatcher v1.2**: v1.1 refuses 0.2.1 discs.
+
+- **Each bolt asks only for what it needs.** Until now every bolt in a stage
+  waited on everything any bolt there needed, so all of Frost Man's waited on
+  Astro Crush and all of Clown Man's on the Rush Bike, Mega Ball, Flame Sword
+  and Tornado Hold. Each bolt now takes its own entry from the bolt guide,
+  matched to the bolts in the order you reach them (the game's own data
+  confirms the matching where it can). Where the game's data cannot tell two
+  bolts apart - Aqua Man's 3 and 4 - each still asks for what either needs.
+  Search Man's Bolt 3 asks only for Flame Sword (a tester's account, which the
+  guide and the game's data agree with). Clown Man's Bolt 4, at the top of the
+  lift room, now asks for the Mega Ball or Tornado Hold (a tester's account;
+  the guide asked for nothing), and his Bolt 5 for Tornado Hold and the Mega
+  Ball. Duo's second bolt, past the first, asks for the Mega Ball as well as
+  Thunder Claw, and Search Man's last bolt for Tornado Hold, as his doors
+  stand before it. Logic still expects the Mega Ball and Thunder Claw before
+  any of the last four Robot Master stages, so a tracker shows nothing in
+  them until you have both.
+- **Search Man's Bolt 2 and Bolt 3 swap names**, so that "Bolt 2" is the
+  second one you reach, as in the bolt guide. Only the names change.
+- **With `pickupsanity`, each capsule asks only for what it needs**: what the
+  bolt beside it needs, or nothing out on the stage's route. The Frost Man
+  health capsule in plain sight no longer waits on Astro Crush.
+- **New check: Frost Man's ice block.** The ice block on the ledge above Frost
+  Man's Bolt 6 drops a Large Life Energy when it breaks. With `pickupsanity`
+  it is a check, "Frost Man - Large Life Energy 5", and logic expects Astro
+  Crush for it.
+- **The pause screen's parts row shows your parts** - the first eight you
+  received (the row has room for eight). It was always empty: a part is an
+  item, so the game never equipped one.
+
 ## 0.2.0 — 2026-09-29
 
 From the first testers' run of 0.1.0.

@@ -87,6 +87,10 @@ class R3000:
             taken = (r[rs] == r[rt]) == (op == 0x04)
             return ((pc + 4 + (simm << 2)) & u32 if taken else None), None
         if op == 0x09: r[rt] = (r[rs] + simm) & u32; return None, None
+        if op == 0x0A:                                                   # slti: signed
+            s = r[rs] - (1 << 32) if r[rs] & 0x80000000 else r[rs]
+            r[rt] = int(s < simm)
+            return None, None
         if op == 0x0B: r[rt] = int(r[rs] < (simm & u32)); return None, None
         if op == 0x0C: r[rt] = r[rs] & imm; return None, None
         if op == 0x0D: r[rt] = r[rs] | imm; return None, None

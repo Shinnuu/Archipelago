@@ -11,9 +11,9 @@ class TestIds(unittest.TestCase):
     def test_location_count(self):
         # 40 bolts + 17 Lab + 8 bosses + 4 mid-bosses + Mega Ball + Duo + Wily 1-3
         # + Wily 3's Bass = 75 in every seed, + 8 Wily 4 rematches
-        # (rematch_checks) + 42 placed pickups (pickupsanity), which only their
-        # options add.
-        self.assertEqual(len(location_table), 75 + 8 + 42)
+        # (rematch_checks) + 42 placed pickups and the ice block's capsule
+        # (pickupsanity), which only their options add.
+        self.assertEqual(len(location_table), 75 + 8 + 43)
 
     def test_the_select_positions_are_the_games(self):
         """0x801379A8 read off the disc: Tengu 0, Frost 1, Clown 4, Grenade 5,
@@ -95,28 +95,79 @@ class TestBolts(unittest.TestCase):
     def test_no_bolts_in_wily(self):
         self.assertFalse(set(bolts.BOLT_STAGE.values()) & set(names.WILY_STAGES))
 
-    def test_bolt_14_is_pinned_to_its_own_requirement(self):
-        self.assertEqual(bolts.requirement(14),
-                         (frozenset({names.HOMING_SNIPER, names.ASTRO_CRUSH}),))
+    # Every bolt's whole requirement, as research repo plan
+    # 2026-10-03_per-bolt-logic.md section 3 tables it (Search's 37 also waits
+    # on the doors, Sword's 21 on the trials: test_soft_locks).
+    EXPECTED = {
+        "Frost Man - Bolt 1": [], "Frost Man - Bolt 2": [],
+        "Frost Man - Bolt 3": [{"Mega Ball"}], "Frost Man - Bolt 4": [{"Mega Ball"}],
+        "Frost Man - Bolt 5": [{"Astro Crush"}],
+        "Frost Man - Bolt 6": [{"Mega Ball"}, {"Astro Crush", "Flame Sword", "Flash Bomb"}],
+        "Clown Man - Bolt 1": [{"Rush Bike"}], "Clown Man - Bolt 2": [],
+        "Clown Man - Bolt 3": [{"Mega Ball"}, {"Flame Sword"}],
+        "Clown Man - Bolt 4": [{"Mega Ball", "Tornado Hold"}],
+        "Clown Man - Bolt 5": [{"Tornado Hold"}, {"Mega Ball"}],
+        "Tengu Man - Bolt 1": [], "Tengu Man - Bolt 2": [{"Homing Sniper", "Astro Crush"}],
+        "Tengu Man - Bolt 3": [], "Tengu Man - Bolt 4": [],
+        "Grenade Man - Bolt 1": [{"Mega Ball"}], "Grenade Man - Bolt 2": [],
+        "Grenade Man - Bolt 3": [{"Flame Sword"}], "Grenade Man - Bolt 4": [], "Grenade Man - Bolt 5": [],
+        "Sword Man - Bolt 1": [], "Sword Man - Bolt 2": [], "Sword Man - Bolt 3": [{"Flash Bomb"}],
+        "Aqua Man - Bolt 1": [{"Astro Crush"}], "Aqua Man - Bolt 2": [{"Tornado Hold"}],
+        "Aqua Man - Bolt 3": [{"Astro Crush"}], "Aqua Man - Bolt 4": [{"Astro Crush"}],
+        "Astro Man - Bolt 1": [], "Astro Man - Bolt 2": [], "Astro Man - Bolt 3": [],
+        "Astro Man - Bolt 4": [{"Mega Ball", "Tornado Hold"}],
+        "Search Man - Bolt 1": [],
+        "Search Man - Bolt 2": [{"Tornado Hold"}, {"Thunder Claw"}],
+        "Search Man - Bolt 3": [{"Flame Sword"}],
+        "Search Man - Bolt 4": [{"Thunder Claw"}],
+        "Duo - Bolt 1": [{"Mega Ball"}], "Duo - Bolt 2": [{"Thunder Claw"}, {"Mega Ball"}],
+        "Intro Stage - Bolt 1": [], "Intro Stage - Bolt 2": [], "Intro Stage - Bolt 3": [],
+    }
 
-    def test_rest_of_tengu_is_free(self):
-        """Tengu's other three guide bolts need nothing, so pinning 14 frees
-        11, 12 and 13 - the point of pinning."""
-        for sub_id in (11, 12, 13):
-            self.assertEqual(bolts.requirement(sub_id), (), sub_id)
+    def test_every_bolt_s_requirement_is_the_plan_s(self):
+        self.assertEqual(set(self.EXPECTED), set(bolts.BOLT_LOCATIONS.values()))
+        for sub_id, name in bolts.BOLT_LOCATIONS.items():
+            self.assertEqual(sorted(map(sorted, bolts.requirement(sub_id))),
+                             sorted(map(sorted, self.EXPECTED[name])), name)
 
-    def test_unpinned_bolts_over_gate(self):
-        """Every unpinned bolt carries every clause of every unpinned guide
-        bolt in its stage, so whichever guide bolt it really is, logic asks
-        for at least that much."""
+    def test_the_disc_anchors_agree_with_the_play_order(self):
+        """The control on pairing a guide number with PLAY_ORDER: every bolt
+        the disc itself ties to a guide entry sits at that place."""
+        self.assertEqual(set(bolts.ANCHORS), {14, 7, 27, 24, 6, 35})
+        for sub_id, (stage, number) in bolts.ANCHORS.items():
+            self.assertEqual(bolts.BOLT_STAGE[sub_id], stage, sub_id)
+            self.assertEqual(bolts.guide_number(sub_id), number, sub_id)
+
+    def test_an_ungrouped_bolt_takes_its_own_guide_entry_and_no_other(self):
+        """Not the stage's conjunction any more (0.2.0): Frost Man's first two
+        bolts need nothing though bolts 5 and 6 need Astro Crush."""
+        grouped = {s for g in bolts.GROUPS for s in g}
         for sub_id, stage in bolts.BOLT_STAGE.items():
-            if sub_id in bolts.PINNED:
+            if sub_id in grouped or sub_id in bolts.OVERRIDE:
                 continue
-            taken = {num for s, num in bolts.PINNED.values() if s == stage}
-            req = set(bolts.requirement(sub_id))
-            for number, guide_req in enumerate(bolts.GUIDE[stage], start=1):
-                if number not in taken:
-                    self.assertLessEqual(set(guide_req), req, (sub_id, number))
+            own = bolts.GUIDE[stage][bolts.guide_number(sub_id) - 1] + bolts.EXTRA.get(sub_id, ())
+            self.assertEqual(set(bolts.requirement(sub_id)), set(own), sub_id)
+        self.assertEqual(bolts.requirement(2), ())
+
+    def test_a_group_carries_every_member_s_entry(self):
+        for group in bolts.GROUPS:
+            stage = bolts.BOLT_STAGE[group[0]]
+            for sub_id in group:
+                self.assertEqual(bolts.BOLT_STAGE[sub_id], stage, group)
+                for member in group:
+                    entry = bolts.GUIDE[stage][bolts.guide_number(member) - 1]
+                    self.assertLessEqual(set(entry), set(bolts.requirement(sub_id)), (sub_id, member))
+
+    def test_corrections_are_never_looser_than_the_guide(self):
+        """EXTRA adds to an entry and OVERRIDE replaces one only where it asks
+        at least as much: an item set meeting the override meets the guide."""
+        for sub_id in bolts.OVERRIDE:
+            stage = bolts.BOLT_STAGE[sub_id]
+            entry = bolts.GUIDE[stage][bolts.guide_number(sub_id) - 1]
+            for clause in entry:
+                self.assertTrue(any(c <= clause for c in bolts.requirement(sub_id)), sub_id)
+        for sub_id, extra in bolts.EXTRA.items():
+            self.assertLessEqual(set(extra), set(bolts.requirement(sub_id)), sub_id)
 
     def test_location_names_unique(self):
         self.assertEqual(len(set(bolts.BOLT_LOCATIONS.values())), 40)
@@ -137,5 +188,9 @@ class TestBolts(unittest.TestCase):
         self.assertLess(order[names.GRENADE].index(32), order[names.GRENADE].index(17))
         self.assertLess(order[names.TENGU].index(11), order[names.TENGU].index(12))
         self.assertEqual(order[names.INTRO][0], 33)
-        for sub_id, (stage, number) in bolts.PINNED.items():
+        for sub_id, (stage, number) in bolts.ANCHORS.items():
             self.assertEqual(order[stage].index(sub_id) + 1, number, sub_id)
+        # The guide's text: Search's hook-room bolt (36) before the Flame
+        # Sword corridor's (35) - the names swapped in 0.2.1.
+        self.assertLess(order[names.SEARCH].index(36), order[names.SEARCH].index(35))
+        self.assertEqual(bolts.BOLT_LOCATIONS[36], "Search Man - Bolt 2")

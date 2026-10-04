@@ -380,9 +380,10 @@ class PickupSanity(Toggle):
     replayed.
 
     Every Life Energy, Weapon Energy, Weapon Energy Refill and 1-UP capsule
-    placed in a stage becomes a location - 42 in all: 35 in the Robot Master
-    stages (16 of them in Frost Man's), one in the intro stage and six in
-    Wily Stages 1-3. Energy dropped by defeated enemies is not affected.
+    placed in a stage becomes a location - 43 in all: 36 in the Robot Master
+    stages (17 of them in Frost Man's, one of those dropped by an ice block
+    when it breaks), one in the intro stage and six in Wily Stages 1-3.
+    Energy dropped by defeated enemies is not affected.
 
     Touching one sends its check instead of restoring anything; the energy is
     in the item pool as filler. Until the server has the check, the capsule

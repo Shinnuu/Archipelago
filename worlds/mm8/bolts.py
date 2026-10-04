@@ -7,18 +7,27 @@ spawned by Tengu Man's overlay code). `mm8_bolt_harvest.py` in the research
 repo reproduces the table below and fails if it stops holding. [D]
 
 WHAT IT TAKES comes from the videochums bolt guide [G], which numbers each
-stage's bolts in PLAY order. The names now follow play order too
-(PLAY_ORDER, read from the disc's maps), but that reading is not used to
-attach a guide number's requirement to one bolt: every unpinned bolt in a
-stage still carries the requirements of EVERY unpinned guide bolt in it
-(Ivor, 2026-09-25: the guide is fine for now).
-That can only over-gate: it narrows where fill may put things, and it can
-never ask a player for a bolt they cannot reach. X6 shipped two unwinnable
-seeds by guessing the loose way; this is the other way.
+stage's bolts in PLAY order. Since 0.2.1 each bolt carries its OWN entry
+(Ivor, 2026-10-03; research repo `ai-docs/plans/2026-10-03_per-bolt-logic.md`):
+a bolt's guide number is its place in PLAY_ORDER, read from the disc's maps.
+Everything on file agrees with that pairing - the disc ANCHORS below, the
+stages' checkpoint tables (0x80138288, ram-notes 12a), every order the
+ramwatch logged and, for Search Man's 36 before 35, the guide's own text
+(the 0.2.1 review).
+Until 0.2.1 every bolt in a stage carried every guide entry of the stage,
+which made a whole stage wait on its hardest bolt (all of Frost Man's on
+Astro Crush, a tester's report).
 
-A bolt is PINNED when the disc itself says which guide bolt it is. Bolt 14 is
-pinned: its parent object's damage table accepts only Homing Sniper and Astro
-Crush, which is exactly the guide's Tengu #2 (ram-notes 6b).
+The guide is read strictly, as X6 learned to (two unwinnable seeds from a
+loose reading), and corrected in three ways, each only ever stricter:
+- GROUPS: where two bolts' entries cannot be told apart on the disc, each
+  carries both.
+- EXTRA: the guide gives what a bolt ADDS on the way from the one before, not
+  everything it needs. Duo's second bolt is past his first one's ladder.
+  Also where the disc cannot show the way in (Clown Man's last bolt).
+  (Search Man's last bolt is behind his Tornado Hold doors and Sword Man's
+  behind his trials: MM8World.search_past_doors / sword_past_trials.)
+- OVERRIDE: a tester's first-hand account where it asks for more.
 """
 from . import names as n
 
@@ -42,7 +51,7 @@ Clause = frozenset[str]
 Requirement = tuple[Clause, ...]
 
 
-def _req(*clauses: tuple[str, ...]) -> Requirement:
+def req(*clauses: tuple[str, ...]) -> Requirement:
     return tuple(frozenset(c) for c in clauses)
 
 
@@ -54,51 +63,74 @@ FREE: Requirement = ()
 # is not the same as optional - required here).
 GUIDE: dict[str, list[Requirement]] = {
     n.INTRO: [FREE, FREE, FREE],
-    n.TENGU: [FREE, _req((n.HOMING_SNIPER, n.ASTRO_CRUSH)), FREE, FREE],
-    n.FROST: [FREE, FREE, _req((n.MEGA_BALL,)), _req((n.MEGA_BALL,)),
-              _req((n.ASTRO_CRUSH,)),
-              _req((n.MEGA_BALL,), (n.ASTRO_CRUSH, n.FLAME_SWORD, n.FLASH_BOMB))],
-    n.CLOWN: [_req((n.RUSH_BIKE,)), FREE,
-              _req((n.MEGA_BALL,), (n.FLAME_SWORD,)), FREE,
-              _req((n.TORNADO_HOLD,))],
-    n.GRENADE: [_req((n.MEGA_BALL,)), FREE, _req((n.FLAME_SWORD,)), FREE, FREE],
-    n.DUO: [_req((n.MEGA_BALL,)), _req((n.THUNDER_CLAW,))],
-    n.ASTRO: [FREE, FREE, FREE, _req((n.MEGA_BALL, n.TORNADO_HOLD))],
-    n.SWORD: [FREE, FREE, _req((n.FLASH_BOMB,))],
-    n.SEARCH: [FREE, _req((n.TORNADO_HOLD,), (n.THUNDER_CLAW,)),
-               _req((n.FLAME_SWORD,)), _req((n.THUNDER_CLAW,))],
-    n.AQUA: [_req((n.ASTRO_CRUSH,)), _req((n.TORNADO_HOLD,)),
-             _req((n.ASTRO_CRUSH,)), FREE],
+    n.TENGU: [FREE, req((n.HOMING_SNIPER, n.ASTRO_CRUSH)), FREE, FREE],
+    n.FROST: [FREE, FREE, req((n.MEGA_BALL,)), req((n.MEGA_BALL,)),
+              req((n.ASTRO_CRUSH,)),
+              req((n.MEGA_BALL,), (n.ASTRO_CRUSH, n.FLAME_SWORD, n.FLASH_BOMB))],
+    n.CLOWN: [req((n.RUSH_BIKE,)), FREE,
+              req((n.MEGA_BALL,), (n.FLAME_SWORD,)), FREE,
+              req((n.TORNADO_HOLD,))],
+    n.GRENADE: [req((n.MEGA_BALL,)), FREE, req((n.FLAME_SWORD,)), FREE, FREE],
+    n.DUO: [req((n.MEGA_BALL,)), req((n.THUNDER_CLAW,))],
+    n.ASTRO: [FREE, FREE, FREE, req((n.MEGA_BALL, n.TORNADO_HOLD))],
+    n.SWORD: [FREE, FREE, req((n.FLASH_BOMB,))],
+    n.SEARCH: [FREE, req((n.TORNADO_HOLD,), (n.THUNDER_CLAW,)),
+               req((n.FLAME_SWORD,)), req((n.THUNDER_CLAW,))],
+    n.AQUA: [req((n.ASTRO_CRUSH,)), req((n.TORNADO_HOLD,)),
+             req((n.ASTRO_CRUSH,)), FREE],
 }
 
-# subId -> (stage, guide number), only where the DISC identifies the bolt.
-PINNED: dict[int, tuple[str, int]] = {
-    14: (n.TENGU, 2),
+# subId -> (stage, guide number), where the DISC ties a bolt to a guide entry.
+# Each must agree with PLAY_ORDER - the control on the pairing (test_tables).
+ANCHORS: dict[int, tuple[str, int]] = {
+    14: (n.TENGU, 2),     # its parent's damage table takes Homing Sniper / Astro Crush only (ram-notes 6b)
+    7: (n.CLOWN, 3),      # spawned inside id 61, which only Flame Sword damages (10c)
+    27: (n.AQUA, 1),      # behind the Astro-Crush-only trigger, main 48 (11e)
+    24: (n.AQUA, 2),      # sealed in by the mines only Tornado Hold clears, id 66 (11e)
+    6: (n.FROST, 5),      # under STAGE01 main id 20, a floor only Astro Crush opens (12f)
+    35: (n.SEARCH, 3),    # shut in by id 84, which only Flame Sword damages (12b); a tester
+                          # took it with Flame Sword and no Thunder Claw (2026-10-04)
 }
+
+# Bolts whose entries the disc cannot tell apart: each carries every
+# member's guide entry.
+GROUPS: list[tuple[int, ...]] = [
+    (25, 26),   # Aqua: the route climbs the left sub-shaft and descends the right; 25 is a detour (12a)
+]
+
+# What a bolt needs beyond its own guide entry.
+EXTRA: dict[int, Requirement] = {
+    39: req((n.MEGA_BALL,)),    # Duo #2 is past #1's hanging ladder (10b)
+    # Clown #5: the guide hovers up on Tornado Hold, but the map shows its room
+    # walled in (the 0.2.1 review, 12f); the Mega Ball in case the way in also
+    # takes the "Mega Ball jumps" a tester used in this stage (Ivor, 2026-10-03).
+    9: req((n.MEGA_BALL,)),
+}
+
+# A tester's account where it asks for more than the guide.
+OVERRIDE: dict[int, Requirement] = {
+    # Clown Bolt 4, at the top of the lift room: the guide asks nothing; the
+    # tester (2026-10-03) gets up there with Mega Ball jumps or Tornado Hold.
+    # Clown Bolt 3 beside it keeps the guide's Mega Ball + Flame Sword.
+    8: req((n.MEGA_BALL, n.TORNADO_HOLD)),
+}
+
+
+def guide_number(sub_id: int) -> int:
+    """The guide's number for a bolt: its place in its stage's PLAY_ORDER."""
+    return PLAY_ORDER[BOLT_STAGE[sub_id]].index(sub_id) + 1
 
 
 def requirement(sub_id: int) -> Requirement:
-    """What logic demands for bolt `sub_id`: its own guide requirement when
-    pinned, otherwise the conjunction of every unpinned guide bolt it could be."""
-    if sub_id in PINNED:
-        stage, number = PINNED[sub_id]
-        return GUIDE[stage][number - 1]
-    return stage_requirement(BOLT_STAGE[sub_id])
-
-
-def stage_requirement(stage: str) -> Requirement:
-    """The conjunction of every UNPINNED guide bolt in `stage` - what an
-    unpinned bolt there carries, and what anything else placed in the stage
-    without a guide entry of its own inherits (pickups.py). A pinned bolt's
-    requirement is its own: it is a breakable object carrying that one bolt
-    (bolt 14's parent), not a way into a part of the stage. FREE for a stage
-    with no bolts."""
-    taken = {number for s, number in PINNED.values() if s == stage}
+    """Everything logic demands for bolt `sub_id` (the stage's entrance
+    apart): its own guide entry, or its group's, plus EXTRA - or OVERRIDE."""
+    if sub_id in OVERRIDE:
+        return OVERRIDE[sub_id]
+    stage = BOLT_STAGE[sub_id]
+    group = next((g for g in GROUPS if sub_id in g), (sub_id,))
     clauses: list[Clause] = []
-    for number, req in enumerate(GUIDE.get(stage, []), start=1):
-        if number in taken:
-            continue
-        for clause in req:
+    for member in group:
+        for clause in GUIDE[stage][guide_number(member) - 1] + EXTRA.get(member, FREE):
             if clause not in clauses:
                 clauses.append(clause)
     return tuple(clauses)
@@ -113,9 +145,11 @@ def stage_requirement(stage: str) -> Requirement:
 # drops in beside bolt 33, and in Tengu Man, whose bolt 14 is spawned by an
 # object listed late but met second (and pinned as the guide's #2). Every
 # play order the ramwatch logged agrees: Clown 10, 22, 7, 8; Grenade 32
-# before 17; Tengu 11 before 12; the intro's 33 first. Frost Man's 6 and 5
-# share one small room, so their order there is a judgement.
-# NAMES ONLY: requirements still come from GUIDE by stage (Ivor, 2026-09-25).
+# before 17; Tengu 11 before 12; the intro's 33 first. Frost Man's 6 then 5:
+# 6 under the Astro Crush floor at the shaft's foot, 5 on the climb (12f).
+# Search Man's 36 then 35, as the guide's text has them (0.2.1, Ivor; the
+# names were the other way round until then).
+# Since 0.2.1 this order is also each bolt's guide number (guide_number).
 PLAY_ORDER: dict[str, list[int]] = {
     n.INTRO: [33, 1, 0],
     n.FROST: [2, 23, 3, 4, 6, 5],
@@ -125,7 +159,7 @@ PLAY_ORDER: dict[str, list[int]] = {
     n.SWORD: [19, 20, 21],
     n.AQUA: [27, 24, 25, 26],
     n.ASTRO: [28, 29, 30, 31],
-    n.SEARCH: [34, 35, 36, 37],
+    n.SEARCH: [34, 36, 35, 37],
     n.DUO: [38, 39],
 }
 

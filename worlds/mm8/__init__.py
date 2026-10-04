@@ -122,7 +122,7 @@ class MM8World(World):
             values = sorted(set(type(option).options.values())) \
                 if getattr(type(option), "options", None) else [0, 1]
             option.value = self.random.choice(values)
-        # Make room rather than refuse: pickupsanity adds 42 locations.
+        # Make room rather than refuse: pickupsanity adds 43 locations.
         if self.item_count() > self.location_count() and not self.options.pickupsanity:
             self.options.pickupsanity.value = 1
         logging.info("Mega Man 8 (%s): randomize_options rolled %s", self.player_name,
@@ -366,15 +366,15 @@ class MM8World(World):
         def meets(requirement):
             return lambda state: all(state.has_any(clause, player) for clause in requirement)
 
+        # Each bolt and capsule its own rule since 0.2.1 - the reasoning and
+        # the evidence are in bolts.py and pickups.py.
         for sub_id, name in bolts.BOLT_LOCATIONS.items():
             requirement = bolts.requirement(sub_id)
             if requirement:
                 location(name).access_rule = meets(requirement)
-        # Pickups carry what an unpinned bolt of their stage carries - the
-        # reasoning, the evidence and the free stages are in pickups.py.
         if self.options.pickupsanity:
-            for stage_index, _record, _kind, name in pickups.PICKUPS:
-                requirement = bolts.stage_requirement(pickups.STAGE_OF[stage_index])
+            for _stage, _record, _kind, name in pickups.PICKUPS:
+                requirement = pickups.requirement(name)
                 if requirement:
                     location(name).access_rule = meets(requirement)
 
@@ -385,15 +385,15 @@ class MM8World(World):
         # Man himself (and the Beaten event the Wily gate counts), the stage's
         # last bolt (subId 21: after the lava raft, behind a Flash Bomb
         # ceiling) and the capsule in that lava room. Inside the trials, and
-        # keeping the stage's own rules: bolt 19 (the Flash Bomb trial's first
-        # room), bolt 20 and capsule P21 (the Thunder Claw trial - the stage's
-        # only hook tiles, which set 2's entrance already covers). 0.2.0 as
-        # first built put the mini-boss and P20 in "the opening" (review B1).
+        # free since 0.2.1 (their guide entries ask nothing): bolt 19 (the
+        # Flash Bomb trial's first room), bolt 20 and capsule P21 (the Thunder
+        # Claw trial - the stage's only hook tiles, which set 2's entrance
+        # already covers). 0.2.0 as first built put the mini-boss and P20 in
+        # "the opening" (review B1).
         for name in self.sword_past_trials():
             add_rule(location(name), lambda state: state.has_all(names.SWORD_TRIALS, player))
         # Search Man's doors (names.SEARCH_DOORS): the last stands before his
-        # shutter, and only Tornado Hold opens it. His bolts and capsules
-        # already ask for it (the stage's requirement, above).
+        # shutter, and only Tornado Hold opens it.
         for name in self.search_past_doors():
             add_rule(location(name), lambda state: state.has(names.SEARCH_DOORS, player))
 
@@ -427,9 +427,12 @@ class MM8World(World):
 
     @staticmethod
     def search_past_doors() -> list[str]:
-        """The locations behind Search Man's Tornado Hold doors that the
-        stage's own requirement does not already cover (set_rules)."""
-        return [names.boss_location(names.SEARCH), names.beaten(names.SEARCH)]
+        """The locations behind Search Man's Tornado Hold doors (set_rules):
+        Search Man, his Beaten event and the stage's last bolt (subId 37,
+        whose guide entry asks only for Thunder Claw - until 0.2.1 the
+        stage-wide rule gave it Tornado Hold too)."""
+        return [names.boss_location(names.SEARCH), names.beaten(names.SEARCH),
+                bolts.BOLT_LOCATIONS[37]]
 
     def seed_stamp(self) -> int:
         """Names this seed and slot on the disc and in the save (disc.seed_stamp)."""

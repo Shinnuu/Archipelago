@@ -1,10 +1,13 @@
-"""Pickupsanity: every freestanding consumable placed in a stage.
+"""Pickupsanity: every freestanding consumable in a stage.
 
 Harvested statically from the stage packs' spawn lists (chunk 0xA of each
 STDATA/STAGExx.PAC, 8-byte records {flags, id, subId, type, x, y}; A and B
 packs carry identical lists) and cross-checked against the disc: 42 placed
 id-0 items in the whole game, and every one is here. Research: ram-notes 9g,
-Reference/research/2026-09-24_parity-D-*.
+Reference/research/2026-09-24_parity-D-*. Plus one capsule the game spawns
+from code, from a block the player breaks (CONTAINERS) - found by a tester,
+2026-10-03, and then by a sweep of every item spawn in the overlays (ram-notes
+12d): the only one of its kind that is a location.
 
 A consumable is item-array id 0 and its subId is its kind. There is no
 "collected" record: a taken pickup's spawn record stays marked until the next
@@ -13,33 +16,34 @@ or a re-entry - which is what lets an unconfirmed one keep coming back (X5's
 "respawns until the server confirms").
 
 IDENTITY. Every stage's list loads to the same buffer (0x801C2B3C), so record
-addresses repeat across stages; a pickup is (stage index, record index).
+addresses repeat across stages; a pickup is (stage index, record index). A
+container's capsule is its BLOCK's record, which the disc patch copies into
+the capsule (disc.FROST_BLOCK_DROP); its key carries CONTAINER_KEY, so the
+stub matches it only against a record that is not a placed consumable.
 
 EVERY STAGE CAN BE GONE BACK TO (playtest 2026-09-25): the intro replays from
 the select's slot below Tengu Man, and a Wily stage is played again after an
 Exit (the same stage) or a save reload (the Wily counter is not saved, so the
 fortress restarts at Wily 1). X5 leaves out only an intro it cannot revisit.
 
-NOT A LOCATION: Clown Man's 1-UP container - a different object (id 44),
-broken by the Mega Ball, with its own grant (STAGE02 0x801E4AD8).
+NOT LOCATIONS (Ivor): Clown Man's 1-UP container (id 44, broken by the Mega
+Ball, its own grant at STAGE02 0x801E4AD8) and the fixed drops of Grenade
+Man's main id 8. Frost's other drop-carrying block (record 148) takes no
+weapon at all (damage table 0, ram-notes 12c).
 
-WHAT ONE NEEDS (logic review, 2026-09-25). No guide covers pickups, so each
-carries what an unpinned bolt of its stage carries - bolts.stage_requirement,
-the same strict reading the bolts take. The stage maps (the research repo's
-Scripts/mm8_stage_map.py, drawn from the disc's collision data) show why a
-blanket "stage access only" was not safe: Aqua Man's Large Life Energy 1 is in
-the same small room as bolt 24, 96 px above it, and his Large Weapon Energy 2
-and Large Life Energy 2 share bolt 25's ledge, 24 and 48 px from it. Where the
-map cannot settle reach (Aqua's is under water; Search Man's pair sits near
-hook tiles and Flame-Sword-only objects), the strict reading stands in for a
-live look. It only narrows where fill may put progression; loosening a stage
-needs evidence per pickup, as R1 would for bolts.
-DELIBERATELY FREE: the intro and Tengu Man (no unpinned bolt there needs
-anything - bolt 14's Homing Sniper / Astro Crush is the breakable object that
-carries it), and the Wily stages (no bolts; the fortress already needs every
-weapon).
+WHAT ONE NEEDS (0.2.1, Ivor 2026-10-03; research repo plan
+2026-10-03_per-bolt-logic.md section 4). No guide covers capsules. One that
+shares a gated bolt's pocket or stretch of course takes that bolt's rule
+(the stage maps: Aqua's Large Life Energy 1 is in bolt 24's small room, his
+Large Weapon Energy 2 and Large Life Energy 2 on bolt 25's ledge); one on the
+course with no gated bolt in its stretch - stretches bounded by the stages'
+checkpoints (0x80138288) - needs nothing; the three the maps cannot settle
+keep their stage's 0.2.0 rule. REQUIREMENT lists every capsule that needs
+something; Sword Man's also wait on his trials (MM8World.sword_past_trials).
+Until 0.2.1 every capsule carried every bolt rule of its stage.
 """
-from . import names
+from . import bolts, names
+from .bolts import FREE, Requirement, req
 
 SPAWN_LIST = 0x801C2B3C       # where every stage's list is loaded; 8 bytes a record
 
@@ -93,18 +97,59 @@ PICKUPS: list[tuple[int, int, int, str]] = [
     (12, 34, 1, "Wily Stage 3 - Large Life Energy 1"),  # x 3280, y 3160
     (12, 44, 1, "Wily Stage 3 - Large Life Energy 2"),  # x 4464, y 3288
     (12, 47, 4, "Wily Stage 3 - 1-UP"),                 # x 5008, y 3160
+    # Appended 2026-10-03: the ice block's capsule (CONTAINERS).
+    (1, 158, 1, "Frost Man - Large Life Energy 5"),     # x 3890, y 4704
 ]
 # The placed consumables that are NOT locations (for the tests' completeness
 # check): (stage, record). None since 2026-09-25.
 NOT_LOCATIONS: list[tuple[int, int]] = []
 
+# Capsules a broken block spawns from code: (stage, the BLOCK's record) ->
+# what it is. Frost's ice block (STAGE01 main id 12, ram-notes 12d): its type
+# is subId & 0xF, and its death drops 0x801E68C4[type] - a Large Life Energy
+# for types 2 and 5. Record 158 is type 5, on the ledge 200 px above bolt
+# subId 5 ("Frost Man - Bolt 6"), and takes Flash Bomb, Flame Sword and Astro
+# Crush (damage table 18).
+CONTAINERS: dict[tuple[int, int], str] = {
+    (1, 158): "Frost Man's ice block (main id 12, type 5)",
+}
+CONTAINER_KEY = 0x8000          # stage << 8 | record never reaches bit 15
+
 STAGE_OF = {index: stage for stage, index in names.STAGE_INDEX.items()}
 
 
 def key(stage: int, record: int) -> int:
-    """The stub's identity for a pickup: stage << 8 | record index."""
-    return stage << 8 | record
+    """The stub's identity for a pickup: stage << 8 | record index, with
+    CONTAINER_KEY on a container's."""
+    return stage << 8 | record | (CONTAINER_KEY if (stage, record) in CONTAINERS else 0)
 
 
 # Bit i of the AP block's FOUND / CONFIRMED words is PICKUPS[i].
 KEYS = [key(stage, record) for stage, record, _sub, _name in PICKUPS]
+
+
+# Every capsule that needs something beyond its stage's entrance (the rule in
+# the docstring); the rest are free.
+REQUIREMENT: dict[str, Requirement] = {
+    # Frost: row 5 of the course, between checkpoints 2 and 3, with bolts 3 and 4.
+    "Frost Man - Large Life Energy 2": bolts.requirement(3),
+    "Frost Man - Large Life Energy 3": bolts.requirement(4),
+    # The ice block, beside the ladder the route leaves the shaft by: Astro
+    # Crush (Ivor, 2026-10-03; the block also takes Flash Bomb and Flame Sword).
+    "Frost Man - Large Life Energy 5": req((names.ASTRO_CRUSH,)),
+    # Grenade: 200 px up a shaft over the course - the map cannot say how.
+    "Grenade Man - Large Life Energy 1": req((names.MEGA_BALL,), (names.FLAME_SWORD,)),
+    # Aqua: bolt 27's chamber, bolt 24's pocket, bolt 25's ledge.
+    "Aqua Man - Large Weapon Energy 1": bolts.requirement(27),
+    "Aqua Man - Large Life Energy 1": bolts.requirement(24),
+    "Aqua Man - Large Weapon Energy 2": bolts.requirement(25),
+    "Aqua Man - Large Life Energy 2": bolts.requirement(25),
+    # Search: the hook room, beside Flame-Sword-only objects.
+    "Search Man - Large Life Energy": req((names.TORNADO_HOLD,), (names.THUNDER_CLAW,), (names.FLAME_SWORD,)),
+    "Search Man - Large Weapon Energy": req((names.TORNADO_HOLD,), (names.THUNDER_CLAW,), (names.FLAME_SWORD,)),
+}
+
+
+def requirement(name: str) -> Requirement:
+    """What logic demands for capsule `name`, its stage's entrance apart."""
+    return REQUIREMENT.get(name, FREE)

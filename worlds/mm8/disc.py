@@ -698,10 +698,15 @@ def exit_edits() -> list[tuple[str, int, str, bytes, bytes]]:
 # Every consumable kind's state function asks one routine, 0x801291E8, "has
 # Mega Man touched me?" - seven calls, nothing else calls it. The hooks point
 # those seven calls at PICKUP_STUB, which asks the same question and then:
-#   * an enemy DROP (obj+8 == 0: the spawner alone stores the record pointer
-#     there, and the game itself branches on it) -> vanilla;
+#   * an enemy DROP (obj+8 == 0: only the spawner - and FROST_BLOCK_DROP -
+#     stores a record pointer there, and the game itself branches on it)
+#     -> vanilla;
 #   * the attract demo -> vanilla (its pickups must not set bits);
-#   * a record that is not an item-array id 0 (a stale +8) -> vanilla;
+#   * a record that is not an item-array id 0 -> vanilla, unless its key is a
+#     CONTAINER's (pickups.CONTAINERS: the capsule a broken block drops
+#     carries the block's record, FROST_BLOCK_DROP); such a key has
+#     CONTAINER_KEY set, so it never matches a placed consumable's record,
+#     and a plain key never matches any other record (a stale +8);
 #   * a placed pickup that is not a location, or whose location the server
 #     has CONFIRMED (the client mirrors checked locations) -> vanilla;
 #   * otherwise: set its FOUND bit, delete it, and report "not touched" so
@@ -711,10 +716,11 @@ def exit_edits() -> list[tuple[str, int, str, bytes, bytes]]:
 # key table go on only with the option, so other seeds run vanilla code.
 AP_PICKUP_FOUND = AP_BLOCK + 0x20        # u64, set by the stub, read by the client
 AP_PICKUP_CONFIRMED = AP_BLOCK + 0x28    # u64, written by the client
-PICKUP_KEYS = AP_BLOCK + 0x40            # u16 stage << 8 | record, 0xFFFF-terminated;
+PICKUP_KEYS = AP_BLOCK + 0x40            # u16 stage << 8 | record (| CONTAINER_KEY), 0xFFFF-terminated;
                                          # on disc beside the block, in the same
                                          # unreferenced image padding (R11)
 PICKUP_KEYS_ROOM = 0x100
+CONTAINER_KEY = 0x8000                   # pickups.CONTAINER_KEY: a broken block's capsule
 PICKUP_CONTACT = 0x801291E8
 PICKUP_HOOKS = (0x80128B28, 0x80128B90, 0x80128BF8, 0x80128C70, 0x80128CE0, 0x80128D58, 0x80128DE4)
 PICKUP_STUB = f"""
@@ -733,11 +739,16 @@ PICKUP_STUB = f"""
     nop
     bnez  t9, out                 ; the demo's pickups stay vanilla
     nop
-    lbu   t1, 1(t0)               ; the record's id - 0, the consumable
+    lbu   t1, 1(t0)               ; the record's id - 0, a placed consumable
     lbu   t2, 3(t0)               ; the record's type - 2, the item array
-    bnez  t1, out
+    or    t9, zero, zero          ; the key's flag: none for a placed consumable
+    bnez  t1, container
     addiu t2, t2, -2
-    bnez  t2, out
+    beqz  t2, keyed
+    nop
+container:
+    ori   t9, zero, {CONTAINER_KEY:#x}       ; any other record: only a container's key
+keyed:
     lui   t3, 0x801C
     addiu t3, t3, 0x2B3C          ; the spawn list
     subu  t3, t0, t3
@@ -747,6 +758,7 @@ PICKUP_STUB = f"""
     lui   t5, 0x801D
     sll   t4, t4, 8
     or    t3, t3, t4              ; key = stage << 8 | record
+    or    t3, t3, t9              ;     | CONTAINER_KEY for a container
     addiu t5, t5, {PICKUP_KEYS & 0xFFFF:#x}
     or    t6, zero, zero          ; its bit
 scan:
@@ -805,7 +817,36 @@ def pickup_edits(keys: list[int]) -> list[tuple[str, int, str, bytes, bytes]]:
         edits.append((f"pickupsanity hook {site:#x}", site, REGION_EXE,
                       _w(mips.word(f"jal {PICKUP_CONTACT:#x}", site)),
                       _w(mips.word(f"jal {stub:#x}", site))))
-    return edits
+    return edits + frost_block_drop()
+
+
+# The ice block's capsule (pickups.CONTAINERS; ram-notes 12d). Frost Man's ice
+# block (STAGE01 main id 12) dies through 0x801DC0E8, whose drop 0x801DC6F4
+# spawns a Large Life Energy for types 2 and 5 (0x801DC740..88) and writes no
+# +8 - so the capsule is born with the +8 = 0 DeleteObject left, and the stub
+# and the game both take it for an enemy drop (it falls, and vanishes after
+# 240 frames: 0x80128AC0, 0x80128F54). Two load-delay nops in the drop now
+# copy the block's own spawn-record pointer into it: the stub then finds the
+# block's key, and the capsule behaves like a placed one - no pop-up, no
+# timeout; it still drops onto the ledge (0x80128F0C). One difference from
+# vanilla: left and scrolled off-screen, the capsule's release (0x8012893C ->
+# 0x801058BC) clears its record's flags - the block's - so the block re-forms
+# when it scrolls back in, where vanilla leaves it broken until the next
+# section start. Harmless: the capsule is deleted by the same release, and a
+# second capsule carries the same key. The
+# load before each nop does not touch the register the new word uses, and
+# a0 is dead here (the epilogue at 0x801DC7DC restores only ra and s0, and
+# the caller reloads a0 from s0 at 0x801DC11C). With pickupsanity only.
+FROST_BLOCK_DROP = (0x801DC76C, "lw a0, 8(s0)", 0x801DC778, "sw a0, 8(v1)")
+
+
+def frost_block_drop() -> list[tuple[str, int, str, bytes, bytes]]:
+    from . import mips
+    load_at, load, store_at, store = FROST_BLOCK_DROP
+    return [("pickupsanity: the ice block's capsule takes its record", load_at, "ovl:STAGE01",
+             _w(0), _w(mips.word(load, load_at))),
+            ("pickupsanity: ... into the capsule's +8", store_at, "ovl:STAGE01",
+             _w(0), _w(mips.word(store, store_at)))]
 
 
 # ---- max_life (X5's starting_hp; research 2026-09-25_max-life-research.md) ------

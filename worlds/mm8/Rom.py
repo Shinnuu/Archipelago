@@ -32,9 +32,12 @@ logger = logging.getLogger()
 HASH_TRACK1 = disc.TRACK_MD5[0]
 # What a patch file can ask of the apworld that applies it, beyond the code
 # layout. 1: 0.1.0. 2: 0.2.0 - stage_order's seed edits, which need this
-# client's lock on Duo's select slot. Stored inside seed.json's "layout",
-# which 0.1.0 compares whole, so 0.1.0 refuses a format-2 patch (review m3).
-PATCH_FORMAT = 2
+# client's lock on Duo's select slot. 3: 0.2.1 - pickupsanity's container key
+# (the ice block's capsule), which only 0.2.1's stub matches: patched by
+# 0.2.0, that location could never be checked. Stored inside seed.json's
+# "layout", which 0.1.0 compares whole, so 0.1.0 refuses a newer patch
+# (review m3); 0.2.0 refuses a format above 2.
+PATCH_FORMAT = 3
 
 
 class MM8Settings(settings.Group):

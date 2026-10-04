@@ -21,7 +21,9 @@ says what it does. Buying an entry spends bolts and sends the check.
 **Parts are items, and every one you receive works at once** (Energy Saver
 from your next life). There is no limit of eight and nothing to equip; a part
 stays on once you have it. When a part arrives while the BizHawk Client is
-connected, the client says in a few words what it does.
+connected, the client says in a few words what it does, and the pause screen's
+parts row shows it - the first eight parts you received, since the row has
+room for eight. A part works whether or not the row shows it.
 
 **The Rush mini-bosses still drop their adapters**, which look as they always
 did; touching one sends its check.
@@ -42,9 +44,9 @@ default `stage_order: vanilla`:
   the fourth of them sends you **straight into it**: no stage select, no Lab,
   no way out until Duo is beaten. That is always safe: Duo's stage can be
   cleared with the Mega Buster alone, so logic never asks for anything there
-  except for its two bolts, each of which needs both the Mega Ball and Thunder
-  Claw — you can come back for them, as the stage stays on the select
-  afterwards.
+  except for its two bolts — the first needs the Mega Ball, the second (past
+  the first) the Mega Ball and Thunder Claw. You can come back for them, as
+  the stage stays on the select afterwards.
 - Sword Man, Aqua Man, Astro Man and Search Man open once Duo's stage is clear.
   Logic also expects the **Mega Ball and Thunder Claw** before sending you
   into them: the base game never lets anyone reach these four without both.
@@ -68,15 +70,15 @@ Logic expects **Tornado Hold, Thunder Claw, Ice Wave and Flash Bomb** for all
 of those.
 
 **Search Man's stage has doors only Tornado Hold opens** — the last one just
-before his shutter — so logic expects **Tornado Hold** for Search Man as well
-as for his bolts.
+before his shutter — so logic expects **Tornado Hold** for Search Man and for
+the stage's last bolt.
 
 ## Items and locations
 
 **75 locations:** 40 bolts, the Lab's 17 entries, the 8 Robot Masters, the 4
 mid-bosses that award Rush adapters, the Mega Ball in the intro stage, Duo's
 stage, the first three Wily stages and Bass in the third. `pickupsanity` adds
-42 and `rematch_checks` 8.
+43 and `rematch_checks` 8.
 
 **Items:** 8 weapons, the Mega Ball, 4 Rush adapters, 17 Lab parts, enough
 Bolts for the whole Lab plus a surplus, and filler (1-Ups, life energy, weapon
@@ -95,7 +97,7 @@ energy). `stage_unlocks` adds seven Access Codes.
 | `max_life` (default **40**) | Mega Man's maximum life, 1-127. **The life bar does not grow**: it stays its normal size and shows at most 40, so life above 40 is real but invisible on the bar |
 | `stage_order` (default **vanilla**) | vanilla / open / open_any_four - which Robot Master stages are open from the start, and when the game sends you to Duo (above) |
 | `stage_unlocks` | one of the first four Robot Master stages open; each other needs its "Access Codes" item |
-| `pickupsanity` | the 42 capsules placed in the stages (energy and 1-UPs) become checks |
+| `pickupsanity` | the 43 capsules in the stages (energy and 1-UPs) become checks: the 42 placed ones, and the Large Life Energy an ice block in Frost Man's stage drops when it breaks (logic expects Astro Crush) |
 | `rematch_checks` | the eight rematches in Wily Stage 4 become checks |
 | `death_link` | die when someone else dies, and they die when you do |
 | `mega_man_palette` | recolour Mega Man - 18 presets |
@@ -145,11 +147,17 @@ that appear after Duo also need Duo cleared.
 
 ## Known limits
 
-- Where a bolt needs a particular weapon comes from a player-written guide, and
-  for most stages which bolt is which has not yet been matched to the game's
-  own numbering. Until it is, logic asks for every weapon any bolt in that
-  stage needs. You may find bolts reachable earlier than logic says; you will
-  never be asked for one you cannot reach.
-- With `pickupsanity`, a capsule asks for the same weapons as the bolts of its
-  stage — no guide covers the capsules, and several sit right beside bolts
-  that need something. Again: sometimes earlier than logic says, never later.
+- What each bolt needs comes from a player-written guide, matched to the
+  bolts in the order you reach them, and is read strictly. Where the game's
+  own data cannot tell two bolts apart - Aqua Man's 3 and 4 - each asks for
+  what either of the pair needs. You may find a
+  bolt reachable earlier than logic says. If logic ever expects one you
+  cannot reach, please report it: the guide and the game's own data are the
+  only sources.
+- With `pickupsanity`, no guide covers the capsules. One beside a bolt that
+  needs something asks for the same, one out on the stage's route asks for
+  nothing, and the three the stage maps cannot settle - Grenade Man's Large
+  Life Energy 1 and Search Man's two - ask for what their stage's bolts did
+  before 0.2.1. Again, some are reachable earlier than logic says.
+- The pause screen's parts row has room for eight parts, and the BizHawk
+  Client is what fills it.

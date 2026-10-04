@@ -314,6 +314,56 @@ class TestGrants(ClientTest):
         await self.poll(ram, ctx, client, 1)
         self.assertEqual(ram.get(0x8016D2FA, 1), b"\x01")
 
+    async def test_the_pause_menu_shows_the_first_eight_parts(self):
+        """0.2.1: the parts row draws the game's 8 equip slots (0x8016D2F2),
+        which nothing on an AP disc filled. The first eight parts received,
+        in the order they came; anything else takes no slot."""
+        ram = patched_ram()
+        arrived = [names.STEP_BOOSTER, "Mega Ball", names.POWER_SHIELD, "Bolts", names.LASER_SHOT]
+        ctx, client = FakeContext(arrived), MM8Client()
+        await self.poll(ram, ctx, client, 1)
+        self.assertEqual(ram.get(0x8016D2F2, 8), bytes(
+            [names.PART_ID[names.STEP_BOOSTER], names.PART_ID[names.POWER_SHIELD],
+             names.PART_ID[names.LASER_SHOT], 0, 0, 0, 0, 0]))
+        # All seventeen, last first, and three Bolts: the row is the first
+        # eight that came and stays put as the rest arrive.
+        ram, ctx = patched_ram(), FakeContext(list(reversed(names.PARTS)) + ["Bolts"] * 3)
+        await self.poll(ram, ctx, MM8Client(), 1)
+        first_eight = bytes(names.PART_ID[p] for p in list(reversed(names.PARTS))[:8])
+        self.assertEqual(ram.get(0x8016D2F2, 8), first_eight)
+        # Whatever a save load or a savestate leaves there is put back, and
+        # the bolt counter beside the slots (3 bundles of 5) and the shot
+        # mode after them are the client's as before.
+        ram.put(0x8016D2F2, bytes(8))
+        await self.poll(ram, ctx, MM8Client(), 1)
+        self.assertEqual(ram.get(0x8016D2F2, 8), first_eight)
+        self.assertEqual(int.from_bytes(ram.get(0x8016D2F0, 2), "little"), 15)
+        self.assertEqual(ram.get(0x8016D2FA, 1), b"\x00")
+
+    async def test_a_part_received_twice_takes_one_slot(self):
+        """Start inventory and the pool can both hold a part."""
+        ram = patched_ram()
+        await self.poll(ram, FakeContext([names.EXIT, names.STEP_BOOSTER, names.EXIT]), MM8Client(), 1)
+        self.assertEqual(ram.get(0x8016D2F2, 3),
+                         bytes([names.PART_ID[names.EXIT], names.PART_ID[names.STEP_BOOSTER], 0]))
+
+    async def test_the_row_is_left_alone_in_the_demo_and_on_another_seed(self):
+        """Policies 1 and 2: nothing written during an attract demo or on
+        another seed's disc - the slots included."""
+        stale = bytes([5, 9, 0, 0, 0, 0, 0, 0])
+        demo = patched_ram()
+        demo.put(0x801B2944, (500).to_bytes(4, "little"))
+        for ram in (demo, patched_ram(0x11111111)):
+            ram.put(0x8016D2F2, stale)
+            await self.poll(ram, FakeContext([names.STEP_BOOSTER]), MM8Client(), 1)
+            self.assertEqual(ram.get(0x8016D2F2, 8), stale)
+
+    async def test_no_parts_leaves_the_row_empty(self):
+        ram = patched_ram()
+        ram.put(0x8016D2F2, bytes([5, 9, 0, 0, 0, 0, 0, 0]))          # stale, from a vanilla save
+        await self.poll(ram, FakeContext(["Mega Ball"]), MM8Client(), 1)
+        self.assertEqual(ram.get(0x8016D2F2, 8), bytes(8))
+
     async def test_consumables_apply_once_in_a_stage_and_are_counted(self):
         ram = patched_ram()
         ram.put(0x8015E283, bytes([10]))

@@ -276,6 +276,21 @@ class TestGrants(ClientTest):
         spent = disc.LAB_PRICE[names.PART_ID[names.POWER_SHIELD]] + disc.LAB_PRICE[names.PART_ID[names.EXIT]]
         self.assertEqual(int.from_bytes(ram.get(0x8016D2F0, 2), "little"), 15 - spent)
 
+    async def test_bolts_read_99_at_most_and_keep_the_rest(self):
+        """The Lab draws two digits and garbles 100 and up (ram-notes 11a; a
+        tester, 2026-10-05). The counter stops at 99 but the account keeps the
+        excess: 100 less a 3-bolt part reads 97, not 96. The control: under
+        100 is written as it is."""
+        part = next(p for p in names.PARTS if disc.LAB_PRICE[names.PART_ID[p]] == 3)
+        bought = 1 << names.PART_ID[part]
+        for bundles, lab, shown in ((30, 0, 99), (20, 0, 99), (20, bought, 97), (19, 0, 95)):
+            with self.subTest(bundles=bundles, lab=lab):
+                ram = patched_ram()
+                ram.put(disc.AP_LAB, lab.to_bytes(4, "little"))
+                ctx, client = FakeContext(["Bolts"] * bundles), MM8Client()
+                await self.poll(ram, ctx, client, 1)
+                self.assertEqual(int.from_bytes(ram.get(0x8016D2F0, 2), "little"), shown)
+
     async def test_rush_parts_and_collected_rush(self):
         ram = patched_ram()
         checked = {location_table[names.midboss_location(names.AQUA)]}

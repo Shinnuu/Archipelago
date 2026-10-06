@@ -1,5 +1,20 @@
 # Mega Man 8 apworld — changelog
 
+## Unreleased
+
+From the testers' run of 0.2.1.
+
+- **Search Man no longer needs Tornado Hold.** The doors in his stage open to
+  any weapon, the Mega Buster included. Since 0.2.0, logic had read them as
+  opening only to Tornado Hold, and asked for it for Search Man and his
+  stage's last bolt. Bolt 4 now asks only for Thunder Claw, its bolt guide
+  entry. Seeds made earlier are still winnable; logic was only stricter than
+  it needed to be.
+- **The Lab's bolt counter stops at 99.** It shows two digits, so past 99 it
+  drew garbage. The bolt options can't give more than 95, but Bolts in
+  `start_inventory` or sent by the host can. Bolts over 99 are kept: the
+  counter reads 99 until your balance drops below. Client only; no re-patch.
+
 ## 0.2.1 — 2026-10-04
 
 From the testers' run of 0.2.0.

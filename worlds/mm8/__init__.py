@@ -392,10 +392,15 @@ class MM8World(World):
         # "the opening" (review B1).
         for name in self.sword_past_trials():
             add_rule(location(name), lambda state: state.has_all(names.SWORD_TRIALS, player))
-        # Search Man's doors (names.SEARCH_DOORS): the last stands before his
-        # shutter, and only Tornado Hold opens it.
-        for name in self.search_past_doors():
-            add_rule(location(name), lambda state: state.has(names.SEARCH_DOORS, player))
+        # Search Man's three doors (STAGE08 item 48, the last just before his
+        # shutter) are NOT a gate: any weapon opens one, the buster included.
+        # Their contact routine 0x80109804 returns 3 for every weapon that
+        # touches - the `ori s3, 3` at 0x80109874 is a branch delay slot, run
+        # on both paths; Tornado Hold (object 5) only gets its own state code.
+        # 0.2.0 and 0.2.1 read it as Tornado-Hold-only and asked for Tornado
+        # Hold for Search Man, his Beaten event and Bolt 4 until a tester
+        # asked why (research repo: ram-notes 11e, v0.2.1 tester-feedback
+        # record item 1). They need set 2's entrance, as every set-2 stage does.
 
         # --- The Lab ---------------------------------------------------------
         def bolts_held(state) -> int:
@@ -424,15 +429,6 @@ class MM8World(World):
         if self.options.pickupsanity:
             past += [names.SWORD_HUB_CAPSULE, names.SWORD_LAVA_CAPSULE]
         return past
-
-    @staticmethod
-    def search_past_doors() -> list[str]:
-        """The locations behind Search Man's Tornado Hold doors (set_rules):
-        Search Man, his Beaten event and the stage's last bolt (subId 37,
-        whose guide entry asks only for Thunder Claw - until 0.2.1 the
-        stage-wide rule gave it Tornado Hold too)."""
-        return [names.boss_location(names.SEARCH), names.beaten(names.SEARCH),
-                bolts.BOLT_LOCATIONS[37]]
 
     def seed_stamp(self) -> int:
         """Names this seed and slot on the disc and in the save (disc.seed_stamp)."""

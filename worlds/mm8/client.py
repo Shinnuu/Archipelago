@@ -29,7 +29,7 @@ Policies, each with its reason. Read these before changing anything.
    capability arriving also fills its energy (the game fills only at a
    spawn). Bolts = bundles received x bundle size - the price of every Lab
    entry the player BOUGHT (AP_LAB, set by the purchase itself), which needs
-   no counter at all.
+   no counter at all - written capped at 99, all the Lab can draw.
 
 4. CONSUMABLES ARE COUNTED (X5's rule): 1-Ups and energy cannot be absolute,
    so they are applied from a cursor into the received items - AP_PROCESSED,
@@ -159,6 +159,12 @@ BASS_ID = 0x5D
 BASS_DEFEATED_STATES = (8, 10)
 
 OFF_BOLTS, OFF_SHOT_SELECT, OFF_BOLT_FIELD, OFF_LIVE_RUSH = 0x00, 0x0A, 0x0B, 0x10
+# The Lab draws the counter as two digit sprites (DEMO 0x801DAC80): count % 10
+# and count / 10, the second unwrapped, so 100 and up draw garbage (ram-notes
+# 11a; a tester's screenshots, 2026-10-05). The pool tops out at 95; more
+# comes only from outside it (start_inventory, a /send). The account keeps
+# the excess - the counter just reads 99 until the balance drops below.
+BOLTS_SHOWN_MAX = 99
 # The game's 8 equip slots, 0x8016D2F2..F9: a part id (1-17) or 0. On an AP
 # disc nothing in the game fills them (P5: a purchase equips nothing) and no
 # effect reads them (P6: the mirror) - only displays do: the pause menu's
@@ -392,9 +398,9 @@ class MM8Client(BizHawkClient):
     @staticmethod
     def bolt_count(bundles: int, bundle_size: int, lab_bought: int) -> int:
         """Absolute bolt counter: what the player was sent, less what they
-        spent in the Lab. u16 in the game; never negative."""
+        spent in the Lab. Never negative, never above BOLTS_SHOWN_MAX."""
         spent = sum(price for part, price in LAB_PRICE_BY_ID.items() if lab_bought & (1 << part))
-        return max(0, min(0xFFFF, bundles * bundle_size - spent))
+        return max(0, min(BOLTS_SHOWN_MAX, bundles * bundle_size - spent))
 
     # ---- detection ---------------------------------------------------------
 

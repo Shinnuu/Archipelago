@@ -69,9 +69,9 @@ them: the Rush mini-boss, Sword Man and the stage's last bolt, and with
 Logic expects **Tornado Hold, Thunder Claw, Ice Wave and Flash Bomb** for all
 of those.
 
-**Search Man's stage has doors only Tornado Hold opens** — the last one just
-before his shutter — so logic expects **Tornado Hold** for Search Man and for
-the stage's last bolt.
+**Search Man's stage has doors that open when you shoot them** — any weapon,
+the Mega Buster included, fired from a step away. Search Man and his stage's
+last bolt need nothing beyond what the stage itself needs.
 
 ## Items and locations
 
@@ -116,6 +116,10 @@ wild and extreme. Damage is a whole number, so small hits move in steps: a
 
 The Lab is repriced: each part costs 2 or 3 bolts, 40 in all — the number of
 bolts in the game, where the original prices added up to 89.
+
+The Lab's counter shows two digits, so it stops at **99**. If you hold more
+(Bolts in your `start_inventory`, say), none are lost: it reads 99 until
+your balance drops below.
 
 Bolts never come back once spent, and the Lab sells whatever is in stock, so
 logic is built so that no order of purchases can leave you stuck: any of the

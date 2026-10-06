@@ -96,8 +96,8 @@ class TestBolts(unittest.TestCase):
         self.assertFalse(set(bolts.BOLT_STAGE.values()) & set(names.WILY_STAGES))
 
     # Every bolt's whole requirement, as research repo plan
-    # 2026-10-03_per-bolt-logic.md section 3 tables it (Search's 37 also waits
-    # on the doors, Sword's 21 on the trials: test_soft_locks).
+    # 2026-10-03_per-bolt-logic.md section 3 tables it (Sword's 21 also waits
+    # on the trials: test_soft_locks).
     EXPECTED = {
         "Frost Man - Bolt 1": [], "Frost Man - Bolt 2": [],
         "Frost Man - Bolt 3": [{"Mega Ball"}], "Frost Man - Bolt 4": [{"Mega Ball"}],

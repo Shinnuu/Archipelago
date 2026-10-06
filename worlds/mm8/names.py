@@ -98,18 +98,6 @@ SWORD_TRIALS = (TORNADO_HOLD, THUNDER_CLAW, ICE_WAVE, FLASH_BOMB)
 SWORD_HUB_CAPSULE = f"{SWORD} - Large Life Energy 1"
 SWORD_LAVA_CAPSULE = f"{SWORD} - Large Life Energy 3"
 
-# Search Man's second half: three doors only Tornado Hold opens (STAGE08 item
-# 48, spawn records 105-107; the last at x 5888, just before his shutter).
-# Shut, each is solid (0x80107BF4 at 0x801E0984) and fills its corridor's
-# 64-px gap; it opens only on a hit 0x80109804 reports as 3 - weapon object 5,
-# Tornado Hold (0x80109864; object ids by weapon slot at 0x80138900). Until
-# 0.2.1 the stage-wide bolt rule gave the stage's bolts and capsules Tornado
-# Hold; Search Man himself and his Beaten event had nothing, and ~1 seed in 14
-# put Tornado Hold behind the doors. The audit that followed the 0.2.0
-# review's B1, same class; MM8World.search_past_doors(), which since 0.2.1
-# also holds the stage's last bolt.
-SEARCH_DOORS = TORNADO_HOLD
-
 # ---- Rush --------------------------------------------------------------------
 # Index = byte offset from the live adapter block 0x8016D300 (persistent copy
 # at 0x801C3352). Each is awarded by one Robot Master stage's mid-boss: the

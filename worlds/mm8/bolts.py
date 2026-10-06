@@ -25,8 +25,8 @@ loose reading), and corrected in three ways, each only ever stricter:
 - EXTRA: the guide gives what a bolt ADDS on the way from the one before, not
   everything it needs. Duo's second bolt is past his first one's ladder.
   Also where the disc cannot show the way in (Clown Man's last bolt).
-  (Search Man's last bolt is behind his Tornado Hold doors and Sword Man's
-  behind his trials: MM8World.search_past_doors / sword_past_trials.)
+  (Sword Man's last bolt is behind his trials: MM8World.sword_past_trials.
+  Search Man's last one is behind doors any weapon opens - no rule.)
 - OVERRIDE: a tester's first-hand account where it asks for more.
 """
 from . import names as n

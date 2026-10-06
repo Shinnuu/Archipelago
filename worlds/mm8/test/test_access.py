@@ -52,15 +52,12 @@ class TestStructure(MM8TestBase):
         self.collect_by_name([names.MEGA_BALL, names.THUNDER_CLAW])
         for boss in names.SET_2:
             self.assertTrue(self.can_reach_region(boss), boss)
-            if boss not in (names.SWORD, names.SEARCH):
+            if boss != names.SWORD:
                 self.assertTrue(self.can_reach_location(names.boss_location(boss)), boss)
-        # Sword Man also sits past his stage's four trials, Search Man past
-        # doors only Tornado Hold opens (test_soft_locks).
+        # Sword Man also sits past his stage's four trials (test_soft_locks).
+        # Search Man's doors open to any weapon (test_soft_locks.TestSearchDoors).
         self.assertFalse(self.can_reach_location(names.boss_location(names.SWORD)))
-        self.assertFalse(self.can_reach_location(names.boss_location(names.SEARCH)))
-        self.collect_by_name([names.SEARCH_DOORS])
-        self.assertTrue(self.can_reach_location(names.boss_location(names.SEARCH)))
-        self.collect_by_name([w for w in names.SWORD_TRIALS if w != names.SEARCH_DOORS])
+        self.collect_by_name(list(names.SWORD_TRIALS))
         self.assertTrue(self.can_reach_location(names.boss_location(names.SWORD)))
 
     def test_wily_needs_all_eight_weapons(self):

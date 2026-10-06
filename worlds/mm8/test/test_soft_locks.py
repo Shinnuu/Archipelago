@@ -395,71 +395,38 @@ class TestSwordTrialsFill(unittest.TestCase):
 
 
 class TestSearchDoors(MM8TestBase):
-    """Search Man's second half has three doors only Tornado Hold opens, the
-    last just before his shutter (names.SEARCH_DOORS). He and his Beaten event
-    did not ask for it (found by the audit after the 0.2.0 review's B1: ~1 seed
-    in 14 put Tornado Hold behind them); since 0.2.1 the stage's last bolt,
-    whose guide entry is Thunder Claw alone, is behind them too."""
+    """Search Man's three doors open to ANY weapon: their contact routine
+    0x80109804 returns 3 for every weapon that touches, the `ori s3, 3` at
+    0x80109874 being a branch delay slot (research repo ram-notes 11e,
+    corrected 2026-10-06). 0.2.0's audit read it as Tornado-Hold-only, and
+    Search Man, his Beaten event and Bolt 4 asked for Tornado Hold until a
+    tester asked why. They need set 2's entrance, as every set-2 stage does."""
 
-    def without(self, missing: str) -> CollectionState:
+    def without(self, *missing: str) -> CollectionState:
         state = CollectionState(self.multiworld)
         for item in self.multiworld.itempool:
-            if item.player == self.player and item.name != missing:
+            if item.player == self.player and item.name not in missing:
                 state.collect(item, True)
         state.sweep_for_advancements()
         return state
 
-    def test_search_man_needs_tornado_hold(self) -> None:
+    def reachable(self, name: str, state: CollectionState) -> bool:
+        return self.multiworld.get_location(name, self.player).can_reach(state)
+
+    def test_search_man_needs_no_tornado_hold(self) -> None:
         state = self.without(names.TORNADO_HOLD)
-        for name in self.world.search_past_doors():
+        for name in (names.boss_location(names.SEARCH), names.beaten(names.SEARCH),
+                     bolts.BOLT_LOCATIONS[37]):
             with self.subTest(name):
-                self.assertFalse(self.multiworld.get_location(name, self.player).can_reach(state))
+                self.assertTrue(self.reachable(name, state))
 
-    def test_the_stage_s_last_bolt_is_behind_them(self) -> None:
-        """0.2.1: bolt 37 keeps its guide entry's Thunder Claw, and the doors
-        give it the Tornado Hold the stage-wide rule used to (a direct check,
-        so dropping it from search_past_doors fails here)."""
-        location = self.multiworld.get_location(bolts.BOLT_LOCATIONS[37], self.player)
-        self.assertFalse(location.can_reach(self.without(names.TORNADO_HOLD)))
-        self.assertTrue(location.can_reach(self.without("nothing")))
-
-    def test_nothing_else_about_him_changed(self) -> None:
-        # The controls: with everything he is reachable, and another set-2
-        # boss with no Tornado Hold door needs no Tornado Hold.
-        for name in self.world.search_past_doors():
-            self.assertTrue(self.multiworld.get_location(name, self.player).can_reach(self.without("nothing")))
-        self.assertTrue(self.multiworld.get_location(names.boss_location(names.ASTRO), self.player)
-                        .can_reach(self.without(names.TORNADO_HOLD)))
-
-
-class TestSearchDoorsFill(unittest.TestCase):
-    OPTIONS = [dict(), dict(pickupsanity=True), dict(stage_order="open_any_four")]
-
-    @staticmethod
-    def behind_the_doors(multiworld) -> list[str]:
-        return [loc.name for loc in multiworld.get_locations(1)
-                if loc.name in MM8World.search_past_doors() and loc.item is not None
-                and loc.item.player == 1 and loc.item.name == names.TORNADO_HOLD]
-
-    def test_tornado_hold_never_behind_them(self) -> None:
-        for options in self.OPTIONS:
-            for seed in range(30):
-                with self.subTest(seed=seed, **options):
-                    self.assertEqual(self.behind_the_doors(generate(seed, options)), [])
-
-    def test_without_the_rule_fill_puts_it_there(self) -> None:
-        """The control: 0.2.0 as first built (Search Man on the entrance alone)."""
-        from unittest import mock
-        original = MM8World.set_rules
-
-        def without_the_doors(world):
-            original(world)
-            for name in world.search_past_doors():
-                world.multiworld.get_location(name, world.player).access_rule = lambda state: True
-
-        with mock.patch.object(MM8World, "set_rules", without_the_doors):
-            placed = sum(bool(self.behind_the_doors(generate(seed, dict()))) for seed in range(60))
-        self.assertGreater(placed, 0)
+    def test_the_controls(self) -> None:
+        # Bolt 2, the hover to the hook room's ladder, still needs Tornado
+        # Hold (the guide's #2); Search Man still needs set 2's entrance.
+        self.assertFalse(self.reachable(bolts.BOLT_LOCATIONS[36], self.without(names.TORNADO_HOLD)))
+        for item in (names.MEGA_BALL, names.THUNDER_CLAW):
+            with self.subTest(item):
+                self.assertFalse(self.reachable(names.boss_location(names.SEARCH), self.without(item)))
 
 
 class ForcedDuo:

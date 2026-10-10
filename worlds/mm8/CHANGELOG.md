@@ -1,8 +1,14 @@
 # Mega Man 8 apworld — changelog
 
-## Unreleased
+## 0.2.2 — 2026-10-10
 
 From the testers' run of 0.2.1.
+
+**Updating from 0.2.1 mid-seed: replace the apworld and reconnect.** 0.2.2
+changes no byte of the disc, so the disc you have stays as it is (opening the
+`.apmm8` again leaves it alone) and **MM8-Unpatcher v1.2** still restores it.
+The bolt counter's cap works on any seed once the 0.2.2 client is connected;
+the Search Man change is for seeds generated with 0.2.2.
 
 - **Search Man no longer needs Tornado Hold.** The doors in his stage open to
   any weapon, the Mega Buster included. Since 0.2.0, logic had read them as

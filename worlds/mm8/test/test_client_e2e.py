@@ -12,6 +12,7 @@ review m1; this harness is the reviewer's, which found it).
 """
 import asyncio
 import copy
+import inspect
 import logging
 import unittest
 from types import SimpleNamespace
@@ -74,7 +75,7 @@ class Rig:
             self.server = MultiServer.Context("localhost", 0, None, None, 1, 10, False)
         self.server.logger = logging.getLogger("mm8-test-server")
         self.server.logger.setLevel(logging.CRITICAL)
-        self.server._load({
+        multidata = {
             "minimum_versions": {"server": (0, 0, 0), "clients": {1: (0, 5, 0)}},
             "version": (0, 6, 3),
             "slot_info": {1: NetworkSlot("P1", GAME, SlotType.player)},
@@ -86,7 +87,15 @@ class Rig:
             "precollected_items": {1: [code(n) for n in precollected]},
             "precollected_hints": {1: set()},
             "datapackage": {},
-        }, {}, False)
+        }
+        # Archipelago 0.6.8 dropped _load's game_data_packages argument: the
+        # server reads multidata["datapackage"] itself and, with this game
+        # missing from it, takes the installed world's static package - what
+        # 0.6.7 took from network_data_package. Both run this suite.
+        if "game_data_packages" in inspect.signature(MultiServer.Context._load).parameters:
+            self.server._load(multidata, {}, False)
+        else:
+            self.server._load(multidata, False)
         self.handler = MM8Client()
         self.ctx = BizHawkClientContext(None, None)
         self.ctx.server_address = "localhost:38281"

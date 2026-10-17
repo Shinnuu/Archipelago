@@ -11,9 +11,9 @@ class TestIds(unittest.TestCase):
     def test_location_count(self):
         # 40 bolts + 17 Lab + 8 bosses + 4 mid-bosses + Mega Ball + Duo + Wily 1-3
         # + Wily 3's Bass = 75 in every seed, + 8 Wily 4 rematches
-        # (rematch_checks) + 42 placed pickups and the ice block's capsule
-        # (pickupsanity), which only their options add.
-        self.assertEqual(len(location_table), 75 + 8 + 43)
+        # (rematch_checks) + 42 placed pickups and the two ice blocks'
+        # capsules (pickupsanity), which only their options add.
+        self.assertEqual(len(location_table), 75 + 8 + 44)
 
     def test_the_select_positions_are_the_games(self):
         """0x801379A8 read off the disc: Tengu 0, Frost 1, Clown 4, Grenade 5,

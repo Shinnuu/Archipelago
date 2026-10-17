@@ -1,5 +1,21 @@
 # Mega Man 8 apworld — changelog
 
+## Unreleased
+
+From the testers' run of 0.2.2.
+
+- **New check: Frost Man's other ice block.** Two ice blocks in Frost Man's
+  stage drop a Large Life Energy when they break. 0.2.1 made the first a
+  check; the second, the lower of the two stacked in the first slide stretch,
+  takes no weapon, so 0.2.1 counted it out, but it breaks anyway and a tester
+  picked its capsule up. With `pickupsanity` it is now "Frost Man - Large Life
+  Energy 6", and logic expects Mega Ball, as for Bolt 4 beside it. The other
+  capsules keep their names; numbers are in the stage's list order, with the
+  two ice blocks' added last. New seeds only: a 0.2.2 seed keeps its 43
+  capsules. **A seed from this version needs this version to patch it**; 0.2.2
+  refuses it rather than make a disc whose new check its client could never
+  send.
+
 ## 0.2.2 — 2026-10-10
 
 From the testers' run of 0.2.1.

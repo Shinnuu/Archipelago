@@ -122,7 +122,7 @@ class MM8World(World):
             values = sorted(set(type(option).options.values())) \
                 if getattr(type(option), "options", None) else [0, 1]
             option.value = self.random.choice(values)
-        # Make room rather than refuse: pickupsanity adds 43 locations.
+        # Make room rather than refuse: pickupsanity adds 44 locations.
         if self.item_count() > self.location_count() and not self.options.pickupsanity:
             self.options.pickupsanity.value = 1
         logging.info("Mega Man 8 (%s): randomize_options rolled %s", self.player_name,

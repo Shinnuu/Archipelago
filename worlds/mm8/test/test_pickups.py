@@ -69,22 +69,24 @@ class TestStub(unittest.TestCase):
         m = self.run_stub(stage=stage, record=record)
         self.assertEqual(self.outcome(m), (0, 1 << bit, True))
 
-    def test_the_ice_block_s_capsule_is_recorded_by_the_block_s_record(self):
-        """0.2.1: the capsule carries the block's record (FROST_BLOCK_DROP) -
-        a main-array record, id 12 (the dump test reads it off the disc)."""
-        bit = pickups.KEYS.index(pickups.key(1, 158))
-        self.assertEqual(bit, len(pickups.PICKUPS) - 1)
-        m = self.run_stub(stage=1, record=158, rec_id=12, rec_type=1)
-        self.assertEqual(self.outcome(m), (0, 1 << bit, True))
-        self.assertEqual(self.outcome(self.run_stub(stage=1, record=158, rec_id=12, rec_type=1,
-                                                    confirmed=1 << bit)), (1, 0, False), "confirmed")
+    def test_an_ice_block_s_capsule_is_recorded_by_the_block_s_record(self):
+        """0.2.1: the capsule carries its block's record (FROST_BLOCK_DROP) -
+        a main-array record, id 12 (the dump test reads them off the disc).
+        Appended, as ids are: block 158 in 0.2.1, block 148 after 0.2.2."""
+        for record, bit in ((158, 42), (148, 43)):
+            with self.subTest(record=record):
+                self.assertEqual(pickups.KEYS.index(pickups.key(1, record)), bit)
+                m = self.run_stub(stage=1, record=record, rec_id=12, rec_type=1)
+                self.assertEqual(self.outcome(m), (0, 1 << bit, True))
+                self.assertEqual(self.outcome(self.run_stub(stage=1, record=record, rec_id=12, rec_type=1,
+                                                            confirmed=1 << bit)), (1, 0, False), "confirmed")
 
     def test_a_container_key_matches_no_other_record(self):
         """The controls: the flag keeps the two kinds of key apart."""
         cases = {
             "record 158 as a placed consumable": dict(stage=1, record=158),
             "a block record in another stage": dict(stage=2, record=158, rec_id=12, rec_type=1),
-            "another Frost block": dict(stage=1, record=148, rec_id=12, rec_type=1),
+            "a Frost block with no drop": dict(stage=1, record=149, rec_id=12, rec_type=1),
             "a placed capsule's record seen as not id 0": dict(stage=1, record=14, rec_id=12, rec_type=1),
         }
         for what, scene in cases.items():
@@ -134,12 +136,13 @@ class TestTables(unittest.TestCase):
     def test_ids_are_append_only(self):
         """The first 35 bits are the Robot Master stages' capsules, as they
         were when the option first shipped in a build; the intro's and the
-        Wily stages' came after them (location ids follow the bits)."""
+        Wily stages' came after them, then the ice blocks' capsules - 158 in
+        0.2.1, 148 after 0.2.2 (location ids follow the bits)."""
         rm = {names.STAGE_INDEX[b] for b in names.ROBOT_MASTERS}
         self.assertTrue(all(s in rm for s, _r, _k, _n in pickups.PICKUPS[:35]))
         self.assertEqual([(s, r) for s, r, _k, _n in pickups.PICKUPS[35:]],
                          [(0, 19), (10, 59), (10, 60), (11, 69), (12, 34), (12, 44), (12, 47),
-                          (1, 158)])
+                          (1, 158), (1, 148)])
         self.assertEqual(location_table[pickups.PICKUPS[34][3]] - location_table[pickups.PICKUPS[0][3]], 34)
 
     def test_the_key_table_stays_beside_the_ap_block(self):
@@ -205,11 +208,15 @@ class TestAgainstTheDump(unittest.TestCase):
         for where, kind in ours.items():
             self.assertEqual(placed[where], kind, where)
 
-    def test_the_ice_block_is_what_the_research_read(self):
-        """Record 158 of Frost Man's list is main id 12 with subId 5 at
-        (3890, 4704); the block's drop table gives type 5 a Large Life Energy
-        (1) - the kind PICKUPS gives it - and the drop's code is what
-        FROST_BLOCK_DROP was written against (ram-notes 12d)."""
+    def frost_ovl(self, address: int, n: int) -> bytes:
+        return bytes(self.track1[disc.addr_to_disc(address + i, "ovl:STAGE01")] for i in range(n))
+
+    def test_the_ice_blocks_are_what_the_research_read(self):
+        """Records 158 and 148 of Frost Man's list are main id 12 with subIds
+        5 and 2 at (3890, 4704) and (2600, 5296); the block's drop table gives
+        types 5 and 2 a Large Life Energy (1) - the kind PICKUPS gives them -
+        and the drop's code is what FROST_BLOCK_DROP was written against
+        (ram-notes 12d)."""
         (lba, size), = STAGE_PACKS[1]
         data = self.pack(lba, size)
         count = struct.unpack_from("<I", data, 0)[0]
@@ -219,16 +226,35 @@ class TestAgainstTheDump(unittest.TestCase):
             if ctype == 0xA:
                 break
             off += (csize + 0x7FF) & ~0x7FF
-        _f, oid, sub, typ, x, y = struct.unpack_from("<BBBBhh", data, off + 8 * 158)
-        self.assertEqual((oid, sub, typ, x, y), (12, 5, 1, 3890, 4704))
-
-        def ovl(address: int, n: int) -> bytes:
-            return bytes(self.track1[disc.addr_to_disc(address + i, "ovl:STAGE01")] for i in range(n))
-        self.assertEqual(ovl(0x801E68C4, 8)[sub & 0xF], 1)
-        self.assertEqual({(s, r): k for s, r, k, _n in pickups.PICKUPS}[(1, 158)], 1)
+        kinds = {(s, r): k for s, r, k, _n in pickups.PICKUPS}
+        for record, want in ((158, (12, 5, 1, 3890, 4704)), (148, (12, 2, 1, 2600, 5296))):
+            _f, oid, sub, typ, x, y = struct.unpack_from("<BBBBhh", data, off + 8 * record)
+            self.assertEqual((oid, sub, typ, x, y), want, record)
+            self.assertEqual(self.frost_ovl(0x801E68C4, 8)[sub & 0xF], 1, record)
+            self.assertEqual(kinds[(1, record)], 1, record)
+        ovl = self.frost_ovl
         self.assertEqual(ovl(0x801DC740, 4), (0x0C0415BD).to_bytes(4, "little"))     # jal ITEMALLOC
         self.assertEqual(ovl(0x801DC768, 4), (0x902268C4).to_bytes(4, "little"))     # lbu v0, table(at)
         self.assertEqual(ovl(0x801DC774, 4), (0x9602000E).to_bytes(4, "little"))     # lhu v0, 14(s0)
+
+    def test_every_ice_block_that_drops_a_capsule_is_a_location(self):
+        """The check that would have caught block 148, which 0.2.1 ruled out
+        on its damage table (a tester found its capsule on 0.2.2). The drop
+        spawns an item only for table value 1 (0x801DC714..18), and it runs on
+        every death, the weapon-free ones included - so every id 12 in Frost's
+        list whose type maps to 1 is a container, and nothing else is."""
+        (lba, size), = STAGE_PACKS[1]
+        ovl = self.frost_ovl
+        word = lambda w: w.to_bytes(4, "little")
+        self.assertEqual(ovl(0x801DC714, 8), word(0x34020001) + word(0x10620009))  # ori v0, 1; beq v1, v0, item
+        self.assertEqual(ovl(0x801E68B8, 4), word(0x801DC0E8))      # state 2: the death, which drops
+        self.assertEqual(ovl(0x801DC368, 4), word(0xA2340001))      # touching another block: sb s4(2), 1(s1)
+        self.assertEqual(ovl(0x801DC40C, 4), word(0xA2020001))      # crushing the player: sb v0(2), 1(s0)
+        self.assertEqual(ovl(0x801DC5F4, 4), word(0xA0820001))      # types 0-2 on a wall: sb v0(2), 1(a0)
+        table = ovl(0x801E68C4, 8)
+        drops = {record for record, oid, sub, typ in self.spawn_list(self.pack(lba, size))
+                 if oid == 12 and typ == 1 and table[sub & 0xF] == 1}
+        self.assertEqual(drops, {r for s, r in pickups.CONTAINERS if s == 1})
 
     def test_the_hooks_and_the_table_land_on_what_the_research_read(self):
         edits = disc.pickup_edits(pickups.KEYS)
@@ -250,7 +276,7 @@ class TestIceBlockDropExecuted(unittest.TestCase):
     DROP, DROP_END, TABLE = 0x801DC6F4, 0x801DC7EC, 0x801E68C4
     ALLOC = 0x801056F4
     BLOCK, SLOT = 0x8015B174, 0x801B1EEC          # a main-array object, an item-array slot
-    RECORD = pickups.SPAWN_LIST + 8 * 158
+    BLOCKS = {5: (158, 3890, 4704), 2: (148, 2600, 5296)}      # type: (record, x, y)
 
     @classmethod
     def setUpClass(cls):
@@ -276,21 +302,25 @@ class TestIceBlockDropExecuted(unittest.TestCase):
             m.write(self.TABLE + i, b, 1)
         m.load_code(self.ALLOC, mips.assemble(
             f"lui v0, {self.SLOT >> 16:#x}\njr ra\nori v0, v0, {self.SLOT & 0xFFFF:#x}", self.ALLOC))
+        record, x, y = self.BLOCKS.get(block_type, (158, 3890, 4704))
         m.write(self.BLOCK + 7, block_type, 1)
-        m.write(self.BLOCK + 8, self.RECORD, 4)
-        m.write(self.BLOCK + 0x0E, 3890, 2)
-        m.write(self.BLOCK + 0x12, 4704, 2)
+        m.write(self.BLOCK + 8, pickups.SPAWN_LIST + 8 * record, 4)
+        m.write(self.BLOCK + 0x0E, x, 2)
+        m.write(self.BLOCK + 0x12, y, 2)
         m.r[4] = self.BLOCK
         m.r[29] = 0x801FF000
         m.run(self.DROP)
         return m
 
     def test_with_the_option_the_capsule_carries_the_block_s_record(self):
-        m = self.drop(1, 5)
-        self.assertEqual((m.read(self.SLOT, 1), m.read(self.SLOT + 6, 1), m.read(self.SLOT + 7, 1)), (1, 0, 1))
-        self.assertEqual(m.read(self.SLOT + 8, 4), self.RECORD)
-        self.assertEqual((m.read(self.SLOT + 0x0E, 2), m.read(self.SLOT + 0x12, 2)), (3894, 4704))
-        self.assertEqual(m.r[29], 0x801FF000)
+        for block_type, (record, x, y) in self.BLOCKS.items():
+            with self.subTest(record=record):
+                m = self.drop(1, block_type)
+                self.assertEqual((m.read(self.SLOT, 1), m.read(self.SLOT + 6, 1), m.read(self.SLOT + 7, 1)),
+                                 (1, 0, 1))
+                self.assertEqual(m.read(self.SLOT + 8, 4), pickups.SPAWN_LIST + 8 * record)
+                self.assertEqual((m.read(self.SLOT + 0x0E, 2), m.read(self.SLOT + 0x12, 2)), (x + 4, y))
+                self.assertEqual(m.r[29], 0x801FF000)
 
     def test_without_it_the_drop_is_the_game_s(self):
         """The control: an enemy drop's +8 = 0, falling and timing out."""
@@ -317,6 +347,7 @@ class TestGates(MM8TestBase):
         "Frost Man - Large Life Energy 2": [{"Mega Ball"}],
         "Frost Man - Large Life Energy 3": [{"Mega Ball"}],
         "Frost Man - Large Life Energy 5": [{"Astro Crush"}],
+        "Frost Man - Large Life Energy 6": [{"Mega Ball"}],
         "Grenade Man - Large Life Energy 1": [{"Mega Ball"}, {"Flame Sword"}],
         "Aqua Man - Large Weapon Energy 1": [{"Astro Crush"}],
         "Aqua Man - Large Life Energy 1": [{"Tornado Hold"}],
@@ -397,13 +428,14 @@ class TestClient(ClientTest):
         self.assertEqual({c for c in ctx.checks() if "Energy" in c},
                          {pickups.PICKUPS[0][3], pickups.PICKUPS[2][3]})
 
-    async def test_the_ice_block_s_bit_sends_its_capsule(self):
-        ram = in_stage()
-        bit = len(pickups.PICKUPS) - 1
-        ram.put(FOUND, (1 << bit).to_bytes(8, "little"))
-        ctx = OptionContext(pickupsanity=1)
-        await self.poll(ram, ctx, MM8Client(), 3)
-        self.assertIn("Frost Man - Large Life Energy 5", ctx.checks())
+    async def test_the_ice_blocks_bits_send_their_capsules(self):
+        for bit, name in ((42, "Frost Man - Large Life Energy 5"), (43, "Frost Man - Large Life Energy 6")):
+            with self.subTest(name):
+                ram = in_stage()
+                ram.put(FOUND, (1 << bit).to_bytes(8, "little"))
+                ctx = OptionContext(pickupsanity=1)
+                await self.poll(ram, ctx, MM8Client(), 3)
+                self.assertIn(name, ctx.checks())
 
     async def test_off_sends_none_of_them(self):
         ram = in_stage()

@@ -820,8 +820,9 @@ def pickup_edits(keys: list[int]) -> list[tuple[str, int, str, bytes, bytes]]:
     return edits + frost_block_drop()
 
 
-# The ice block's capsule (pickups.CONTAINERS; ram-notes 12d). Frost Man's ice
-# block (STAGE01 main id 12) dies through 0x801DC0E8, whose drop 0x801DC6F4
+# The ice blocks' capsules (pickups.CONTAINERS, blocks 158 and 148; ram-notes
+# 12d). Frost Man's ice block (STAGE01 main id 12) dies - by a weapon or not -
+# through 0x801DC0E8, whose drop 0x801DC6F4
 # spawns a Large Life Energy for types 2 and 5 (0x801DC740..88) and writes no
 # +8 - so the capsule is born with the +8 = 0 DeleteObject left, and the stub
 # and the game both take it for an enemy drop (it falls, and vanishes after

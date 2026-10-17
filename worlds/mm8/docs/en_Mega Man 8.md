@@ -78,7 +78,7 @@ last bolt need nothing beyond what the stage itself needs.
 **75 locations:** 40 bolts, the Lab's 17 entries, the 8 Robot Masters, the 4
 mid-bosses that award Rush adapters, the Mega Ball in the intro stage, Duo's
 stage, the first three Wily stages and Bass in the third. `pickupsanity` adds
-43 and `rematch_checks` 8.
+44 and `rematch_checks` 8.
 
 **Items:** 8 weapons, the Mega Ball, 4 Rush adapters, 17 Lab parts, enough
 Bolts for the whole Lab plus a surplus, and filler (1-Ups, life energy, weapon
@@ -97,7 +97,7 @@ energy). `stage_unlocks` adds seven Access Codes.
 | `max_life` (default **40**) | Mega Man's maximum life, 1-127. **The life bar does not grow**: it stays its normal size and shows at most 40, so life above 40 is real but invisible on the bar |
 | `stage_order` (default **vanilla**) | vanilla / open / open_any_four - which Robot Master stages are open from the start, and when the game sends you to Duo (above) |
 | `stage_unlocks` | one of the first four Robot Master stages open; each other needs its "Access Codes" item |
-| `pickupsanity` | the 43 capsules in the stages (energy and 1-UPs) become checks: the 42 placed ones, and the Large Life Energy an ice block in Frost Man's stage drops when it breaks (logic expects Astro Crush) |
+| `pickupsanity` | the 44 capsules in the stages (energy and 1-UPs) become checks: the 42 placed ones, and the Large Life Energy each of two ice blocks in Frost Man's stage drops when it breaks - the one on the ledge above the shaft (logic expects Astro Crush) and the lower of the two stacked in the first slide stretch, which breaks without any weapon (logic expects Mega Ball, as for the bolt beside it) |
 | `rematch_checks` | the eight rematches in Wily Stage 4 become checks |
 | `death_link` | die when someone else dies, and they die when you do |
 | `mega_man_palette` | recolour Mega Man - 18 presets |

@@ -34,10 +34,13 @@ HASH_TRACK1 = disc.TRACK_MD5[0]
 # layout. 1: 0.1.0. 2: 0.2.0 - stage_order's seed edits, which need this
 # client's lock on Duo's select slot. 3: 0.2.1 - pickupsanity's container key
 # (the ice block's capsule), which only 0.2.1's stub matches: patched by
-# 0.2.0, that location could never be checked. Stored inside seed.json's
-# "layout", which 0.1.0 compares whole, so 0.1.0 refuses a newer patch
-# (review m3); 0.2.0 refuses a format above 2.
-PATCH_FORMAT = 3
+# 0.2.0, that location could never be checked. 4: after 0.2.2 - the second
+# ice block's capsule (pickups bit 43): the disc takes it from the patch's own
+# key table, but 0.2.2's client knows 43 pickups and would never send it.
+# Stored inside seed.json's "layout", which 0.1.0 compares whole, so 0.1.0
+# refuses a newer patch (review m3); 0.2.0 refuses a format above 2, 0.2.1 and
+# 0.2.2 above 3.
+PATCH_FORMAT = 4
 
 
 class MM8Settings(settings.Group):

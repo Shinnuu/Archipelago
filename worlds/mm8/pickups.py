@@ -4,10 +4,11 @@ Harvested statically from the stage packs' spawn lists (chunk 0xA of each
 STDATA/STAGExx.PAC, 8-byte records {flags, id, subId, type, x, y}; A and B
 packs carry identical lists) and cross-checked against the disc: 42 placed
 id-0 items in the whole game, and every one is here. Research: ram-notes 9g,
-Reference/research/2026-09-24_parity-D-*. Plus one capsule the game spawns
-from code, from a block the player breaks (CONTAINERS) - found by a tester,
-2026-10-03, and then by a sweep of every item spawn in the overlays (ram-notes
-12d): the only one of its kind that is a location.
+Reference/research/2026-09-24_parity-D-*. Plus the two capsules the game
+spawns from code, from Frost's ice blocks when they break (CONTAINERS) - the
+first found by a tester, 2026-10-03, then by a sweep of every item spawn in
+the overlays (ram-notes 12d); the second by a tester, 2026-10-12, after that
+sweep had ruled its block unbreakable.
 
 A consumable is item-array id 0 and its subId is its kind. There is no
 "collected" record: a taken pickup's spawn record stays marked until the next
@@ -28,8 +29,7 @@ fortress restarts at Wily 1). X5 leaves out only an intro it cannot revisit.
 
 NOT LOCATIONS (Ivor): Clown Man's 1-UP container (id 44, broken by the Mega
 Ball, its own grant at STAGE02 0x801E4AD8) and the fixed drops of Grenade
-Man's main id 8. Frost's other drop-carrying block (record 148) takes no
-weapon at all (damage table 0, ram-notes 12c).
+Man's main id 8.
 
 WHAT ONE NEEDS (0.2.1, Ivor 2026-10-03; research repo plan
 2026-10-03_per-bolt-logic.md section 4). No guide covers capsules. One that
@@ -99,6 +99,8 @@ PICKUPS: list[tuple[int, int, int, str]] = [
     (12, 47, 4, "Wily Stage 3 - 1-UP"),                 # x 5008, y 3160
     # Appended 2026-10-03: the ice block's capsule (CONTAINERS).
     (1, 158, 1, "Frost Man - Large Life Energy 5"),     # x 3890, y 4704
+    # Appended 2026-10-16: the other ice block's (CONTAINERS).
+    (1, 148, 1, "Frost Man - Large Life Energy 6"),     # x 2600, y 5296
 ]
 # The placed consumables that are NOT locations (for the tests' completeness
 # check): (stage, record). None since 2026-09-25.
@@ -109,9 +111,14 @@ NOT_LOCATIONS: list[tuple[int, int]] = []
 # is subId & 0xF, and its death drops 0x801E68C4[type] - a Large Life Energy
 # for types 2 and 5. Record 158 is type 5, on the ledge 200 px above bolt
 # subId 5 ("Frost Man - Bolt 6"), and takes Flash Bomb, Flame Sword and Astro
-# Crush (damage table 18).
+# Crush (damage table 18). Record 148 is type 2, under record 146 on row 5,
+# and takes no weapon (table 0), but weapons are not the only death: main id
+# 11 pushes a resting block (0x801DBD10), and a type 0-2 block shatters on a
+# wall (0x801DC5CC) or another block (0x801DC2DC) - the drop runs on every
+# death (0x801DC0E8). A tester picked its capsule up, 2026-10-12.
 CONTAINERS: dict[tuple[int, int], str] = {
     (1, 158): "Frost Man's ice block (main id 12, type 5)",
+    (1, 148): "Frost Man's ice block (main id 12, type 2), pushed by main id 11",
 }
 CONTAINER_KEY = 0x8000          # stage << 8 | record never reaches bit 15
 
@@ -137,6 +144,9 @@ REQUIREMENT: dict[str, Requirement] = {
     # The ice block, beside the ladder the route leaves the shaft by: Astro
     # Crush (Ivor, 2026-10-03; the block also takes Flash Bomb and Flame Sword).
     "Frost Man - Large Life Energy 5": req((names.ASTRO_CRUSH,)),
+    # The other ice block, 56 px from bolt 4 and met between it and Large Life
+    # Energy 3: bolt 4's rule, as that capsule has.
+    "Frost Man - Large Life Energy 6": bolts.requirement(4),
     # Grenade: 200 px up a shaft over the course - the map cannot say how.
     "Grenade Man - Large Life Energy 1": req((names.MEGA_BALL,), (names.FLAME_SWORD,)),
     # Aqua: bolt 27's chamber, bolt 24's pocket, bolt 25's ledge.

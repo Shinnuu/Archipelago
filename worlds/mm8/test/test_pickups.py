@@ -72,7 +72,7 @@ class TestStub(unittest.TestCase):
     def test_an_ice_block_s_capsule_is_recorded_by_the_block_s_record(self):
         """0.2.1: the capsule carries its block's record (FROST_BLOCK_DROP) -
         a main-array record, id 12 (the dump test reads them off the disc).
-        Appended, as ids are: block 158 in 0.2.1, block 148 after 0.2.2."""
+        Appended, as ids are: block 158 in 0.2.1, block 148 in 0.2.3."""
         for record, bit in ((158, 42), (148, 43)):
             with self.subTest(record=record):
                 self.assertEqual(pickups.KEYS.index(pickups.key(1, record)), bit)
@@ -137,7 +137,7 @@ class TestTables(unittest.TestCase):
         """The first 35 bits are the Robot Master stages' capsules, as they
         were when the option first shipped in a build; the intro's and the
         Wily stages' came after them, then the ice blocks' capsules - 158 in
-        0.2.1, 148 after 0.2.2 (location ids follow the bits)."""
+        0.2.1, 148 in 0.2.3 (location ids follow the bits)."""
         rm = {names.STAGE_INDEX[b] for b in names.ROBOT_MASTERS}
         self.assertTrue(all(s in rm for s, _r, _k, _n in pickups.PICKUPS[:35]))
         self.assertEqual([(s, r) for s, r, _k, _n in pickups.PICKUPS[35:]],

@@ -23,7 +23,7 @@ class MM8Location(Location):
 #   +100..+139  bolts, BASE + 100 + subId - the subId IS the bit in 0x8016D2FB
 #   +200..+217  Lab entries, BASE + 200 + the part id the base game sells there
 #   +300..+343  pickupsanity, BASE + 300 + the pickup's bit (pickups.PICKUPS order;
-#               the ice blocks' capsules appended: +342 in 0.2.1, +343 after 0.2.2)
+#               the ice blocks' capsules appended: +342 in 0.2.1, +343 in 0.2.3)
 location_table: dict[str, int] = {}
 
 for i, boss in enumerate(names.ROBOT_MASTERS):

@@ -1,8 +1,14 @@
 # Mega Man 8 apworld — changelog
 
-## Unreleased
+## 0.2.3 — 2026-10-21
 
 From the testers' run of 0.2.2.
+
+**Updating from 0.2.2 mid-seed: replace the apworld and reconnect.** A seed
+generated with 0.2.2 builds the same disc under 0.2.3, so the disc you have
+stays as it is (opening the `.apmm8` again leaves it alone). The new check is
+for seeds generated with 0.2.3. **MM8-Unpatcher v1.3** restores every disc;
+v1.2 refuses a `pickupsanity` disc made from a 0.2.3 seed.
 
 - **New check: Frost Man's other ice block.** Two ice blocks in Frost Man's
   stage drop a Large Life Energy when they break. 0.2.1 made the first a
